@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from pathlib import Path
 
 from .clients.clob import ClobClient
 from .clients.gamma import GammaClient
@@ -17,6 +18,7 @@ from .clients.odds_api import OddsApiClient
 from .config import load_config
 from .models.fair_value import match_and_estimate
 from .execution.executor import Executor
+from .risk import RiskGate
 from .storage.db import Database
 from .strategy.edge import build_signals
 
@@ -78,7 +80,8 @@ def main() -> None:
         regions=cfg.odds.get("regions", "us"),
         cache_ttl_sec=float(cfg.odds.get("cache_ttl_sec", 3600)),
     )
-    executor = Executor(clob, db, live=live)
+    gate = RiskGate(db, cfg.raw.get("risk", {}), Path(__file__).resolve().parent.parent)
+    executor = Executor(clob, db, live=live, risk_gate=gate)
 
     while True:
         try:

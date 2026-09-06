@@ -1,0 +1,14 @@
+[Unit]
+Description=Polymarket/Kalshi arbitrage scanner (detection only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pointless-repo/arb-scanner
+ExecStart=/opt/pointless-repo/arb-scanner/.venv/bin/python -m src.main
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -133,6 +133,22 @@ class Database:
         ).fetchall()
         return [r[0] for r in rows]
 
+    def realized_pnl_today(self) -> float:
+        """Realized PnL (USD) of live orders whose market settled today.
+
+        Payout per contract is `outcome` for yes-side buys and `1 - outcome`
+        for no-side buys; entry cost is the recorded price.
+        """
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(((CASE WHEN o.side='yes' THEN s.result_val"
+            "   ELSE 1 - s.result_val END) - o.price) * o.count), 0)"
+            " FROM orders o JOIN"
+            " (SELECT ticker, CASE result WHEN 'yes' THEN 1.0 ELSE 0.0 END AS result_val, ts"
+            "  FROM settlements) s ON s.ticker = o.ticker"
+            " WHERE o.status LIKE 'placed%' AND date(s.ts) = date('now')"
+        ).fetchone()
+        return float(row[0])
+
     def record_order(self, s, status: str) -> None:
         self.conn.execute(
             "INSERT INTO orders (ts, ticker, title, side, fair_prob, price, edge, stake_usd,"

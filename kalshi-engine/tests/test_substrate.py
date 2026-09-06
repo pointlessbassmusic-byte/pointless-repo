@@ -116,3 +116,27 @@ def test_parse_market_handles_dollar_and_legacy_cent_fields():
     })
     assert abs(legacy.yes_bid - 0.62) < 1e-9
     assert legacy.volume == 100
+
+
+def test_risk_gate_kill_switch_and_daily_loss(tmp_path):
+    from src.risk import RiskGate
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    gate = RiskGate(db, {"max_daily_loss_usd": 10, "kill_switch_file": "KILL"}, tmp_path)
+    assert gate.check() == (True, "")
+
+    # a losing settled trade today: bought 200 yes @ 0.40, market resolved no
+    db.conn.execute(
+        "INSERT INTO orders (ts, ticker, side, price, count, stake_usd, status)"
+        " VALUES (datetime('now'), 'T1', 'yes', 0.40, 200, 80, 'placed:abc')"
+    )
+    db.conn.commit()
+    db.record_settlements({"T1": "no"})
+    assert db.realized_pnl_today() == -80.0
+    ok, reason = gate.check()
+    assert not ok and "loss limit" in reason
+
+    (tmp_path / "KILL").touch()
+    ok, reason = gate.check()
+    assert not ok and "kill switch" in reason

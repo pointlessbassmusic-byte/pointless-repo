@@ -82,3 +82,27 @@ def test_settlements_roundtrip(tmp_path):
     db.record_settlements({"tok1": 1.0})
     assert db.settled_outcomes() == {"tok1": 1.0}
     assert db.unsettled_condition_ids() == []
+
+
+def test_risk_gate_kill_switch_and_daily_loss(tmp_path):
+    from src.risk import RiskGate
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    gate = RiskGate(db, {"max_daily_loss_usd": 10, "kill_switch_file": "KILL"}, tmp_path)
+    assert gate.check() == (True, "")
+
+    # bought 100 shares @ 0.40 live, token resolved to 0 today
+    db.conn.execute(
+        "INSERT INTO orders (ts, token_id, ask, shares, stake_usd, status)"
+        " VALUES (datetime('now'), 'tokX', 0.40, 100, 40, 'placed')"
+    )
+    db.conn.commit()
+    db.record_settlements({"tokX": 0.0})
+    assert db.realized_pnl_today() == -40.0
+    ok, reason = gate.check()
+    assert not ok and "loss limit" in reason
+
+    (tmp_path / "KILL").touch()
+    ok, reason = gate.check()
+    assert not ok and "kill switch" in reason

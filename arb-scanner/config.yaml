@@ -1,0 +1,25 @@
+# Cross-platform arbitrage scanner configuration
+# Detection only — this module never places orders.
+
+scan_interval_sec: 300
+
+markets:
+  poly_max_events: 500        # top Polymarket events by 24h volume
+  poly_min_liquidity: 1000    # USD
+  kalshi_max_events: 20000    # full curated /events feed
+  kalshi_min_volume: 100      # contracts
+
+matching:
+  # 0.5 lets in wrong-question pairs, 0.65 loses real ones; 0.55 + the
+  # max_net_edge suspect quarantine below is the working combination
+  min_similarity: 0.55
+  close_time_slack_hours: 26  # both markets must close within this window
+
+arb:
+  min_net_edge: 0.02          # 2% locked-in profit after fees, per $1 pair
+  max_net_edge: 0.15          # bigger cross-platform "edges" are almost always mismatches
+  kalshi_fee_rate: 0.07       # taker fee ~= rate * P * (1-P) per contract
+  poly_fee_per_contract: 0.0  # trading is free; raise to model gas amortization
+
+storage:
+  db_path: data/arb.db

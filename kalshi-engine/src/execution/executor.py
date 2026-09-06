@@ -11,13 +11,23 @@ log = logging.getLogger(__name__)
 
 
 class Executor:
-    def __init__(self, client: KalshiClient, db: Database, live: bool):
+    def __init__(self, client: KalshiClient, db: Database, live: bool, risk_gate=None):
         self.client = client
         self.db = db
         self.live = live
+        self.risk_gate = risk_gate
 
     def execute(self, signals: list[TradeSignal]) -> None:
+        blocked_reason = ""
+        if self.live and self.risk_gate is not None:
+            ok, reason = self.risk_gate.check()
+            if not ok:
+                blocked_reason = reason
+                log.warning("RISK GATE BLOCKED live orders: %s", reason)
         for s in signals:
+            if blocked_reason:
+                self.db.record_order(s, f"blocked:{blocked_reason}")
+                continue
             if self.live:
                 try:
                     resp = self.client.place_limit_order(s.ticker, s.side, s.price, s.count)

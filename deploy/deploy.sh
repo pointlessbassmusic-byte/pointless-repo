@@ -13,14 +13,14 @@ cd "$DEST"
 git fetch origin main
 git reset --hard origin/main
 
-for eng in polymarket-bot kalshi-engine; do
+for eng in polymarket-bot kalshi-engine arb-scanner; do
   cd "$DEST/\$eng"
   ./.venv/bin/pip install -q -r requirements.txt
 done
 
 cp "$DEST"/deploy/systemd/*.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl restart polymarket-bot kalshi-engine
-systemctl --no-pager status polymarket-bot kalshi-engine | head -20
+systemctl restart polymarket-bot kalshi-engine arb-scanner
+systemctl --no-pager status polymarket-bot kalshi-engine arb-scanner | head -20
 EOF
 echo "==> Deploy complete"

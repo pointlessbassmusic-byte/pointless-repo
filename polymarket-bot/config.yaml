@@ -33,3 +33,7 @@ strategy:
 
 storage:
   db_path: data/bot.db
+
+risk:
+  max_daily_loss_usd: 50      # realized-loss circuit breaker: block new live orders for the day
+  kill_switch_file: data/KILL_SWITCH  # `touch` this file to halt live trading immediately

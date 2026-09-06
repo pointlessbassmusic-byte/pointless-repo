@@ -130,6 +130,19 @@ class Database:
         ).fetchone()
         return float(row[0])
 
+    def realized_pnl_today(self) -> float:
+        """Realized PnL (USD) of live orders whose token resolved today.
+
+        Payout per share is the resolved outcome (1 or 0); entry cost is the
+        recorded ask.
+        """
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM((s.outcome - o.ask) * o.shares), 0)"
+            " FROM orders o JOIN settlements s ON s.token_id = o.token_id"
+            " WHERE o.status LIKE 'placed%' AND date(s.ts) = date('now')"
+        ).fetchone()
+        return float(row[0])
+
     def record_order(self, s, status: str) -> None:
         self.conn.execute(
             "INSERT INTO orders (ts, token_id, question, outcome, matched_game, fair_prob,"

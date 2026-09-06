@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [polymarket-bot, kalshi-engine]
+        project: [polymarket-bot, kalshi-engine, arb-scanner]
     defaults:
       run:
         working-directory: ${{ matrix.project }}

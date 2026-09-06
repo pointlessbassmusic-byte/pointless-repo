@@ -71,5 +71,9 @@ Pipeline per cycle:
       falling back to a price proxy for still-open markets
 - [x] Kalshi market discovery via `/events` (curated feed; the raw `/markets` firehose is buried
       in auto-generated MVE shard markets) + prod market data in dry-run (`read_prod`)
-- [x] CI: pytest for both engines on every push
+- [x] CI: pytest for all three modules on every push
+- [x] `arb-scanner/`: cross-platform Polymarket↔Kalshi complement arbitrage + bundle
+      detection with fee model and suspect-match quarantine (detect-only)
+- [x] Risk gate in both engines: kill-switch file + daily realized-loss circuit breaker
+- [x] Repo Claude skills: `pre-live-gate`, `engine-health`
 - [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on

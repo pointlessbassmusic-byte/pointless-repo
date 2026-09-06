@@ -11,10 +11,12 @@ import argparse
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from .client import KalshiClient
 from .config import load_config
 from .execution.executor import Executor
+from .risk import RiskGate
 from .storage.db import Database
 from .strategy.edge import build_signals
 from .substrate.base import Context
@@ -127,7 +129,8 @@ def main() -> None:
     client = KalshiClient(cfg.api_key_id, cfg.private_key_path, demo=cfg.use_demo,
                           read_prod=cfg.read_prod)
     ensemble = build_ensemble(cfg.substrate)
-    executor = Executor(client, db, live=live)
+    gate = RiskGate(db, cfg.raw.get("risk", {}), Path(__file__).resolve().parent.parent)
+    executor = Executor(client, db, live=live, risk_gate=gate)
 
     while True:
         try:
