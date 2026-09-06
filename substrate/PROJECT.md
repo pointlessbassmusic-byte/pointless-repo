@@ -34,7 +34,8 @@ Deps: numpy + matplotlib only. Use `MPLBACKEND=Agg` on headless boxes.
   is the natural base for **milestone 2** (decision-time snapshot service, read-only,
   shadow mode). Its generic ensemble/trading loop is NOT part of certification trials.
 - **`polymarket-bot/`** logs are the input for **milestone 1** (real-history backtest
-  through `ingest.py`). The v2 bot's `history_downloader.py` output is the adapter source.
+  through `ingest.py`). Adapter sources: the v3 fair-value bot's `edge_log.csv`/`fv_trades.csv`
+  and the history downloader's `data/markets.csv` + minute prices (all on the VPS).
 
 ## Milestones (from the handoff, in order)
 

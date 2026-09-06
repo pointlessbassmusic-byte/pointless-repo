@@ -1,6 +1,12 @@
 # Master Plan
 
-_Last updated: 2026-09-06 (rev 2 — chat-handoff drop 1 integrated)_
+_Last updated: 2026-09-06 (rev 3 — chat-handoff drops 1–4 integrated)_
+
+> **Drops 2–4:** the Polymarket bot's full generation history is now in the repo. Current
+> production is the **fair-value system** (`fv_bot.py`/`edge_model.py`, Aug 19 — still on the
+> VPS only; retrieve with `scripts/pull_from_server.sh`). The Jul 17 optimal build and Aug 14
+> dashboard paper trader are archived under `polymarket-bot/archive/` with the falsification
+> record. See `polymarket-bot/PROJECT.md` for the whole lineage.
 
 > **Drop 1 changed the picture.** The uploaded handoffs contain the real prior work:
 > the **Substrate/Echo engine** (`substrate/` — the authoritative predictions engine, a

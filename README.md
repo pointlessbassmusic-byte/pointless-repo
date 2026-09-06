@@ -7,7 +7,7 @@ develop on the laptop, push here, deploy to the Linode server with one command.
 
 | Project | Path | Target platform | Master file |
 |---|---|---|---|
-| Sports Betting Bot (v2 maker-first) | [`polymarket-bot/`](polymarket-bot/) | Polymarket (sports events) | [`polymarket-bot/PROJECT.md`](polymarket-bot/PROJECT.md) |
+| Sports Betting Bot (v3 fair-value) | [`polymarket-bot/`](polymarket-bot/) | Polymarket (sports events) | [`polymarket-bot/PROJECT.md`](polymarket-bot/PROJECT.md) |
 | Predictions Engine — Substrate/Echo | [`substrate/`](substrate/) | shadow mode (certification instrument) | [`substrate/PROJECT.md`](substrate/PROJECT.md) |
 | Kalshi market-access layer | [`kalshi-engine/`](kalshi-engine/) | Kalshi (event contracts) | [`kalshi-engine/PROJECT.md`](kalshi-engine/PROJECT.md) |
 
@@ -15,7 +15,7 @@ develop on the laptop, push here, deploy to the Linode server with one command.
 
 ```
 docs/               Master plan, server docs, chat-history imports
-polymarket-bot/     Polymarket sports betting bot — v2 maker-first (v2/) + v1 consensus scanner (src/)
+polymarket-bot/     Polymarket sports betting bot — v3 fair-value (VPS, pull pending), v2 websocket (v2/), v1 scanner (src/), archive/
 substrate/          Substrate/Echo predictions engine (certification instrument, shadow mode)
 kalshi-engine/      Kalshi market-access layer (API v2 client + generic trading loop)
 deploy/             Server setup + deploy scripts + systemd units
