@@ -1,0 +1,66 @@
+# sportsbot default configuration.
+# Copy to config/local.yaml for machine-specific overrides (gitignored).
+# Secrets NEVER go here — they come from environment variables (.env).
+
+mode: paper            # paper | live  (live also requires SPORTSBOT_LIVE=1 env var)
+exchange: polymarket   # polymarket | kalshi | paper
+
+bankroll:
+  amount: 1000.0            # working bankroll in USDC/USD
+  kelly_multiplier: 0.25    # quarter Kelly
+  min_edge: 0.03            # minimum absolute edge after fees+slippage
+  min_stake: 5.0
+  max_stake_per_market: 50.0
+  max_fraction_per_market: 0.05
+  max_fraction_per_sport: 0.20
+  max_total_exposure: 0.50
+  max_open_positions: 20
+
+blend:
+  model_weight: 0.30        # prob = w*model + (1-w)*market mid; market is the prior
+
+execution:
+  max_spread: 0.03          # skip books wider than this (or quote passively)
+  slippage_buffer: 0.005    # subtracted from edge before thresholding
+  order_ttl_seconds: 120    # cancel unfilled resting orders after this
+  post_inside_spread: true  # improve best bid rather than crossing
+  max_depth_fraction: 0.25  # take at most this share of visible book depth
+
+risk:
+  daily_loss_limit: 100.0        # stop for the day past this realized loss
+  max_daily_new_risk: 0.25       # new stakes per day <= this fraction of bankroll
+  max_drawdown: 250.0            # kill switch: stop entirely, require manual reset
+  stale_quote_seconds: 120       # skip markets with quotes older than this
+  min_minutes_before_start: 10   # don't enter pre-match bets after this cutoff
+  calibration_min_bets: 50       # start monitoring after N settled bets
+  calibration_max_brier: 0.26    # pause betting if rolling Brier exceeds this
+
+scan:
+  interval_seconds: 300
+  sports: [tennis, baseball, table_tennis]
+
+sports:
+  tennis:
+    enabled: true
+    best_of_default: 3
+    surface_weight: 0.50        # blend: (1-w)*overall + w*surface (Tennis Abstract optimum)
+    min_matches: 10             # skip players with fewer rated matches
+  baseball:
+    enabled: true
+    home_advantage_elo: 24.0
+    rest_advantage_elo: 2.3     # per rest-day differential, capped
+    sp_enabled: true            # starting-pitcher adjustment
+  table_tennis:
+    enabled: true
+    best_of_default: 5
+    min_edge_override: 0.05     # softer markets but fixing risk: demand more edge
+    max_stake_override: 20.0
+    min_matches: 8
+
+storage:
+  sqlite_path: data/sportsbot.sqlite
+  ratings_dir: data/ratings
+
+logging:
+  level: INFO
+  file: logs/sportsbot.log
