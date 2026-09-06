@@ -16,6 +16,8 @@ produced the current thesis; its go-live gates are binding._
 | pre-history | ~15 iterations in the VPS home dir (tennis_h2h v5–v11, sharp_oracle, hybrid/hf/final, …) | VPS `~` (archive queued) + [`archive/paste-era/`](archive/paste-era/) installers | Graveyard — do not modify |
 
 Full generation details and reuse notes: [`archive/README.md`](archive/README.md).
+Active maker research (paper-only L2 capture + pre-registered replay, drop 5):
+[`maker-lab/`](maker-lab/README.md) — the working pattern for tasks 6–7 below.
 
 ## Hard-won conclusions — do not relitigate without new data
 

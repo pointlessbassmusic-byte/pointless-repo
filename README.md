@@ -10,6 +10,7 @@ develop on the laptop, push here, deploy to the Linode server with one command.
 | Sports Betting Bot (v3 fair-value) | [`polymarket-bot/`](polymarket-bot/) | Polymarket (sports events) | [`polymarket-bot/PROJECT.md`](polymarket-bot/PROJECT.md) |
 | Predictions Engine — Substrate/Echo | [`substrate/`](substrate/) | shadow mode (certification instrument) | [`substrate/PROJECT.md`](substrate/PROJECT.md) |
 | Kalshi market-access layer | [`kalshi-engine/`](kalshi-engine/) | Kalshi (event contracts) | [`kalshi-engine/PROJECT.md`](kalshi-engine/PROJECT.md) |
+| .less remix server (music) | [`dotless/`](dotless/) | self-hosted API (VPS) | [`dotless/PROJECT.md`](dotless/PROJECT.md) |
 
 ## Repo layout
 
@@ -18,6 +19,7 @@ docs/               Master plan, server docs, chat-history imports
 polymarket-bot/     Polymarket sports betting bot — v3 fair-value (VPS, pull pending), v2 websocket (v2/), v1 scanner (src/), archive/
 substrate/          Substrate/Echo predictions engine (certification instrument, shadow mode)
 kalshi-engine/      Kalshi market-access layer (API v2 client + generic trading loop)
+dotless/            .less remix server — YouTube/upload → stems → Claude-planned genre-flip remix
 deploy/             Server setup + deploy scripts + systemd units
 scripts/            Utilities (chat import sync, etc.)
 ```
