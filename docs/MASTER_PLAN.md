@@ -1,6 +1,14 @@
 # Master Plan
 
-_Last updated: 2026-09-06_
+_Last updated: 2026-09-06 (rev 2 — chat-handoff drop 1 integrated)_
+
+> **Drop 1 changed the picture.** The uploaded handoffs contain the real prior work:
+> the **Substrate/Echo engine** (`substrate/` — the authoritative predictions engine, a
+> shadow-mode certification instrument with frozen protocol v1.0) and **Polymarket Sports
+> Bot v2** (`polymarket-bot/v2/` — maker-first scalp/fade/arb, built for the 2026 taker-fee
+> regime). The engines scaffolded earlier the same day are repositioned: the v1 consensus
+> scanner as a signal source, `kalshi-engine/` as the Kalshi market-access layer.
+> Read `substrate/CLAUDE.md` for the invariants that bind all future work.
 
 ## Where we came from / where we are
 

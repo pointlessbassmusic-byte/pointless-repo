@@ -1,6 +1,15 @@
-# PROJECT: Kalshi Predictions Engine / Substrate
+# PROJECT: Kalshi Engine (market-access layer)
 
 _Master project file — everything about this engine lives here._
+
+> **Repositioned 2026-09-06 (drop 1):** the authoritative predictions engine is now
+> [`substrate/`](../substrate/PROJECT.md), imported from the original chat handoff. This
+> project's role going forward is Kalshi **market access**: its `KalshiClient` (API v2,
+> RSA-PSS signing) is the base for the substrate's milestone 2 — a read-only, decision-time
+> snapshot service for weather dailies (shadow mode, sealed before resolve). The generic
+> ensemble/trading loop below still works and may run independently, but it is **not** part
+> of substrate certification trials, and per the substrate invariants no certification-arm
+> market may ever be traded live pre-certification.
 
 ## Goal
 

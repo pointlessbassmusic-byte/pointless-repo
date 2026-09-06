@@ -1,0 +1,11 @@
+# bot runtime
+requests>=2.32,<3
+python-dotenv>=1.0,<2
+websockets>=12,<17
+# live execution (only imported when DRY_RUN=false)
+py-clob-client>=0.20
+# history download + analysis
+pandas>=2.0
+numpy>=1.26
+scipy>=1.11
+openpyxl>=3.1

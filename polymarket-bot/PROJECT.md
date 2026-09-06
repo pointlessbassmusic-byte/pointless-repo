@@ -2,78 +2,71 @@
 
 _Master project file — everything about this engine lives here._
 
-## Goal
+## Two generations in this directory
 
-Automated positive-EV betting on Polymarket **sports** markets: estimate fair probabilities from
-de-vigged sportsbook consensus, buy outcome tokens when the ask price is meaningfully below fair
-value, size with fractional Kelly, log everything.
+| | Where | Status |
+|---|---|---|
+| **v2 — maker-first bot** (authoritative) | [`v2/`](v2/) | Imported 2026-09-06 from the Terminus-era package (drop 1). This is the production strategy. |
+| v1 — consensus scanner (experimental) | `src/` | Built fresh 2026-09-06; taker-style +EV scanner vs. de-vigged sportsbook consensus. Useful as a signal source, superseded as a strategy. |
 
-## Status
+## v2: the production bot (`v2/trading_bot.py`, 1,356 lines)
 
-- **v1 (current):** working scan → model → edge → size → execute(dry-run) → record loop.
-- Live order placement wired via `py-clob-client` but gated behind `live: true` + `--live`.
+**Why maker-first:** Polymarket introduced taker fees on sports in 2026
+(fee = shares × rate × p × (1−p); rate 0.03 in March → 0.05 since July). Near 50¢ a
+round-trip taker scalp costs ~5% of notional before spread. Makers pay zero and get rebates.
+Earlier backtests already showed taker scalping loses after spread — fees killed it dead.
 
-## Architecture
+**Strategies (tennis / table tennis / MLB slate):**
+- `scalp` — rest a bid inside wide spreads; exit is a resting maker sell a few ticks up.
+- `fade` — after a sharp drop, rest a maker bid at a discount (up-spikes covered via the NO side).
+- `arb` — only taker strategy: if `YES.ask + NO.ask + fees < $1.00`, buy both; locked profit.
+- Taker orders otherwise only as stop-loss insurance / timeout fallback.
 
-```
-src/
-  main.py                 entrypoint + scan loop
-  config.py               YAML config + .env loading
-  clients/
-    gamma.py              Gamma API: discover sports events/markets
-    clob.py               CLOB API: prices/books; py-clob-client for orders
-    odds_api.py           The Odds API: sportsbook odds feed
-  models/
-    devig.py              de-vig sportsbook odds → fair probabilities
-    fair_value.py         match Polymarket markets ↔ sportsbook games, blend into fair prob
-  strategy/
-    edge.py               edge computation + filters + fractional Kelly sizing
-  execution/
-    executor.py           dry-run logger / live CLOB limit orders
-  storage/
-    db.py                 SQLite: scans, signals, orders
-```
+**Regression loop:** `history_downloader.py` pulls ~1yr of real Polymarket data (resumable);
+`analyze_history.py` builds `analysis_workbook.xlsx` (calibration, shock-reversion, momentum,
+correlations, OLS) and writes `strategy_params.json`, which the bot loads to tune shock
+thresholds and fade targets per sport.
 
-## Data sources & APIs
+**Architecture:** `PaperExecutor` (default) / `LiveExecutor` (`DRY_RUN=false` only),
+`Portfolio` + `TradeRecorder`, per-sport `SportParams`, websocket book tracking.
+See [`v2/README_TERMIUS.txt`](v2/README_TERMIUS.txt) for the original ops runbook —
+now superseded by `deploy/` in this repo for server ops, but the strategy doc stands.
 
-| Source | Base URL | Auth | Used for |
-|---|---|---|---|
-| Gamma API | `https://gamma-api.polymarket.com` | none | event/market discovery, metadata |
-| CLOB API | `https://clob.polymarket.com` | none for reads; L1/L2 keys for orders | order books, prices, order placement |
-| The Odds API | `https://api.the-odds-api.com/v4` | `ODDS_API_KEY` | sportsbook consensus odds (free tier: 500 req/mo) |
+**v2 logs are also milestone-1 input** for the substrate engine's real-history backtest
+(see [`../substrate/PROJECT.md`](../substrate/PROJECT.md)).
 
-Order placement uses [`py-clob-client`](https://github.com/Polymarket/py-clob-client) with a
-Polygon wallet private key (`POLYMARKET_PRIVATE_KEY`) and USDC allowance set on the exchange
-contract. **Note:** Polymarket blocks US persons from trading — confirm jurisdiction/eligibility
-before enabling live mode.
+## v1: consensus scanner (`src/`)
 
-## Model (v1)
+Gamma discovery → The Odds API multi-book de-vigged median → fuzzy match → edge vs. CLOB ask →
+quarter-Kelly → dry-run executor → SQLite. Fully working (tested against live APIs); keep as a
+fair-value **signal source** — its consensus probability could feed v2's fade entries or the
+substrate's baseline expert. Its taker-style execution should not be used as-is given the fee
+model above.
 
-1. Pull odds for the sport from N sportsbooks (The Odds API, h2h market).
-2. Per book: implied probs `1/decimal_odds`, de-vig with proportional normalization
-   (`p_i / Σp_i`), then take the **median across books** → consensus fair prob.
-3. Match to the Polymarket market by team names + start time (fuzzy match in `fair_value.py`).
-4. Optional blend: `fair = w·consensus + (1−w)·market_mid` (config `model.blend_market_weight`,
-   default 0.15) — shrinks toward the market to be humble about matching/model error.
+## APIs
 
-## Strategy parameters (config.yaml)
+| Source | Base URL | Used by |
+|---|---|---|
+| Gamma API | `https://gamma-api.polymarket.com` | v1 discovery; v2 metadata |
+| CLOB API | `https://clob.polymarket.com` | both: books/prices; orders via `py-clob-client` |
+| The Odds API | `https://api.the-odds-api.com/v4` | v1 consensus feed (`ODDS_API_KEY`) |
 
-- `min_edge` (default **0.04**): required `fair − ask` to buy.
-- `kelly_fraction` (default **0.25**): quarter-Kelly.
-- `max_stake_per_market`, `max_total_exposure`, `min_liquidity`, `min_hours_to_event`,
-  `max_hours_to_event` — see `config.yaml` comments.
+**Jurisdiction note:** Polymarket blocks US persons from trading — confirm eligibility before
+any live mode.
 
 ## Run
 
 ```bash
-python -m src.main --dry-run          # default; also the safe explicit form
-python -m src.main --once --dry-run   # single scan cycle, then exit
-python -m src.main --live             # real orders (requires live: true in config too)
+# v2 (production): see v2/README_TERMIUS.txt; paper mode is the default
+cd v2 && pip install -r requirements.txt && python trading_bot.py
+
+# v1 (signal scanner)
+python -m src.main --once --dry-run
 ```
 
 ## TODO / next
 
-- [ ] Elo/power-rating prior blended with consensus (consensus-only for v1)
-- [ ] Sell-side logic (exit when edge flips negative beyond fees)
-- [ ] Better market↔game matching (player props, spreads/totals — v1 is moneyline/h2h only)
-- [ ] Backtests from recorded scans in `data/bot.db`
+- [ ] Re-tune v2 `strategy_params.json` with a fresh `history_downloader.py` run (overnight, tmux/systemd)
+- [ ] Wire v1's consensus fair value into v2 as an entry filter for `fade`
+- [ ] Export v2 trade/quote logs in `substrate/ingest.py` schema (substrate milestone 1)
+- [ ] Unify config/secrets handling with the rest of the repo (.env)
