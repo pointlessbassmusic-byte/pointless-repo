@@ -50,9 +50,10 @@ class ClobClient:
         data = r.json()  # {token_id: {"BUY": "...", "SELL": "..."}}
         for t in token_ids:
             entry = data.get(t, {})
-            # BUY price = best ask you'd pay; SELL price = best bid you'd receive
-            ask = float(entry["BUY"]) if entry.get("BUY") else None
-            bid = float(entry["SELL"]) if entry.get("SELL") else None
+            # side=BUY returns the best bid (highest resting buy order);
+            # side=SELL returns the best ask (lowest resting sell order)
+            bid = float(entry["BUY"]) if entry.get("BUY") else None
+            ask = float(entry["SELL"]) if entry.get("SELL") else None
             out[t] = Quote(token_id=t, bid=bid, ask=ask)
         return out
 
