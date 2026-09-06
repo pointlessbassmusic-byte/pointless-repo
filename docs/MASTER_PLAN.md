@@ -67,4 +67,9 @@ Pipeline per cycle:
 - [ ] Turn on live mode with small bankroll caps
 - [ ] Add generators: injuries/news feed, weather (outdoor sports), line-movement momentum
 - [x] Calibration/report harness over recorded scans (`python -m src.report` in each engine)
+- [x] Real settlement tracking: reports score against actual Kalshi results / Gamma resolutions,
+      falling back to a price proxy for still-open markets
+- [x] Kalshi market discovery via `/events` (curated feed; the raw `/markets` firehose is buried
+      in auto-generated MVE shard markets) + prod market data in dry-run (`read_prod`)
+- [x] CI: pytest for both engines on every push
 - [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on

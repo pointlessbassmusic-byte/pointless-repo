@@ -39,6 +39,7 @@ class Market:
     open_interest: int
     expiration: datetime | None
     status: str
+    result: str = ""     # "yes" | "no" once settled, else ""
 
     @property
     def mid(self) -> float:
@@ -47,13 +48,34 @@ class Market:
         return self.last_price
 
 
-def _cents_to_prob(c) -> float:
-    return (c or 0) / 100.0
+def _price(m: dict, dollars_key: str, cents_key: str) -> float:
+    """Price 0-1. Current API serves string dollars ("0.6300"); older payloads
+    served integer cents under the legacy key."""
+    v = m.get(dollars_key)
+    if v is not None:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
+    return (m.get(cents_key) or 0) / 100.0
+
+
+def _count(m: dict, fp_key: str, int_key: str) -> int:
+    """Contract count. Current API serves fixed-point strings ("1663.42")."""
+    v = m.get(fp_key)
+    if v is not None:
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+    return int(m.get(int_key) or 0)
 
 
 def _parse_market(m: dict) -> Market:
     exp = None
-    for key in ("expiration_time", "close_time"):
+    # close_time is when trading actually stops; expiration_time is often a
+    # far-future legal bound (e.g. "one week after the event", or years out)
+    for key in ("close_time", "expected_expiration_time", "expiration_time"):
         if m.get(key):
             try:
                 exp = datetime.fromisoformat(m[key].replace("Z", "+00:00")).astimezone(timezone.utc)
@@ -64,19 +86,26 @@ def _parse_market(m: dict) -> Market:
         ticker=m.get("ticker", ""),
         event_ticker=m.get("event_ticker", ""),
         title=m.get("title", ""),
-        yes_bid=_cents_to_prob(m.get("yes_bid")),
-        yes_ask=_cents_to_prob(m.get("yes_ask")),
-        last_price=_cents_to_prob(m.get("last_price")),
-        volume=int(m.get("volume") or 0),
-        open_interest=int(m.get("open_interest") or 0),
+        yes_bid=_price(m, "yes_bid_dollars", "yes_bid"),
+        yes_ask=_price(m, "yes_ask_dollars", "yes_ask"),
+        last_price=_price(m, "last_price_dollars", "last_price"),
+        volume=_count(m, "volume_fp", "volume"),
+        open_interest=_count(m, "open_interest_fp", "open_interest"),
         expiration=exp,
         status=m.get("status", ""),
+        result=m.get("result", "") or "",
     )
 
 
 class KalshiClient:
-    def __init__(self, api_key_id: str = "", private_key_path: str = "", demo: bool = True):
-        self.base = DEMO_BASE if demo else PROD_BASE
+    def __init__(self, api_key_id: str = "", private_key_path: str = "", demo: bool = True,
+                 read_prod: bool = True):
+        # Orders/portfolio go to the trading env (demo until proven). Public market
+        # reads default to prod either way: demo market data is synthetic (zero
+        # volume/price), so dry-running against it proves nothing. Set read_prod
+        # false only to test the demo order flow end-to-end on demo tickers.
+        self.trade_base = DEMO_BASE if demo else PROD_BASE
+        self.read_base = PROD_BASE if read_prod else self.trade_base
         self.api_key_id = api_key_id
         # GET-only retries: order placement (POST) must never auto-retry
         self.http = retrying_session()
@@ -109,9 +138,10 @@ class KalshiClient:
     def _request(self, method: str, path: str, auth: bool = False, **kwargs) -> dict:
         full_path = f"{API_PREFIX}{path}"
         headers = kwargs.pop("headers", {})
+        base = self.trade_base if auth else self.read_base
         if auth:
             headers.update(self._auth_headers(method, full_path))
-        r = self.http.request(method, f"{self.base}{full_path}", headers=headers, timeout=30, **kwargs)
+        r = self.http.request(method, f"{base}{full_path}", headers=headers, timeout=30, **kwargs)
         r.raise_for_status()
         return r.json()
 
@@ -136,6 +166,44 @@ class KalshiClient:
             if not cursor or not batch:
                 break
         log.info("kalshi: fetched %d markets", len(out))
+        return out
+
+    def markets_via_events(self, max_events: int = 500,
+                           categories: list[str] | None = None) -> list[Market]:
+        """Open markets discovered through /events — the curated feed.
+
+        The raw /markets firehose is dominated by auto-generated multivariate
+        shard markets; /events returns real events (with category), and nesting
+        pulls each event's markets in the same call.
+        """
+        out: list[Market] = []
+        seen_events = 0
+        cursor = None
+        while seen_events < max_events:
+            params: dict = {"limit": min(200, max_events - seen_events),
+                            "status": "open", "with_nested_markets": "true"}
+            if cursor:
+                params["cursor"] = cursor
+            data = self._request("GET", "/events", params=params)
+            events = data.get("events", [])
+            seen_events += len(events)
+            for ev in events:
+                if categories and ev.get("category") not in categories:
+                    continue
+                out.extend(_parse_market(m) for m in ev.get("markets") or [])
+            cursor = data.get("cursor")
+            if not cursor or not events:
+                break
+        log.info("kalshi: %d markets from %d events", len(out), seen_events)
+        return out
+
+    def markets_by_tickers(self, tickers: list[str]) -> list[Market]:
+        """Fetch specific markets (any status) — used to look up settlements."""
+        out: list[Market] = []
+        for i in range(0, len(tickers), 20):
+            chunk = tickers[i:i + 20]
+            data = self._request("GET", "/markets", params={"tickers": ",".join(chunk)})
+            out.extend(_parse_market(m) for m in data.get("markets", []))
         return out
 
     # ---- authed ----

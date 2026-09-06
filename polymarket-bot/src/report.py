@@ -4,15 +4,18 @@ Usage:
     python -m src.report            # summary + calibration
     python -m src.report --days 14 # restrict to the last N days
 
-Resolution proxy: a token whose last recorded ask is <= 0.05 or >= 0.95 is treated
-as (almost) resolved NO/YES. The model's fair_prob is Brier-scored against that
-proxy next to the market's own price — the model only earns its keep if it beats
-the market baseline.
+Outcomes: real resolutions are fetched from the Gamma API (no auth) for every
+market we ever estimated, and cached in the settlements table. Tokens not yet
+resolved fall back to a proxy — last recorded ask <= 0.05 or >= 0.95 counts as
+(almost) resolved NO/YES. The model's fair_prob is Brier-scored against those
+outcomes next to the market's own price — the model only earns its keep if it
+beats the market baseline.
 """
 from __future__ import annotations
 
 import argparse
 
+from .clients.gamma import GammaClient
 from .config import load_config
 from .storage.db import Database
 
@@ -31,6 +34,18 @@ def final_asks(conn) -> dict[str, float]:
         " (SELECT token_id, MAX(ts) FROM estimates GROUP BY token_id)"
     ).fetchall()
     return {t: a for t, a in rows if a is not None}
+
+
+def resolve_settlements(db: Database, gamma: GammaClient) -> None:
+    """Look up real resolutions for estimated markets we haven't settled yet."""
+    pending = db.unsettled_condition_ids()
+    if not pending:
+        return
+    outcomes = gamma.resolutions(pending)
+    if outcomes:
+        db.record_settlements(outcomes)
+    print(f"settlements: {len(outcomes)} tokens newly resolved "
+          f"across {len(pending)} unresolved markets")
 
 
 def report(db: Database, days: float | None) -> None:
@@ -54,7 +69,11 @@ def report(db: Database, days: float | None) -> None:
         for t, a in finals.items()
         if a <= RESOLVED_NO or a >= RESOLVED_YES
     }
-    print(f"\ntokens with a resolution proxy: {len(resolved)} of {len(finals)} tracked")
+    real = db.settled_outcomes()
+    n_proxy_only = len(set(resolved) - set(real))
+    resolved.update(real)  # real resolutions override the price proxy
+    print(f"\noutcomes: {len(real)} resolved, {n_proxy_only} proxy-only, "
+          f"{len(finals)} tokens tracked")
     if not resolved:
         print("not enough settled history yet — keep the bot scanning")
         return
@@ -95,8 +114,15 @@ def report(db: Database, days: float | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Polymarket bot calibration report")
     parser.add_argument("--days", type=float, default=None, help="only the last N days")
+    parser.add_argument("--no-resolve", action="store_true",
+                        help="skip fetching resolutions from the API (offline)")
     args = parser.parse_args()
     db = Database(load_config().db_path)
+    if not args.no_resolve:
+        try:
+            resolve_settlements(db, GammaClient())
+        except Exception as e:  # noqa: BLE001 — a network hiccup shouldn't kill the report
+            print(f"resolution lookup failed ({e}); reporting with cached outcomes")
     report(db, args.days)
 
 

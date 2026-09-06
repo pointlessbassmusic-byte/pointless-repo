@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS forecasts (
     confidence REAL,
     rationale TEXT
 );
+CREATE TABLE IF NOT EXISTS settlements (
+    ticker TEXT PRIMARY KEY,
+    result TEXT NOT NULL,     -- 'yes' | 'no'
+    ts TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -108,6 +113,25 @@ class Database:
             [(ts, ticker, f.generator, f.prob_yes, f.confidence, f.rationale) for f in forecasts],
         )
         self.conn.commit()
+
+    def record_settlements(self, results: dict[str, str]) -> None:
+        ts = _now()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO settlements (ticker, result, ts) VALUES (?,?,?)",
+            [(t, r, ts) for t, r in results.items()],
+        )
+        self.conn.commit()
+
+    def settled_outcomes(self) -> dict[str, float]:
+        rows = self.conn.execute("SELECT ticker, result FROM settlements").fetchall()
+        return {t: (1.0 if r == "yes" else 0.0) for t, r in rows}
+
+    def unsettled_forecast_tickers(self) -> list[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT ticker FROM forecasts"
+            " WHERE ticker NOT IN (SELECT ticker FROM settlements)"
+        ).fetchall()
+        return [r[0] for r in rows]
 
     def record_order(self, s, status: str) -> None:
         self.conn.execute(

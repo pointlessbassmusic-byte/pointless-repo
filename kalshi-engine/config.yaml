@@ -2,13 +2,19 @@
 
 live: false             # master switch; must ALSO pass --live on the CLI to trade
 use_demo: true          # target demo-api.kalshi.co (paper exchange) until proven
+read_prod: true         # public market reads from prod (demo data is synthetic); orders still demo
 scan_interval_sec: 900
 
 markets:
   statuses: [open]
   # Only scan these series prefixes; empty list = scan everything open
-  series_whitelist: []       # e.g. [KXHIGHNY, KXBTC, KXNBA]
-  max_markets_per_scan: 500
+  series_whitelist: []       # e.g. [KXHIGHNY, KXBTC, KXNBA]; empty = discover via /events
+  # /events discovery (used when whitelist is empty); high cap = full feed
+  max_events_per_scan: 20000
+  categories: []             # e.g. [Sports, Crypto, Economics]; empty = all
+  # ticker prefixes to skip (auto-generated multivariate shard markets)
+  series_blacklist: [KXMVE]
+  max_markets_per_scan: 1500  # keep the most liquid after filters
   min_volume: 100            # contracts traded; skip dead markets
   max_days_to_expiry: 30
 
@@ -37,6 +43,7 @@ strategy:
   max_total_exposure: 200
   min_price: 0.05
   max_price: 0.95
+  max_spread: 0.10           # skip books wider than this (illiquid/stale mid)
 
 storage:
   db_path: data/engine.db

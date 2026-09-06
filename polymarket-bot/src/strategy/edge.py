@@ -54,6 +54,7 @@ def build_signals(
     max_hours = float(strategy_cfg.get("max_hours_to_event", 96))
     min_price = float(strategy_cfg.get("min_price", 0.05))
     max_price = float(strategy_cfg.get("max_price", 0.95))
+    max_spread = float(strategy_cfg.get("max_spread", 0.10))
 
     now = datetime.now(timezone.utc)
     signals: list[TradeSignal] = []
@@ -74,6 +75,9 @@ def build_signals(
         if not q or q.ask is None:
             continue
         if not (min_price <= q.ask <= max_price):
+            continue
+        # a wide book means an illiquid market and a stale/unreliable quote
+        if q.bid is not None and (q.ask - q.bid) > max_spread:
             continue
 
         edge = est.fair_prob - q.ask

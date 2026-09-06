@@ -4,18 +4,23 @@ Usage:
     python -m src.report            # summary + calibration
     python -m src.report --days 14 # restrict to the last N days
 
-Resolution proxy: a market whose last recorded mid is <= 0.05 or >= 0.95 is treated
-as (almost) resolved NO/YES. Forecasts on such markets are scored with the Brier
-score against that proxy outcome, per generator, next to the market-implied
-baseline — a generator only earns its keep if it beats the baseline.
+Outcomes: real settlements are fetched from the Kalshi API (public, no auth) for
+every ticker we ever forecast, and cached in the settlements table. Markets not
+yet settled fall back to a resolution proxy — last recorded mid <= 0.05 or
+>= 0.95 counts as (almost) resolved NO/YES. Forecasts are Brier-scored against
+those outcomes per generator, next to the market-implied baseline — a generator
+only earns its keep if it beats the baseline.
 """
 from __future__ import annotations
 
 import argparse
 from collections import defaultdict
 
+from .client import KalshiClient
 from .config import load_config
 from .storage.db import Database
+
+SETTLED_STATUSES = {"settled", "finalized"}
 
 RESOLVED_NO, RESOLVED_YES = 0.05, 0.95
 
@@ -32,6 +37,21 @@ def final_mids(conn) -> dict[str, float]:
         " (SELECT ticker, MAX(ts) FROM prices GROUP BY ticker)"
     ).fetchall()
     return {t: m for t, m in rows if m is not None}
+
+
+def resolve_settlements(db: Database, client: KalshiClient) -> None:
+    """Look up real results for forecast tickers we haven't settled yet."""
+    pending = db.unsettled_forecast_tickers()
+    if not pending:
+        return
+    results = {
+        m.ticker: m.result
+        for m in client.markets_by_tickers(pending)
+        if m.status in SETTLED_STATUSES and m.result in ("yes", "no")
+    }
+    if results:
+        db.record_settlements(results)
+    print(f"settlements: {len(results)} newly resolved, {len(pending) - len(results)} still open")
 
 
 def report(db: Database, days: float | None) -> None:
@@ -55,7 +75,11 @@ def report(db: Database, days: float | None) -> None:
         for t, m in finals.items()
         if m <= RESOLVED_NO or m >= RESOLVED_YES
     }
-    print(f"\nmarkets with a resolution proxy: {len(resolved)} of {len(finals)} tracked")
+    real = db.settled_outcomes()
+    n_proxy_only = len(set(resolved) - set(real))
+    resolved.update(real)  # real settlements override the price proxy
+    print(f"\noutcomes: {len(real)} settled, {n_proxy_only} proxy-only, "
+          f"{len(finals)} markets tracked")
     if not resolved:
         print("not enough settled history yet — keep the engine scanning")
         return
@@ -93,8 +117,16 @@ def report(db: Database, days: float | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Kalshi engine calibration report")
     parser.add_argument("--days", type=float, default=None, help="only the last N days")
+    parser.add_argument("--no-resolve", action="store_true",
+                        help="skip fetching settlements from the API (offline)")
     args = parser.parse_args()
-    db = Database(load_config().db_path)
+    cfg = load_config()
+    db = Database(cfg.db_path)
+    if not args.no_resolve:
+        try:
+            resolve_settlements(db, KalshiClient(demo=cfg.use_demo, read_prod=cfg.read_prod))
+        except Exception as e:  # noqa: BLE001 — a network hiccup shouldn't kill the report
+            print(f"settlement lookup failed ({e}); reporting with cached outcomes")
     report(db, args.days)
 
 

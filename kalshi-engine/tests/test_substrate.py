@@ -60,3 +60,59 @@ def test_signals_skip_already_ordered_and_respect_open_exposure():
     assert build_signals([res], {}, exclude_tickers={m.ticker}) == []
     # default max_total_exposure=200; nearly all of it already committed
     assert build_signals([res], {}, existing_exposure=199.0) == []
+
+
+def test_read_prod_routes_public_reads_to_prod():
+    from src.client import DEMO_BASE, PROD_BASE, KalshiClient
+
+    c = KalshiClient(demo=True, read_prod=True)
+    assert c.read_base == PROD_BASE and c.trade_base == DEMO_BASE
+    c2 = KalshiClient(demo=True, read_prod=False)
+    assert c2.read_base == DEMO_BASE
+
+
+def test_wide_spread_is_filtered():
+    from src.substrate.ensemble import EnsembleResult
+
+    m = make_market(0.60)
+    m.yes_bid, m.yes_ask = 0.45, 0.75  # 30-cent book
+    res = EnsembleResult(market=m, prob_yes=0.95, total_confidence=1.0, forecasts=[])
+    assert build_signals([res], {"max_spread": 0.10}) == []
+    assert build_signals([res], {"max_spread": 0.50}) != []
+
+
+def test_settlements_roundtrip(tmp_path):
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    db.record_forecasts("TICK-A", [])
+    db.conn.execute(
+        "INSERT INTO forecasts (ts, ticker, generator, prob_yes, confidence, rationale)"
+        " VALUES ('2026-01-01', 'TICK-A', 'g', 0.7, 0.5, '')"
+    )
+    db.conn.commit()
+    assert db.unsettled_forecast_tickers() == ["TICK-A"]
+    db.record_settlements({"TICK-A": "yes"})
+    assert db.settled_outcomes() == {"TICK-A": 1.0}
+    assert db.unsettled_forecast_tickers() == []
+
+
+def test_parse_market_handles_dollar_and_legacy_cent_fields():
+    from src.client import _parse_market
+
+    new_style = _parse_market({
+        "ticker": "T-NEW", "title": "t", "status": "active",
+        "yes_bid_dollars": "0.6200", "yes_ask_dollars": "0.6400",
+        "last_price_dollars": "0.6300", "volume_fp": "1663.42",
+        "open_interest_fp": "5160.60", "close_time": "2026-09-07T05:00:00Z",
+    })
+    assert abs(new_style.yes_bid - 0.62) < 1e-9
+    assert abs(new_style.mid - 0.63) < 1e-9
+    assert new_style.volume == 1663
+
+    legacy = _parse_market({
+        "ticker": "T-OLD", "title": "t", "status": "open",
+        "yes_bid": 62, "yes_ask": 64, "last_price": 63, "volume": 100,
+    })
+    assert abs(legacy.yes_bid - 0.62) < 1e-9
+    assert legacy.volume == 100

@@ -118,3 +118,26 @@ class GammaClient:
                     out.append(sm)
         log.info("gamma: %d active sports markets", len(out))
         return out
+
+    def resolutions(self, condition_ids: list[str]) -> dict[str, float]:
+        """token_id -> resolved outcome (1.0/0.0) for closed markets.
+
+        A closed market's outcomePrices collapse to ~1/0 per outcome; each price
+        maps to the clob token at the same index.
+        """
+        out: dict[str, float] = {}
+        for i in range(0, len(condition_ids), 20):
+            chunk = condition_ids[i:i + 20]
+            markets = self._get("/markets", condition_ids=chunk, closed="true")
+            for m in markets if isinstance(markets, list) else []:
+                try:
+                    prices = [float(p) for p in json.loads(m.get("outcomePrices") or "[]")]
+                    token_ids = json.loads(m.get("clobTokenIds") or "[]")
+                except (ValueError, TypeError):
+                    continue
+                for token_id, price in zip(token_ids, prices):
+                    if price >= 0.99:
+                        out[token_id] = 1.0
+                    elif price <= 0.01:
+                        out[token_id] = 0.0
+        return out

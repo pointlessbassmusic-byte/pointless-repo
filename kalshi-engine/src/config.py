@@ -22,6 +22,11 @@ class Config:
         return bool(self.raw.get("use_demo", True))
 
     @property
+    def read_prod(self) -> bool:
+        # demo market data is synthetic; default to real prod data for public reads
+        return bool(self.raw.get("read_prod", True))
+
+    @property
     def scan_interval_sec(self) -> int:
         return int(self.raw.get("scan_interval_sec", 900))
 

@@ -59,3 +59,26 @@ def test_odds_cache_reuses_within_ttl():
     c._cache["americanfootball_nfl"] = (time.monotonic(), [])
     # served from cache — no HTTP call is attempted
     assert c.h2h_games("americanfootball_nfl") == []
+
+
+def test_wide_spread_is_filtered():
+    quotes = {"tok1": Quote(token_id="tok1", bid=0.20, ask=0.50)}
+    cfg = {"min_liquidity": 100, "max_spread": 0.10}
+    assert build_signals([_estimate(fair=0.90)], quotes, cfg) == []
+    cfg["max_spread"] = 0.50
+    assert build_signals([_estimate(fair=0.90)], quotes, cfg) != []
+
+
+def test_settlements_roundtrip(tmp_path):
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    db.conn.execute(
+        "INSERT INTO estimates (ts, token_id, condition_id, fair_prob)"
+        " VALUES ('2026-01-01', 'tok1', 'cond1', 0.6)"
+    )
+    db.conn.commit()
+    assert db.unsettled_condition_ids() == ["cond1"]
+    db.record_settlements({"tok1": 1.0})
+    assert db.settled_outcomes() == {"tok1": 1.0}
+    assert db.unsettled_condition_ids() == []

@@ -45,11 +45,16 @@ def build_signals(
     max_total = float(strategy_cfg.get("max_total_exposure", 200))
     min_price = float(strategy_cfg.get("min_price", 0.05))
     max_price = float(strategy_cfg.get("max_price", 0.95))
+    max_spread = float(strategy_cfg.get("max_spread", 0.10))
 
     signals: list[TradeSignal] = []
     for res in results:
         m: Market = res.market
         if m.ticker in exclude_tickers:
+            continue
+        # a one-sided or wide book means an illiquid market and a stale/unreliable
+        # mid (with no bid, mid falls back to last_price, which can be hours old)
+        if m.yes_bid <= 0 or m.yes_ask <= 0 or (m.yes_ask - m.yes_bid) > max_spread:
             continue
         # YES side: pay the yes ask; NO side: pay (1 - yes_bid)
         candidates = []

@@ -29,6 +29,7 @@ strategy:
   max_hours_to_event: 96      # only near-term games (fresher odds)
   min_price: 0.05             # skip extreme longshots/favorites
   max_price: 0.95
+  max_spread: 0.10            # skip books wider than this (illiquid/stale quote)
 
 storage:
   db_path: data/bot.db

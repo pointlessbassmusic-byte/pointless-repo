@@ -28,10 +28,16 @@ CREATE TABLE IF NOT EXISTS orders (
     status TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_orders_token_status ON orders (token_id, status);
+CREATE TABLE IF NOT EXISTS settlements (
+    token_id TEXT PRIMARY KEY,
+    outcome REAL NOT NULL,    -- 1.0 | 0.0
+    ts TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS estimates (
     id INTEGER PRIMARY KEY,
     ts TEXT NOT NULL,
     token_id TEXT NOT NULL,
+    condition_id TEXT,
     question TEXT,
     outcome TEXT,
     matched_game TEXT,
@@ -56,6 +62,10 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
+        # migrate estimates tables created before condition_id existed
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(estimates)")}
+        if "condition_id" not in cols:
+            self.conn.execute("ALTER TABLE estimates ADD COLUMN condition_id TEXT")
         self.conn.commit()
 
     def record_scan(self, n_markets: int, n_estimates: int, n_signals: int) -> None:
@@ -73,16 +83,36 @@ class Database:
             token_id = e.market.clob_token_ids[e.outcome_index]
             q = quotes.get(token_id)
             rows.append((
-                ts, token_id, e.market.question, e.outcome_name, e.matched_game,
-                e.fair_prob, e.consensus_prob, e.n_books,
+                ts, token_id, e.market.condition_id, e.market.question, e.outcome_name,
+                e.matched_game, e.fair_prob, e.consensus_prob, e.n_books,
                 q.bid if q else None, q.ask if q else None,
             ))
         self.conn.executemany(
-            "INSERT INTO estimates (ts, token_id, question, outcome, matched_game,"
-            " fair_prob, consensus_prob, n_books, bid, ask) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO estimates (ts, token_id, condition_id, question, outcome, matched_game,"
+            " fair_prob, consensus_prob, n_books, bid, ask) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         self.conn.commit()
+
+    def record_settlements(self, outcomes: dict[str, float]) -> None:
+        ts = _now()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO settlements (token_id, outcome, ts) VALUES (?,?,?)",
+            [(t, o, ts) for t, o in outcomes.items()],
+        )
+        self.conn.commit()
+
+    def settled_outcomes(self) -> dict[str, float]:
+        rows = self.conn.execute("SELECT token_id, outcome FROM settlements").fetchall()
+        return dict(rows)
+
+    def unsettled_condition_ids(self) -> list[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT condition_id FROM estimates WHERE condition_id IS NOT NULL"
+            " AND condition_id != ''"
+            " AND token_id NOT IN (SELECT token_id FROM settlements)"
+        ).fetchall()
+        return [r[0] for r in rows]
 
     def placed_tokens(self) -> set[str]:
         """Token ids that already have a live order placed — never order twice."""

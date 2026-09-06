@@ -57,17 +57,26 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
             markets.extend(client.markets(statuses=statuses, series_ticker=series,
                                           max_markets=max_markets))
     else:
-        markets = client.markets(statuses=statuses, max_markets=max_markets)
+        # discover via /events: the raw /markets feed is buried in MVE shard markets
+        markets = client.markets_via_events(
+            max_events=int(mcfg.get("max_events_per_scan", 20000)),
+            categories=mcfg.get("categories") or None,
+        )
 
     # filters
     min_volume = int(mcfg.get("min_volume", 0))
     max_days = float(mcfg.get("max_days_to_expiry", 365))
+    blacklist = tuple(mcfg.get("series_blacklist") or [])
     horizon = datetime.now(timezone.utc) + timedelta(days=max_days)
     markets = [
         m for m in markets
         if m.volume >= min_volume and 0 < m.mid < 1
         and (m.expiration is None or m.expiration <= horizon)
+        and not (blacklist and m.ticker.startswith(blacklist))
     ]
+    # keep the most liquid markets if the scan is bigger than we want to model
+    if len(markets) > max_markets:
+        markets = sorted(markets, key=lambda m: m.volume, reverse=True)[:max_markets]
     log.info("%d markets after filters", len(markets))
 
     # build context from *prior* scans' history, then record this scan's prices —
@@ -106,11 +115,17 @@ def main() -> None:
     live = args.live and cfg.live and not args.dry_run
     if args.live and not cfg.live:
         log.warning("--live passed but config has live: false — staying in DRY RUN")
-    log.info("mode: %s | exchange: %s", "LIVE TRADING" if live else "dry run",
-             "DEMO" if cfg.use_demo else "PROD")
+    if live and cfg.use_demo and cfg.read_prod:
+        log.warning("live demo orders against PROD market data: prod tickers usually don't "
+                    "exist on demo — set read_prod: false to exercise the demo order flow")
+    log.info("mode: %s | orders: %s | market data: %s",
+             "LIVE TRADING" if live else "dry run",
+             "DEMO" if cfg.use_demo else "PROD",
+             "PROD" if cfg.read_prod else ("DEMO" if cfg.use_demo else "PROD"))
 
     db = Database(cfg.db_path)
-    client = KalshiClient(cfg.api_key_id, cfg.private_key_path, demo=cfg.use_demo)
+    client = KalshiClient(cfg.api_key_id, cfg.private_key_path, demo=cfg.use_demo,
+                          read_prod=cfg.read_prod)
     ensemble = build_ensemble(cfg.substrate)
     executor = Executor(client, db, live=live)
 
