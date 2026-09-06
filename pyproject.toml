@@ -32,6 +32,13 @@ kalshi = [
 mlb = [
     "MLB-StatsAPI>=1.7",
 ]
+maker = [
+    "requests>=2.31",
+    "websockets>=14",
+]
+substrate = [
+    "matplotlib>=3.8",   # substrate/backtest.py plots
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",

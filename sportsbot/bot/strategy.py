@@ -33,6 +33,11 @@ class StrategyConfig:
     max_depth_fraction: float = 0.25
     post_inside_spread: bool = True
     max_uncertainty: float = 0.20     # skip predictions the model itself distrusts
+    # Entry-price band (carried over from the tuned dry-run configs): skip
+    # markets whose mid sits outside it — extreme longshots/favorites carry
+    # the worst bias and the thinnest books.
+    min_entry_price: float = 0.15
+    max_entry_price: float = 0.85
     min_edge_override: dict = None    # per-sport {sport: min_edge}
     max_stake_override: dict = None   # per-sport {sport: max_stake}
 
@@ -65,6 +70,8 @@ def evaluate_market(
         return None
 
     market_mid = (quote.bid + quote.ask) / 2.0
+    if not (cfg.min_entry_price <= market_mid <= cfg.max_entry_price):
+        return None
     q = blend_with_market(prediction.prob_yes, market_mid, cfg.model_weight)
 
     sport_key = market.sport.value if market.sport else "unknown"

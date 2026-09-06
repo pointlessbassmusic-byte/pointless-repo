@@ -156,6 +156,8 @@ class Runner:
             slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
             max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
             post_inside_spread=bool(ex.get("post_inside_spread", True)),
+            min_entry_price=float(ex.get("min_entry_price", 0.15)),
+            max_entry_price=float(ex.get("max_entry_price", 0.85)),
             min_edge_override={
                 k: float(v["min_edge_override"])
                 for k, v in sports_cfg.items()

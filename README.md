@@ -73,6 +73,23 @@ loss in tennis and 0.66-0.68 in MLB, with edge hunted in softer corners
 (early lines, WTA/Challengers, table-tennis leagues) — and table-tennis fast
 leagues carry documented match-fixing risk, so they get stricter thresholds.
 
+## Also in this repo
+
+- **`substrate/`** — the Substrate/Echo prediction-certification engine
+  (consolidated from its own project handoff, verbatim; see
+  `substrate/HANDOFF.md` and the frozen `substrate/PROTOCOL_v1.md`).
+  QRNG scheduler → commit-reveal ledger → triple-null scoring →
+  anytime-valid e-process gate → Hedge fusion. **Shadow mode by protocol:
+  nothing in it stakes money.** The bridge lives in
+  `sportsbot/substrate_bridge/`:
+  - `sportsbot substrate-export` — bot predictions/outcomes → substrate
+    ingest schema (milestone 1: real-history backtest feed).
+  - `sportsbot weather-snapshot [--loop 3600]` — Kalshi weather-dailies
+    decision-time snapshot service, read-only (milestone 2).
+- **`maker/`** — paper-only tennis market-making research: live L2
+  capture + conservative queue-fill maker bot, and a pre-registered
+  parameter replay optimizer. See `maker/README.md`.
+
 ## Compliance
 
 - Polymarket main-CLOB **order placement is geoblocked from US IPs** (reads

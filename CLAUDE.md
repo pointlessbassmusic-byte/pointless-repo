@@ -21,6 +21,17 @@ mode; Kalshi client implements the same interface for the US-legal path.
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches), executor, arb, runner.
 - `sportsbot/backtest/` — walk-forward with side randomization.
+- `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
+  (bot-log export, Kalshi weather snapshots). Data only; never wires
+  substrate output into trading.
+- `substrate/` — Substrate/Echo certification engine, consolidated
+  VERBATIM from its own handoff. Read `substrate/HANDOFF.md` before
+  touching it. `substrate/PROTOCOL_v1.md` is FROZEN (hash-committed):
+  never edit it; parameter changes require a new v1.x per its amendment
+  policy. Shadow mode is non-negotiable — do not wire live staking.
+- `maker/` — standalone paper-only maker research scripts (L2 capture bot
+  + replay optimizer), kept as verbatim consolidations with self-tests
+  (`python3 maker/<file>.py --self-test`).
 
 ## Conventions
 

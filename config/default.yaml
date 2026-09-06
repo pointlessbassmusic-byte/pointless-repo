@@ -25,6 +25,8 @@ execution:
   order_ttl_seconds: 120    # cancel unfilled resting orders after this
   post_inside_spread: true  # improve best bid rather than crossing
   max_depth_fraction: 0.25  # take at most this share of visible book depth
+  min_entry_price: 0.15     # skip markets with mid outside this band
+  max_entry_price: 0.85
 
 risk:
   daily_loss_limit: 100.0        # stop for the day past this realized loss

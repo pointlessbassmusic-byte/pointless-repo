@@ -217,6 +217,41 @@ def status(config: str = CONFIG_OPT):
     console.print(f"kill switch: {ks or 'clear'}")
 
 
+@app.command("substrate-export")
+def substrate_export(config: str = CONFIG_OPT,
+                     out: str = typer.Option("data/substrate_events.csv"),
+                     resolve: bool = typer.Option(True, help="fetch outcomes for unbet markets")):
+    """Export bot predictions/outcomes to the substrate ingest.py schema
+    (substrate/ milestone 1)."""
+    cfg = _setup(config)
+    from sportsbot.bot.runner import build_exchange
+    from sportsbot.data.store import Store
+    from sportsbot.substrate_bridge import export_events_csv
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    data_client = build_exchange(cfg)[1] if resolve else None
+    summary = export_events_csv(store, out, data_client=data_client)
+    console.print(summary)
+
+
+@app.command("weather-snapshot")
+def weather_snapshot(config: str = CONFIG_OPT,
+                     loop: int = typer.Option(0, help="seconds between passes; 0 = once"),
+                     export: str = typer.Option("", help="also export ingest CSV to this path")):
+    """Kalshi weather-dailies decision-time snapshots (substrate milestone 2).
+    Read-only public data; shadow mode by protocol."""
+    _setup(config)
+    from sportsbot.substrate_bridge import WeatherSnapshotService
+
+    svc = WeatherSnapshotService()
+    if loop > 0:
+        svc.run_loop(interval_seconds=loop)
+    else:
+        console.print(svc.snapshot_once())
+    if export:
+        console.print(svc.export_ingest_csv(export))
+
+
 @app.command("reset-kill-switch")
 def reset_kill_switch(config: str = CONFIG_OPT):
     cfg = _setup(config)
