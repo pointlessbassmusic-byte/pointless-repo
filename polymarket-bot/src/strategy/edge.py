@@ -39,7 +39,11 @@ def build_signals(
     estimates: list[FairEstimate],
     quotes: dict[str, Quote],
     strategy_cfg: dict,
+    exclude_tokens: set[str] = frozenset(),
+    existing_exposure: float = 0.0,
 ) -> list[TradeSignal]:
+    """exclude_tokens: tokens with a live order already placed (never re-order);
+    existing_exposure: USD already committed, counted against max_total_exposure."""
     min_edge = float(strategy_cfg.get("min_edge", 0.04))
     kelly_fraction = float(strategy_cfg.get("kelly_fraction", 0.25))
     bankroll = float(strategy_cfg.get("bankroll_usd", 500))
@@ -64,6 +68,8 @@ def build_signals(
                 continue
 
         token_id = mkt.clob_token_ids[est.outcome_index]
+        if token_id in exclude_tokens:
+            continue
         q = quotes.get(token_id)
         if not q or q.ask is None:
             continue
@@ -92,9 +98,9 @@ def build_signals(
             )
         )
 
-    # best edges first, then enforce total exposure cap
+    # best edges first, then enforce total exposure cap (including already-open exposure)
     signals.sort(key=lambda s: s.edge, reverse=True)
-    capped, total = [], 0.0
+    capped, total = [], existing_exposure
     for s in signals:
         if total + s.stake_usd > max_total:
             continue

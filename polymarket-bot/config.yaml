@@ -13,6 +13,7 @@ sports:                # The Odds API sport keys to model
 odds:
   regions: us          # sportsbook regions for The Odds API
   min_books: 3         # require at least this many books for a consensus
+  cache_ttl_sec: 3600  # reuse odds this long — free tier is 500 requests/month
 
 model:
   blend_market_weight: 0.15   # weight given to Polymarket mid when blending fair value

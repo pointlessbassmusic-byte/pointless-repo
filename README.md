@@ -60,4 +60,14 @@ the server on every deploy.
 
 Both engines start in **dry-run mode** — they scan markets, compute edges, and log intended trades
 without placing real orders. Live trading requires `live: true` in the config **and** `--live` on the
-command line.
+command line. In live mode an engine never re-orders a market it already has a placed order on, and
+open exposure recorded in the database counts against `max_total_exposure` across restarts.
+
+## Calibration report
+
+After the engines have been scanning for a while, check whether the models beat the market:
+
+```bash
+cd polymarket-bot && python -m src.report   # or --days 14
+cd kalshi-engine  && python -m src.report
+```

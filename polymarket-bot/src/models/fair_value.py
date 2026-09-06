@@ -33,6 +33,29 @@ def _team_in_text(team: str, text_tokens: set[str]) -> bool:
     return bool(tt & text_tokens)
 
 
+def _team_position(team: str, text: str) -> int | None:
+    """Earliest character position at which any token of the team name appears in text."""
+    low = text.lower()
+    positions = []
+    for tok in _tokens(team):
+        m = re.search(rf"\b{re.escape(tok)}\b", low)
+        if m:
+            positions.append(m.start())
+    return min(positions) if positions else None
+
+
+def _subject_team(cons: dict[str, float], question: str) -> str | None:
+    """The team a Yes/No question is about. Both teams usually appear
+    ("Will the Chiefs beat the Bills?"), so take the one named earliest —
+    the grammatical subject — not just any team that matches."""
+    best_team, best_pos = None, None
+    for team in cons:
+        pos = _team_position(team, question)
+        if pos is not None and (best_pos is None or pos < best_pos):
+            best_team, best_pos = team, pos
+    return best_team
+
+
 @dataclass
 class FairEstimate:
     market: SportsMarket
@@ -74,18 +97,20 @@ def match_and_estimate(
 
         for idx, outcome in enumerate(mkt.outcomes):
             # map market outcome -> game team name
-            prob = None
+            prob, matched_team = None, None
             o_tokens = _tokens(outcome)
             for team, p in cons.items():
                 if _tokens(team) & o_tokens:
-                    prob = p
+                    prob, matched_team = p, team
                     break
-            # binary "Yes/No" markets: question names the team; Yes = named team wins
+            # binary "Yes/No" markets: Yes = the team the question is *about* wins.
+            # Both teams appear in "Will X beat Y?", so use the earliest-named one.
             if prob is None and outcome.lower() in ("yes", "no"):
-                for team, p in cons.items():
-                    if _team_in_text(team, _tokens(mkt.question)):
-                        prob = p if outcome.lower() == "yes" else 1 - p
-                        break
+                team = _subject_team(cons, mkt.question)
+                if team is not None:
+                    p = cons[team]
+                    prob = p if outcome.lower() == "yes" else 1 - p
+                    matched_team = team
             if prob is None:
                 continue
 
@@ -105,7 +130,10 @@ def match_and_estimate(
                     fair_prob=fair,
                     consensus_prob=prob,
                     matched_game=f"{game.away_team} @ {game.home_team}",
-                    n_books=len(game.book_odds),
+                    n_books=(
+                        sum(1 for b in game.book_odds if matched_team in b)
+                        if matched_team else len(game.book_odds)
+                    ),
                 )
             )
 

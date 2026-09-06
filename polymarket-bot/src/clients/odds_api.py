@@ -6,10 +6,11 @@ Free tier: 500 requests/month; each sport+region request costs 1.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import requests
+from ..http_util import retrying_session
 
 log = logging.getLogger(__name__)
 
@@ -27,15 +28,22 @@ class Game:
 
 
 class OddsApiClient:
-    def __init__(self, api_key: str, regions: str = "us"):
+    def __init__(self, api_key: str, regions: str = "us", cache_ttl_sec: float = 3600):
         self.api_key = api_key
         self.regions = regions
-        self.http = requests.Session()
+        self.cache_ttl_sec = cache_ttl_sec
+        self.http = retrying_session()
+        # sport_key -> (fetched_at_monotonic, games); every request costs quota
+        # (free tier: 500/month), so odds are reused across scan cycles until stale
+        self._cache: dict[str, tuple[float, list[Game]]] = {}
 
     def h2h_games(self, sport_key: str) -> list[Game]:
         if not self.api_key:
             log.warning("ODDS_API_KEY not set — skipping odds feed for %s", sport_key)
             return []
+        cached = self._cache.get(sport_key)
+        if cached and time.monotonic() - cached[0] < self.cache_ttl_sec:
+            return cached[1]
         r = self.http.get(
             f"{BASE}/sports/{sport_key}/odds",
             params={
@@ -48,6 +56,7 @@ class OddsApiClient:
         )
         if r.status_code == 401:
             log.error("The Odds API rejected the key (401)")
+            self._cache[sport_key] = (time.monotonic(), [])
             return []
         r.raise_for_status()
         remaining = r.headers.get("x-requests-remaining")
@@ -76,4 +85,5 @@ class OddsApiClient:
                 )
             )
         log.info("odds-api: %d games for %s", len(games), sport_key)
+        self._cache[sport_key] = (time.monotonic(), games)
         return games

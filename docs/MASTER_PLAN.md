@@ -66,5 +66,5 @@ Pipeline per cycle:
 - [ ] Calibration review: are fair probs beating market closes?
 - [ ] Turn on live mode with small bankroll caps
 - [ ] Add generators: injuries/news feed, weather (outdoor sports), line-movement momentum
-- [ ] Backtest harness over recorded scans
+- [x] Calibration/report harness over recorded scans (`python -m src.report` in each engine)
 - [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on

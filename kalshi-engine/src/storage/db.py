@@ -54,8 +54,26 @@ class Database:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+
+    def placed_tickers(self) -> set[str]:
+        """Tickers that already have a live order placed — never re-order the same market."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT ticker FROM orders WHERE status LIKE 'placed%'"
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def live_exposure(self, days: int = 30) -> float:
+        """USD committed to live orders recently; counts against max_total_exposure."""
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(stake_usd), 0) FROM orders"
+            " WHERE status LIKE 'placed%' AND ts >= datetime('now', ?)",
+            (f"-{int(days)} days",),
+        ).fetchone()
+        return float(row[0])
 
     def record_scan(self, n_markets: int, n_forecasts: int, n_signals: int) -> None:
         self.conn.execute(

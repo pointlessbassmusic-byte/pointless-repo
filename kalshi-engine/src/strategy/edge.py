@@ -30,7 +30,14 @@ def kelly_stake(fair: float, price: float, bankroll: float, fraction: float) -> 
     return max(0.0, f_star * fraction * bankroll)
 
 
-def build_signals(results: list[EnsembleResult], strategy_cfg: dict) -> list[TradeSignal]:
+def build_signals(
+    results: list[EnsembleResult],
+    strategy_cfg: dict,
+    exclude_tickers: set[str] = frozenset(),
+    existing_exposure: float = 0.0,
+) -> list[TradeSignal]:
+    """exclude_tickers: markets with a live order already placed (never re-order);
+    existing_exposure: USD already committed, counted against max_total_exposure."""
     min_edge = float(strategy_cfg.get("min_edge", 0.05))
     kelly_fraction = float(strategy_cfg.get("kelly_fraction", 0.25))
     bankroll = float(strategy_cfg.get("bankroll_usd", 500))
@@ -42,6 +49,8 @@ def build_signals(results: list[EnsembleResult], strategy_cfg: dict) -> list[Tra
     signals: list[TradeSignal] = []
     for res in results:
         m: Market = res.market
+        if m.ticker in exclude_tickers:
+            continue
         # YES side: pay the yes ask; NO side: pay (1 - yes_bid)
         candidates = []
         if m.yes_ask > 0:
@@ -71,7 +80,7 @@ def build_signals(results: list[EnsembleResult], strategy_cfg: dict) -> list[Tra
             break  # at most one side per market
 
     signals.sort(key=lambda s: s.edge, reverse=True)
-    capped, total = [], 0.0
+    capped, total = [], existing_exposure
     for s in signals:
         if total + s.stake_usd > max_total:
             continue

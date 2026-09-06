@@ -27,6 +27,21 @@ CREATE TABLE IF NOT EXISTS orders (
     shares REAL,
     status TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_orders_token_status ON orders (token_id, status);
+CREATE TABLE IF NOT EXISTS estimates (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    token_id TEXT NOT NULL,
+    question TEXT,
+    outcome TEXT,
+    matched_game TEXT,
+    fair_prob REAL,
+    consensus_prob REAL,
+    n_books INTEGER,
+    bid REAL,
+    ask REAL
+);
+CREATE INDEX IF NOT EXISTS idx_estimates_token_ts ON estimates (token_id, ts);
 """
 
 
@@ -38,6 +53,8 @@ class Database:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 
@@ -47,6 +64,41 @@ class Database:
             (_now(), n_markets, n_estimates, n_signals),
         )
         self.conn.commit()
+
+    def record_estimates(self, estimates, quotes) -> None:
+        """Snapshot every fair-value estimate + quote for later calibration analysis."""
+        ts = _now()
+        rows = []
+        for e in estimates:
+            token_id = e.market.clob_token_ids[e.outcome_index]
+            q = quotes.get(token_id)
+            rows.append((
+                ts, token_id, e.market.question, e.outcome_name, e.matched_game,
+                e.fair_prob, e.consensus_prob, e.n_books,
+                q.bid if q else None, q.ask if q else None,
+            ))
+        self.conn.executemany(
+            "INSERT INTO estimates (ts, token_id, question, outcome, matched_game,"
+            " fair_prob, consensus_prob, n_books, bid, ask) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+        self.conn.commit()
+
+    def placed_tokens(self) -> set[str]:
+        """Token ids that already have a live order placed — never order twice."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT token_id FROM orders WHERE status LIKE 'placed%'"
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def live_exposure(self, days: int = 7) -> float:
+        """USD committed to live orders recently; counts against max_total_exposure."""
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(stake_usd), 0) FROM orders"
+            " WHERE status LIKE 'placed%' AND ts >= datetime('now', ?)",
+            (f"-{int(days)} days",),
+        ).fetchone()
+        return float(row[0])
 
     def record_order(self, s, status: str) -> None:
         self.conn.execute(

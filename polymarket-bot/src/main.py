@@ -42,8 +42,15 @@ def run_cycle(cfg, gamma: GammaClient, clob: ClobClient, odds: OddsApiClient, ex
 
     token_ids = list({e.market.clob_token_ids[e.outcome_index] for e in estimates})
     quotes = clob.quotes(token_ids) if token_ids else {}
+    db.record_estimates(estimates, quotes)
 
-    signals = build_signals(estimates, quotes, cfg.strategy)
+    signals = build_signals(
+        estimates,
+        quotes,
+        cfg.strategy,
+        exclude_tokens=db.placed_tokens(),
+        existing_exposure=db.live_exposure(),
+    )
     db.record_scan(len(markets), len(estimates), len(signals))
     executor.execute(signals)
 
@@ -66,7 +73,11 @@ def main() -> None:
     db = Database(cfg.db_path)
     gamma = GammaClient()
     clob = ClobClient(cfg.polymarket_private_key, cfg.polymarket_funder)
-    odds = OddsApiClient(cfg.odds_api_key, regions=cfg.odds.get("regions", "us"))
+    odds = OddsApiClient(
+        cfg.odds_api_key,
+        regions=cfg.odds.get("regions", "us"),
+        cache_ttl_sec=float(cfg.odds.get("cache_ttl_sec", 3600)),
+    )
     executor = Executor(clob, db, live=live)
 
     while True:

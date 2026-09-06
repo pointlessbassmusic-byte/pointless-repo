@@ -47,3 +47,16 @@ def test_kelly_and_signals():
     res = ens.predict(make_market(0.5), Context())
     # fair == price → no signals
     assert build_signals([res], {"min_edge": 0.05}) == []
+
+
+def test_signals_skip_already_ordered_and_respect_open_exposure():
+    from src.substrate.ensemble import EnsembleResult
+
+    m = make_market(0.60)
+    m.yes_bid, m.yes_ask = 0.59, 0.61
+    res = EnsembleResult(market=m, prob_yes=0.75, total_confidence=1.0, forecasts=[])
+
+    assert build_signals([res], {}) != []
+    assert build_signals([res], {}, exclude_tickers={m.ticker}) == []
+    # default max_total_exposure=200; nearly all of it already committed
+    assert build_signals([res], {}, existing_exposure=199.0) == []

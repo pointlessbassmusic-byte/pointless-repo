@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 
 import requests
 
+from ..http_util import retrying_session
+
 log = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
@@ -69,7 +71,7 @@ def _parse_market(m: dict, event_title: str = "", game_start: datetime | None = 
 
 class GammaClient:
     def __init__(self, session: requests.Session | None = None):
-        self.http = session or requests.Session()
+        self.http = session or retrying_session()
 
     def _get(self, path: str, **params) -> list | dict:
         r = self.http.get(f"{GAMMA_BASE}{path}", params=params, timeout=30)

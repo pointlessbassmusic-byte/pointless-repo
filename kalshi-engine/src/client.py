@@ -15,9 +15,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+
+from .http_util import retrying_session
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +78,8 @@ class KalshiClient:
     def __init__(self, api_key_id: str = "", private_key_path: str = "", demo: bool = True):
         self.base = DEMO_BASE if demo else PROD_BASE
         self.api_key_id = api_key_id
-        self.http = requests.Session()
+        # GET-only retries: order placement (POST) must never auto-retry
+        self.http = retrying_session()
         self._private_key = None
         if private_key_path:
             try:

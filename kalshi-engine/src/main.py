@@ -70,9 +70,10 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
     ]
     log.info("%d markets after filters", len(markets))
 
-    # record prices, build context with history
-    db.record_prices({m.ticker: m.mid for m in markets})
+    # build context from *prior* scans' history, then record this scan's prices —
+    # recording first would make "N scans ago" off by one for every generator
     ctx = Context(price_history=db.price_history([m.ticker for m in markets]))
+    db.record_prices({m.ticker: m.mid for m in markets})
 
     results, n_forecasts = [], 0
     for m in markets:
@@ -82,7 +83,12 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
             n_forecasts += len(res.forecasts)
             db.record_forecasts(m.ticker, res.forecasts)
 
-    signals = build_signals(results, cfg.strategy)
+    signals = build_signals(
+        results,
+        cfg.strategy,
+        exclude_tickers=db.placed_tickers(),
+        existing_exposure=db.live_exposure(),
+    )
     db.record_scan(len(markets), n_forecasts, len(signals))
     executor.execute(signals)
 

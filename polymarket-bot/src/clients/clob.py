@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-import requests
+from ..http_util import retrying_session
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +32,8 @@ class ClobClient:
     """Thin read-only wrapper; lazily builds an authed py-clob-client for live orders."""
 
     def __init__(self, private_key: str = "", funder: str = ""):
-        self.http = requests.Session()
+        # /prices is a read-only POST, so POST retries are safe here
+        self.http = retrying_session(allow_post=True)
         self._private_key = private_key
         self._funder = funder
         self._trader = None  # authed py_clob_client.client.ClobClient
