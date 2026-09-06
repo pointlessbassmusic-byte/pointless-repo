@@ -203,10 +203,42 @@ class Runner:
             log.exception("probable-pitcher fetch failed; predicting without SP")
             return {}
 
+    def _settle_resolved(self) -> int:
+        """Settle open bets whose markets have resolved. Returns count settled."""
+        settled = 0
+        open_bets = self.store.open_bets()
+        by_market: dict[str, list[dict]] = {}
+        for b in open_bets:
+            by_market.setdefault(b["market_id"], []).append(b)
+        for market_id, bets in by_market.items():
+            try:
+                yes_won = self.data_client.get_resolution(market_id)
+            except Exception:
+                log.exception("resolution check failed for %s", market_id)
+                continue
+            if yes_won is None:
+                continue
+            snap = self.store.last_snapshot(market_id)
+            for b in bets:
+                side_won = (b["side"] == "yes") == yes_won
+                pnl = round((b["size"] - b["stake"]) if side_won else -b["stake"], 2)
+                closing = None
+                if snap and snap.get("bid") is not None and snap.get("ask") is not None:
+                    mid = (snap["bid"] + snap["ask"]) / 2.0
+                    closing = mid if b["side"] == "yes" else 1.0 - mid
+                self.store.settle_bet(b["id"], outcome=1 if side_won else 0,
+                                      pnl=pnl, closing_price=closing)
+                settled += 1
+            self.executor.settle_paper(market_id, yes_won)
+            log.info("settled %s: yes_won=%s (%d bets)", market_id, yes_won, len(bets))
+        return settled
+
     def cycle(self) -> dict:
         """One scan cycle. Returns a summary dict."""
         summary = {"markets": 0, "scanned": 0, "intents": 0, "orders": 0,
-                   "arbs": 0, "blocked": None}
+                   "arbs": 0, "settled": 0, "blocked": None}
+        self.executor.reconcile_open_orders()
+        summary["settled"] = self._settle_resolved()
         ok, reason = self.risk.check_global()
         if not ok:
             log.warning("cycle blocked by risk: %s", reason)
@@ -260,6 +292,15 @@ class Runner:
                 sm.prediction.prob_raw, sm.prediction.features,
             )
 
+            # Arb sweep runs for every quoted market, independent of whether
+            # the model produces a bet.
+            arb = find_bundle_arb(sm.market, quote, self.fee_fn)
+            if arb:
+                summary["arbs"] += 1
+                log.info("ARB FOUND (log-only): %s profit=%.3f/pair x %.0f",
+                         arb.description, arb.profit_per_pair, arb.max_pairs)
+                self.store.set_kv(f"arb:{sm.market.market_id}", arb.__dict__)
+
             intent = evaluate_market(
                 sm.market, quote, sm.prediction, self.staking,
                 self.strategy, self.fee_fn, exposure,
@@ -271,18 +312,11 @@ class Runner:
             if not ok:
                 log.info("intent vetoed (%s): %s", reason, intent.market.slug)
                 continue
-            order = self.executor.submit(intent)
+            order = self.executor.submit(intent, quote=quote)
             if order.status.value not in ("rejected",):
                 summary["orders"] += 1
                 # keep exposure fresh within the cycle
                 exposure = self.store.exposure_by()
-
-            arb = find_bundle_arb(sm.market, quote, self.fee_fn)
-            if arb:
-                summary["arbs"] += 1
-                log.info("ARB FOUND (log-only): %s profit=%.3f/pair x %.0f",
-                         arb.description, arb.profit_per_pair, arb.max_pairs)
-                self.store.set_kv(f"arb:{sm.market.market_id}", arb.__dict__)
 
         canceled = self.executor.expire_stale_orders()
         if canceled:

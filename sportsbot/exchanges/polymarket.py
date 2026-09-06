@@ -238,6 +238,21 @@ class PolymarketClient(ExchangeClient):
             asks=asks,
         )
 
+    def get_resolution(self, market_id: str) -> Optional[bool]:
+        """YES (= outcomes[0] / tokens[0]) winner flag from the CLOB market.
+
+        CLOB tokens are index-aligned with Gamma outcomes, so tokens[0] is
+        the side we call YES. Returns None while unresolved.
+        """
+        try:
+            m = self._get(f"{CLOB_BASE}/markets/{market_id}")
+        except httpx.HTTPError:
+            return None
+        tokens = m.get("tokens") or []
+        if len(tokens) != 2 or not any(t.get("winner") for t in tokens):
+            return None
+        return bool(tokens[0].get("winner"))
+
     # ------------------------------------------------------------------
     # Trading (official py-sdk, lazy)
     # ------------------------------------------------------------------

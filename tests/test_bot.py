@@ -213,6 +213,33 @@ class TestPaperExchange:
         assert pnl == pytest.approx(100 * (1 - 0.50))
         assert paper.get_balance() == pytest.approx(1000.0 + pnl - 0.0)
 
+    def test_no_side_fill_uses_yes_frame_book(self):
+        # Regression: NO orders must walk (1 - yes_bid), never a double-flip.
+        # YES book bid .79/ask .81 -> NO costs 0.21; a NO limit at 0.25 fills
+        # at 0.21, and a NO limit at 0.15 must NOT fill.
+        from sportsbot.core.types import Order, OrderType
+
+        paper = PaperExchange(starting_balance=1000.0)
+        q = _quote(bid=0.79, ask=0.81, depth=50.0)
+        order = Order(market_id="m1", token_id="t2", side=Side.NO,
+                      order_type=OrderType.LIMIT, price=0.25, size=50.0)
+        placed = paper.place_order(order, quote=q)
+        assert placed.filled == 50.0
+        assert paper.fills[-1].price == pytest.approx(0.21)
+        order2 = Order(market_id="m1", token_id="t2", side=Side.NO,
+                       order_type=OrderType.LIMIT, price=0.15, size=50.0)
+        placed2 = paper.place_order(order2, quote=q)
+        assert placed2.filled == 0.0
+
+    def test_no_quote_means_no_fill(self):
+        from sportsbot.core.types import Order, OrderStatus, OrderType
+
+        paper = PaperExchange(starting_balance=1000.0)
+        order = Order(market_id="m1", token_id="t1", side=Side.YES,
+                      order_type=OrderType.LIMIT, price=0.99, size=10.0)
+        placed = paper.place_order(order, quote=None)
+        assert placed.status == OrderStatus.OPEN and placed.filled == 0.0
+
     def test_insufficient_balance_rejected(self):
         paper = PaperExchange(starting_balance=10.0)
         from sportsbot.core.types import Order, OrderStatus, OrderType

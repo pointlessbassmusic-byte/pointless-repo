@@ -49,6 +49,11 @@ class ExchangeClient(abc.ABC):
     def get_balance(self) -> float:
         """Available spendable balance (USDC / USD)."""
 
+    def get_resolution(self, market_id: str) -> Optional[bool]:
+        """True if YES resolved as winner, False if NO, None if unresolved
+        (or the venue doesn't support this query)."""
+        return None
+
     # --- convenience -----------------------------------------------------
     def buy_price_for(self, quote: MarketQuote, side: Side) -> Optional[float]:
         """Price to buy `side` at, from a YES-side book: YES buys at the ask,

@@ -175,7 +175,26 @@ class KalshiClient(ExchangeClient):
             return None
         return float(Decimal(str(v)))
 
+    @staticmethod
+    def _ts(m: dict, *fields: str):
+        from datetime import datetime, timezone
+
+        for f in fields:
+            v = m.get(f)
+            if not v:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        return None
+
     def _to_market_info(self, m: dict, sport: Sport, series: str) -> MarketInfo:
+        # Kalshi sports match markets close at (or just after) game start, so
+        # close_time is the best available start proxy for the pre-match
+        # cutoff; the risk layer falls back to it when start_time is unknown.
+        close_time = self._ts(m, "close_time", "expected_expiration_time")
         return MarketInfo(
             exchange=Exchange.KALSHI,
             market_id=m.get("ticker", ""),
@@ -186,7 +205,7 @@ class KalshiClient(ExchangeClient):
             home=m.get("yes_sub_title") or m.get("subtitle") or None,
             away=m.get("no_sub_title") or None,
             start_time=None,
-            close_time=None,
+            close_time=close_time,
             active=m.get("status") in ("active", "open"),
             tick_size=0.01,
             min_order_size=1.0,
@@ -225,6 +244,22 @@ class KalshiClient(ExchangeClient):
             bids=bids,
             asks=asks,
         )
+
+    def get_resolution(self, market_id: str) -> Optional[bool]:
+        """True/False once the market settles with a yes/no result."""
+        try:
+            data = self._request("GET", f"{API_ROOT}/markets/{market_id}")
+        except httpx.HTTPError:
+            return None
+        m = data.get("market", data)
+        if m.get("status") not in ("settled", "finalized", "determined"):
+            return None
+        result = (m.get("result") or "").lower()
+        if result == "yes":
+            return True
+        if result == "no":
+            return False
+        return None
 
     # ------------------------------------------------------------------
     # Trading (Create Order V2)

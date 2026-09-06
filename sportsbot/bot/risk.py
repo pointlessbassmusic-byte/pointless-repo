@@ -108,11 +108,15 @@ class RiskManager:
             age = (datetime.now(timezone.utc) - quote.ts).total_seconds()
             if age > self.cfg.stale_quote_seconds:
                 return False, f"stale quote ({age:.0f}s)"
-            start = intent.market.start_time
-            if start is not None:
-                mins = (start - datetime.now(timezone.utc)).total_seconds() / 60.0
-                if mins < self.cfg.min_minutes_before_start:
-                    return False, f"too close to start ({mins:.0f}m)"
+            # close_time is the fallback start proxy (Kalshi sports markets
+            # close at game start); with neither known we refuse the bet
+            # rather than trade blind into a possibly-live match.
+            start = intent.market.start_time or intent.market.close_time
+            if start is None:
+                return False, "no start/close time known"
+            mins = (start - datetime.now(timezone.utc)).total_seconds() / 60.0
+            if mins < self.cfg.min_minutes_before_start:
+                return False, f"too close to start ({mins:.0f}m)"
             if not (0.0 < intent.price < 1.0) or intent.size <= 0:
                 return False, "malformed intent"
             return True, "ok"

@@ -34,7 +34,6 @@ mlb = [
 ]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
     "ruff>=0.4",
     "mypy>=1.9",
 ]
@@ -54,4 +53,3 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"

@@ -15,9 +15,12 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from sportsbot.core.books import walk_book
 from sportsbot.core.calibration import blend_with_market
 from sportsbot.core.staking import StakingConfig, decide_stake
 from sportsbot.core.types import BetIntent, MarketInfo, MarketQuote, Prediction, Side
+
+__all__ = ["StrategyConfig", "evaluate_market", "walk_book"]
 
 log = logging.getLogger(__name__)
 
@@ -36,21 +39,6 @@ class StrategyConfig:
     def __post_init__(self) -> None:
         self.min_edge_override = self.min_edge_override or {}
         self.max_stake_override = self.max_stake_override or {}
-
-
-def walk_book(levels: list[tuple[float, float]], max_price: float,
-              max_size: float) -> tuple[float, float]:
-    """Average fill price and fillable size buying up to `max_price` for up
-    to `max_size` shares against ascending (price, size) levels."""
-    filled = 0.0
-    cost = 0.0
-    for price, size in levels:
-        if price > max_price or filled >= max_size:
-            break
-        take = min(size, max_size - filled)
-        filled += take
-        cost += take * price
-    return (cost / filled if filled else 0.0), filled
 
 
 def evaluate_market(

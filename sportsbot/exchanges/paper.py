@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
+from sportsbot.core.books import buy_levels, walk_book
 from sportsbot.core.types import (
     Exchange,
     Fill,
@@ -57,37 +58,28 @@ class PaperExchange(ExchangeClient):
             raise RuntimeError("paper exchange has no data client")
         return self.data_client.get_quote(market)
 
+    def get_resolution(self, market_id: str) -> Optional[bool]:
+        if self.data_client is None:
+            return None
+        return self.data_client.get_resolution(market_id)
+
     # --- simulated execution -------------------------------------------
     def place_order(self, order: Order, quote: Optional[MarketQuote] = None) -> Order:
+        """`quote` must be the YES-frame book the caller just evaluated
+        (Executor forwards it). Without a quote the order simply rests —
+        conservatively, nothing is assumed to fill."""
         order.exchange = Exchange.PAPER
         order.order_id = f"paper-{order.client_id[:12]}"
 
-        if quote is None and self.data_client is not None:
-            try:
-                quote = self.get_quote(
-                    MarketInfo(
-                        exchange=self.exchange,
-                        market_id=order.market_id,
-                        yes_token_id=order.token_id,
-                    )
-                )
-            except Exception as exc:
-                log.warning("paper: no quote for %s (%s); order rests", order.market_id, exc)
+        if quote is None:
+            log.warning("paper: no quote provided for %s; order rests unfilled",
+                        order.market_id)
 
         filled = 0.0
         cost = 0.0
         if quote is not None:
-            # Buying YES walks the YES asks; buying NO walks (1 - bid) levels.
-            if order.side == Side.YES:
-                levels = [(lvl.price, lvl.size) for lvl in quote.asks]
-            else:
-                levels = [(round(1.0 - lvl.price, 6), lvl.size) for lvl in quote.bids]
-            for price, size in levels:
-                if price > order.price or filled >= order.size:
-                    break
-                take = min(size, order.size - filled)
-                filled += take
-                cost += take * price
+            avg, filled = walk_book(buy_levels(quote, order.side), order.price, order.size)
+            cost = avg * filled
 
         if filled > 0:
             fee = self.fee_fn(cost / filled, filled)

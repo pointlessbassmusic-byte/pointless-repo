@@ -174,6 +174,13 @@ class Store:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def last_snapshot(self, market_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT * FROM market_snapshots WHERE market_id=? ORDER BY id DESC LIMIT 1",
+            (market_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def exposure_by(self) -> dict:
         """Open (unsettled) cost-basis exposure: total, per sport, per market."""
         rows = self.open_bets()

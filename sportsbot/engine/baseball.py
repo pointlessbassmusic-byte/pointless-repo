@@ -23,9 +23,13 @@ from sportsbot.engine.base import EventInput, SportModel
 class PitcherBook:
     """Per-pitcher Elo-point adjustment, learned from starts.
 
-    After each start: adj += k * (outcome - expected) * scale, capped. A hot
-    starter drifts positive; expected uses the team-level prediction so the
-    pitcher only absorbs residual signal.
+    After each start: adj += k * (outcome - expected), capped. A hot starter
+    drifts positive; expected uses the team-level prediction so the pitcher
+    only absorbs residual signal. With k=8 a persistent +0.1 residual edge
+    converges to ~+25-30 Elo over a season of starts, and an ace-vs-scrub
+    spread tops out near the +-60 cap (~8-9 prob points) — in line with the
+    5-10 point market impact of an ace, while a couple of noisy starts move
+    a pitcher only ~10 points.
     """
 
     def __init__(self, k: float = 8.0, cap: float = 60.0) -> None:
@@ -43,7 +47,7 @@ class PitcherBook:
         if not name:
             return
         cur = self.adj.get(name, 0.0)
-        cur += self.k * (outcome - expected) * 4.0  # 4 Elo pts per full residual win
+        cur += self.k * (outcome - expected)
         self.adj[name] = max(-self.cap, min(self.cap, cur))
         self.starts[name] = self.starts.get(name, 0) + 1
 
