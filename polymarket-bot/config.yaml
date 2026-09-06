@@ -1,0 +1,33 @@
+# Polymarket sports betting bot configuration
+
+live: false            # master switch; must ALSO pass --live on the CLI to trade
+scan_interval_sec: 900 # 15 min between scan cycles
+
+sports:                # The Odds API sport keys to model
+  - americanfootball_nfl
+  - basketball_nba
+  - baseball_mlb
+  - icehockey_nhl
+  - soccer_epl
+
+odds:
+  regions: us          # sportsbook regions for The Odds API
+  min_books: 3         # require at least this many books for a consensus
+
+model:
+  blend_market_weight: 0.15   # weight given to Polymarket mid when blending fair value
+
+strategy:
+  min_edge: 0.04              # fair_prob - ask must exceed this to buy
+  kelly_fraction: 0.25        # quarter-Kelly
+  bankroll_usd: 500           # bankroll used for Kelly sizing
+  max_stake_per_market: 50    # USD cap per market
+  max_total_exposure: 250     # USD cap across all open intents in a cycle
+  min_liquidity: 500          # skip markets with less liquidity (USD)
+  min_hours_to_event: 1       # avoid in-play / about-to-start chaos
+  max_hours_to_event: 96      # only near-term games (fresher odds)
+  min_price: 0.05             # skip extreme longshots/favorites
+  max_price: 0.95
+
+storage:
+  db_path: data/bot.db

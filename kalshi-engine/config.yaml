@@ -1,0 +1,42 @@
+# Kalshi predictions engine configuration
+
+live: false             # master switch; must ALSO pass --live on the CLI to trade
+use_demo: true          # target demo-api.kalshi.co (paper exchange) until proven
+scan_interval_sec: 900
+
+markets:
+  statuses: [open]
+  # Only scan these series prefixes; empty list = scan everything open
+  series_whitelist: []       # e.g. [KXHIGHNY, KXBTC, KXNBA]
+  max_markets_per_scan: 500
+  min_volume: 100            # contracts traded; skip dead markets
+  max_days_to_expiry: 30
+
+substrate:
+  generators:                # which signal generators are active
+    market_implied:
+      enabled: true
+      confidence: 0.5
+    mean_reversion:
+      enabled: true
+      confidence: 0.3
+      lookback_scans: 8      # compare vs. price N scans ago
+      overreaction_threshold: 0.10
+      reversion_factor: 0.5
+    time_decay:
+      enabled: true
+      confidence: 0.2
+      horizon_hours: 48      # only near expiry
+      drift_strength: 0.15
+
+strategy:
+  min_edge: 0.05
+  kelly_fraction: 0.25
+  bankroll_usd: 500
+  max_stake_per_market: 40
+  max_total_exposure: 200
+  min_price: 0.05
+  max_price: 0.95
+
+storage:
+  db_path: data/engine.db
