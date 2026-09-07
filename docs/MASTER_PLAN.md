@@ -76,4 +76,12 @@ Pipeline per cycle:
       detection with fee model and suspect-match quarantine (detect-only)
 - [x] Risk gate in both engines: kill-switch file + daily realized-loss circuit breaker
 - [x] Repo Claude skills: `pre-live-gate`, `engine-health`
+- [x] Momentum generator (steady line-movement drift; complement of mean-reversion)
+- [x] Replay backtester (`python -m src.backtest` in kalshi-engine): re-runs the substrate
+      over recorded price history and Brier-scores every generator against real outcomes —
+      offline parameter tuning with no API calls
+- [ ] BEFORE GOING LIVE on Polymarket: migrate the live order path off `py-clob-client`
+      (dormant on PyPI since 2026-02) to the actively maintained `polymarket-client` SDK
+      (verified 2026-09: latest release 3 days old). Dry-run is unaffected — the import
+      is lazy and only fires with live: true + --live.
 - [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on

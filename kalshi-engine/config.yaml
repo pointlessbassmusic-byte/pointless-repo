@@ -29,6 +29,14 @@ substrate:
       lookback_scans: 8      # compare vs. price N scans ago
       overreaction_threshold: 0.10
       reversion_factor: 0.5
+    momentum:
+      enabled: true
+      confidence: 0.25
+      lookback_scans: 6        # steady drift over this many scans
+      min_total_move: 0.03     # total drift required
+      max_step: 0.05           # any single jump bigger = news shock, not drift
+      min_consistency: 0.7     # fraction of steps agreeing with the drift
+      continuation_factor: 0.4 # forecast drift continuing by this fraction
     time_decay:
       enabled: true
       confidence: 0.2

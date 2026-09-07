@@ -105,3 +105,10 @@ After the engines have been scanning for a while, check whether the models beat 
 cd polymarket-bot && python -m src.report   # or --days 14
 cd kalshi-engine  && python -m src.report
 ```
+
+The Kalshi engine can also replay all recorded price history through the substrate
+offline — tune generator parameters in `config.yaml` and re-score instantly:
+
+```bash
+cd kalshi-engine && python -m src.backtest
+```

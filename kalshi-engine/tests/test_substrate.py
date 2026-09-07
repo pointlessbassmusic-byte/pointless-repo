@@ -140,3 +140,42 @@ def test_risk_gate_kill_switch_and_daily_loss(tmp_path):
     (tmp_path / "KILL").touch()
     ok, reason = gate.check()
     assert not ok and "kill switch" in reason
+
+
+def test_momentum_follows_steady_drift_only():
+    from src.substrate.generators.momentum import Momentum
+
+    gen = Momentum({"confidence": 0.25, "lookback_scans": 6, "min_total_move": 0.03,
+                    "max_step": 0.05, "min_consistency": 0.7, "continuation_factor": 0.4})
+    m = make_market(0.56)
+    steady = [(f"t{i}", 0.50 + 0.01 * i) for i in range(6)]  # 0.50 → 0.55
+    f = gen.forecast(m, Context(price_history={m.ticker: steady}))
+    assert f is not None and f.prob_yes > 0.56
+
+    # one 15-cent jump is a news shock, not drift
+    shock = [("t0", 0.40), ("t1", 0.40), ("t2", 0.55), ("t3", 0.55), ("t4", 0.55), ("t5", 0.55)]
+    assert gen.forecast(m, Context(price_history={m.ticker: shock})) is None
+
+    # choppy back-and-forth has no direction to follow
+    chop = [("t0", 0.52), ("t1", 0.56), ("t2", 0.52), ("t3", 0.56), ("t4", 0.52), ("t5", 0.56)]
+    assert gen.forecast(m, Context(price_history={m.ticker: chop})) is None
+
+
+def test_backtest_replay_scores_against_outcome(tmp_path):
+    from src.backtest import replay
+    from src.storage.db import Database
+    from src.substrate.ensemble import Ensemble
+
+    db = Database(tmp_path / "t.db")
+    # a market drifting to a YES resolution, one scan at a time
+    for i, mid in enumerate([0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.97]):
+        db.conn.execute("INSERT INTO prices (ts, ticker, mid) VALUES (?,?,?)",
+                        (f"2026-01-0{i + 1}T00:00:00+00:00", "TICK", mid))
+    db.conn.commit()
+
+    ens = Ensemble([MarketImplied({"confidence": 0.5})])
+    scores = replay(db, ens, min_scans=3)
+    assert scores["ensemble"].n > 0
+    assert scores["market (baseline)"].n == scores["ensemble"].n
+    # market-implied == baseline here, so their Brier must match
+    assert abs(scores["ensemble"].brier - scores["market (baseline)"].brier) < 1e-9
