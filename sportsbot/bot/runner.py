@@ -73,12 +73,14 @@ def load_models(cfg: dict, ratings_dir: str) -> dict[Sport, Any]:
             home_advantage=float(sports_cfg["baseball"].get("home_advantage_elo", 24.0)),
             rest_per_day=float(sports_cfg["baseball"].get("rest_advantage_elo", 2.3)),
             sp_enabled=bool(sports_cfg["baseball"].get("sp_enabled", True)),
+            prob_shrink=float(sports_cfg["baseball"].get("prob_shrink", 0.8)),
         )
         _try_load(b, os.path.join(ratings_dir, "baseball.json"))
         models[Sport.BASEBALL] = b
     if sports_cfg.get("table_tennis", {}).get("enabled", True):
         t = TableTennisModel(
             min_matches=int(sports_cfg["table_tennis"].get("min_matches", 8)),
+            prob_shrink=float(sports_cfg["table_tennis"].get("prob_shrink", 0.5)),
         )
         _try_load(t, os.path.join(ratings_dir, "tabletennis.json"))
         models[Sport.TABLE_TENNIS] = t

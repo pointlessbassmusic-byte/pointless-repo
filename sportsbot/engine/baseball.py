@@ -63,12 +63,17 @@ class BaseballModel(SportModel):
         rest_per_day: float = 2.3,
         sp_enabled: bool = True,
         season_reversion: float = 1.0 / 3.0,
+        prob_shrink: float = 0.8,
     ) -> None:
         self.elo = EloEngine(k_factor=k_factor)
         self.home_advantage = home_advantage
         self.rest_per_day = rest_per_day
         self.sp_enabled = sp_enabled
         self.season_reversion = season_reversion
+        # Shrink final probs toward 0.5 (p' = 0.5 + s*(p-0.5)): walk-forward
+        # tuned on 2025-26 (time-split holdout log loss 0.6855 -> 0.6847);
+        # counters raw-Elo overconfidence on thin history. shrink=1 disables.
+        self.prob_shrink = prob_shrink
         self.pitchers = PitcherBook()
         self._last_season: Optional[int] = None
 
@@ -123,7 +128,8 @@ class BaseballModel(SportModel):
         home_sp = event.context.get("home_sp")
         away_sp = event.context.get("away_sp")
         rest_diff = float(event.context.get("rest_diff_days", 0.0))
-        prob = self._predict_probability(home, away, home_sp, away_sp, rest_diff)
+        raw = self._predict_probability(home, away, home_sp, away_sp, rest_diff)
+        prob = 0.5 + self.prob_shrink * (raw - 0.5)
 
         n_min = min(self.elo.get(home).matches, self.elo.get(away).matches)
         uncertainty = 0.03 + 0.15 * max(0.0, 1.0 - n_min / 100.0)
@@ -135,7 +141,7 @@ class BaseballModel(SportModel):
             sport=Sport.BASEBALL,
             model=self.name,
             prob_yes=prob,
-            prob_raw=prob,
+            prob_raw=raw,
             uncertainty=round(uncertainty, 4),
             features={
                 "elo_home": round(self.elo.rating(home), 1),

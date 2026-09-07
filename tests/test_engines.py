@@ -61,6 +61,15 @@ class TestTennisModel:
         m2.load(path)
         assert m2.overall.rating("alpha") == pytest.approx(m.overall.rating("alpha"))
 
+    def test_download_url_shape(self):
+        # Regression: Sackmann files are <tour>_matches_<year>.csv, not
+        # <repo>_matches_<year>.csv (the old template silently trained on
+        # nothing).
+        from sportsbot.data.tennis_data import RAW_BASE
+
+        url = RAW_BASE.format(repo="tennis_atp", tour="atp", year=2024)
+        assert url.endswith("/tennis_atp/master/atp_matches_2024.csv")
+
     def test_parse_score(self):
         share, ret = parse_score("6-4 3-6 7-6(5)")
         assert share == pytest.approx(16 / 32)
@@ -124,7 +133,7 @@ class TestTableTennisModel:
         ]
         m.fit(hist)
         pred = m.predict(EventInput(sport=Sport.TABLE_TENNIS, home="ivan", away="petro"))
-        assert pred.prob_yes > 0.7
+        assert pred.prob_yes > 0.62  # shrink=0.5 caps confidence
         stranger = m.predict(EventInput(sport=Sport.TABLE_TENNIS, home="ivan", away="ghost"))
         assert stranger.uncertainty > pred.uncertainty
 

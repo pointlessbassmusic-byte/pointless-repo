@@ -22,7 +22,9 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-RAW_BASE = "https://raw.githubusercontent.com/JeffSackmann/{repo}/master/{repo}_matches_{year}.csv"
+# File naming inside the repos is <tour>_matches_<year>.csv (atp_matches_2024.csv),
+# NOT <repo>_matches_<year>.csv. The repos' default branch is master.
+RAW_BASE = "https://raw.githubusercontent.com/JeffSackmann/{repo}/master/{tour}_matches_{year}.csv"
 
 SURFACES = ("Hard", "Clay", "Grass", "Carpet")
 
@@ -75,18 +77,24 @@ def download_year(tour: str, year: int, cache_dir: str = "data/raw/tennis",
     """Fetch one year of one tour ('atp'|'wta'); returns local path or None."""
     repo = f"tennis_{tour}"
     os.makedirs(cache_dir, exist_ok=True)
-    path = os.path.join(cache_dir, f"{repo}_matches_{year}.csv")
+    path = os.path.join(cache_dir, f"{tour}_matches_{year}.csv")
     if os.path.exists(path) and not force:
         return path
-    url = RAW_BASE.format(repo=repo, year=year)
-    try:
-        resp = httpx.get(url, timeout=timeout, follow_redirects=True)
-        if resp.status_code == 404:
-            log.info("no data for %s %s", tour, year)
-            return None
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        log.error("tennis download failed %s %s: %s", tour, year, exc)
+    url = RAW_BASE.format(repo=repo, tour=tour, year=year)
+    resp = None
+    for candidate in (url, url.replace("/master/", "/main/")):
+        try:
+            resp = httpx.get(candidate, timeout=timeout, follow_redirects=True)
+            if resp.status_code == 404:
+                resp = None
+                continue
+            resp.raise_for_status()
+            break
+        except httpx.HTTPError as exc:
+            log.error("tennis download failed %s %s: %s", tour, year, exc)
+            resp = None
+    if resp is None:
+        log.info("no data for %s %s", tour, year)
         return None
     with open(path, "wb") as fh:
         fh.write(resp.content)

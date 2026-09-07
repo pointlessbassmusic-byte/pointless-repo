@@ -52,12 +52,14 @@ sports:
     home_advantage_elo: 24.0
     rest_advantage_elo: 2.3     # per rest-day differential, capped
     sp_enabled: true            # starting-pitcher adjustment
+    prob_shrink: 0.8            # shrink probs toward 0.5 (walk-forward tuned)
   table_tennis:
     enabled: true
     best_of_default: 5
     min_edge_override: 0.05     # softer markets but fixing risk: demand more edge
     max_stake_override: 20.0
     min_matches: 8
+    prob_shrink: 0.5             # walk-forward tuned; TT model shows no edge yet — see engine docstring
 
 storage:
   sqlite_path: data/sportsbot.sqlite

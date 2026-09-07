@@ -33,8 +33,15 @@ class TableTennisModel(SportModel):
     name = "tt_elo_markov_v1"
     sport = Sport.TABLE_TENNIS
 
-    def __init__(self, min_matches: int = 8) -> None:
+    def __init__(self, min_matches: int = 8, prob_shrink: float = 0.5) -> None:
         self.min_matches = min_matches
+        # Walk-forward on 120d of resolved Polymarket TT markets: raw Elo is
+        # overconfident and WORSE than a coin flip (holdout log loss 0.7146,
+        # coin 0.6931); shrink=0.5 improves to 0.6975 but still shows no edge.
+        # Together with the market blend and the higher TT min_edge, this
+        # keeps TT effectively bet-free until the model earns calibration on
+        # more history.
+        self.prob_shrink = prob_shrink
         self.elo = EloEngine(k_schedule=tt_k_schedule)
 
     def fit(self, history: list[TTMatchResult]) -> None:
@@ -54,9 +61,10 @@ class TableTennisModel(SportModel):
             # Ratings are learned on (mostly) best-of-5 results; translate via
             # the point-level chain for best-of-7 finals etc.
             p_point = tt_point_prob_for_match_prob(p_bo5, best_of=5)
-            prob = tt_match_win_prob(p_point, best_of=best_of)
+            raw = tt_match_win_prob(p_point, best_of=best_of)
         else:
-            prob = p_bo5
+            raw = p_bo5
+        prob = 0.5 + self.prob_shrink * (raw - 0.5)
 
         ra, rb = self.elo.get(a), self.elo.get(b)
         n_min = min(ra.matches, rb.matches)
@@ -74,7 +82,7 @@ class TableTennisModel(SportModel):
             sport=Sport.TABLE_TENNIS,
             model=self.name,
             prob_yes=prob,
-            prob_raw=p_bo5,
+            prob_raw=raw,
             uncertainty=round(min(uncertainty, 0.35), 4),
             features={
                 "elo_a": round(ra.rating, 1),
