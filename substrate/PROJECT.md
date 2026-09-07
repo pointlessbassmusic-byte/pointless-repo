@@ -39,10 +39,22 @@ Deps: numpy + matplotlib only. Use `MPLBACKEND=Agg` on headless boxes.
 
 ## Milestones (from the handoff, in order)
 
-1. **Real-history backtest** — adapter from Polymarket bot logs → `ingest.py` schema;
-   run market/baseline experts over last season; report ScoreBook + fusion weights.
-2. **Kalshi decision-time snapshot service** — poll public market data, persist
-   decision-time YES prices for weather dailies at max lead; sqlite; read-only.
+1. **Real-history backtest** — **BUILT** (`bot_backtest.py`, 2026-09-07): adapter from the
+   history downloader's `markets.csv` + minute prices → `ingest.py` schema, plus the
+   ScoreBook + Hedge-fusion report. Smoke-tested on 30 real resolved MLB markets
+   (decision time = game start − 60 min, fit-on-prior longshot discipline; the tiny-sample
+   longshot expert was correctly crushed to weight 0.005 by fusion). Remaining: run at
+   season scale (`history_downloader.py --days 365`, overnight on the VPS — note the
+   downloader needed an `interval=max` fallback, patched, because the CLOB stopped serving
+   `startTs/endTs` windows for resolved markets ~Sep 2026), and swap the placeholder
+   baseline for fv_bot's devigged sharp-book probabilities when those logs land.
+2. **Kalshi decision-time snapshot service** — **BUILT** (`kalshi_snapshots.py`, stdlib-only,
+   read-only, GET-only; every snapshot row SHA-256-sealed at write time). Verified live:
+   84 weather-daily markets across KXHIGH{NY,CHI,MIA,AUS,DEN,LAX,PHIL} snapshotted in one
+   cycle. Settlement pass records outcomes; `--export` emits ingest-schema rows using the
+   earliest (max-lead) sealed snapshot. Runs on the server via
+   `deploy/systemd/kalshi-snapshots.{service,timer}` (every 30 min). Remaining: let it
+   accumulate weeks of snapshots + settlements; add a climatology baseline.
 3. **ARV session runner** — real image pool, CLI/local web UI, sealed ledger in sqlite.
 4. **Live dashboard** — e-process wealth curves, fusion weights, trial counts.
 5. **Post-certification only** — impact-decay sweep + promotion logic.

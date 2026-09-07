@@ -26,9 +26,11 @@ for eng in polymarket-bot kalshi-engine; do
   mkdir -p data
 done
 
-cp "$DEST"/deploy/systemd/*.service /etc/systemd/system/
+cp "$DEST"/deploy/systemd/*.service "$DEST"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable polymarket-bot kalshi-engine
+systemctl enable --now kalshi-snapshots.timer
 echo "Setup done. Fill in $DEST/polymarket-bot/.env and $DEST/kalshi-engine/.env,"
 echo "then: systemctl start polymarket-bot kalshi-engine"
+echo "Kalshi snapshot timer is live: systemctl list-timers kalshi-snapshots.timer"
 EOF

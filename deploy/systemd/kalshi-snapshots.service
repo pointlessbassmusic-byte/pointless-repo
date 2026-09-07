@@ -1,0 +1,10 @@
+[Unit]
+Description=Substrate: Kalshi decision-time snapshot cycle (read-only, shadow mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pointless-repo/substrate
+ExecStart=/usr/bin/python3 kalshi_snapshots.py --once --db data/kalshi_snapshots.db
+ExecStart=/usr/bin/python3 kalshi_snapshots.py --settle --db data/kalshi_snapshots.db

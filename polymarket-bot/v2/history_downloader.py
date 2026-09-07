@@ -226,6 +226,15 @@ def download_prices(rows, out_dir: Path, fidelity: int):
         })
         hist = (data or {}).get("history") if isinstance(data, dict) else None
         if not hist:
+            # Since ~Sep 2026 the CLOB serves resolved markets only via interval=max;
+            # fetch everything and window client-side.
+            data = get(PRICES_URL, {"market": tok, "interval": "max", "fidelity": fidelity})
+            full = (data or {}).get("history") if isinstance(data, dict) else None
+            if full:
+                lo, hi = int(start.timestamp()), int(end.timestamp()) + 3600
+                hist = [pt for pt in full
+                        if pt.get("t") is not None and lo <= pt["t"] <= hi] or full
+        if not hist:
             empty += 1
             path.write_text("ts,price\n")   # marker so we don't retry forever
             continue
