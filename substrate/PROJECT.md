@@ -43,11 +43,12 @@ Deps: numpy + matplotlib only. Use `MPLBACKEND=Agg` on headless boxes.
    history downloader's `markets.csv` + minute prices → `ingest.py` schema, plus the
    ScoreBook + Hedge-fusion report. Smoke-tested on 30 real resolved MLB markets
    (decision time = game start − 60 min, fit-on-prior longshot discipline; the tiny-sample
-   longshot expert was correctly crushed to weight 0.005 by fusion). Remaining: run at
-   season scale (`history_downloader.py --days 365`, overnight on the VPS — note the
-   downloader needed an `interval=max` fallback, patched, because the CLOB stopped serving
-   `startTs/endTs` windows for resolved markets ~Sep 2026), and swap the placeholder
-   baseline for fv_bot's devigged sharp-book probabilities when those logs land.
+   longshot expert was correctly crushed to weight 0.005 by fusion). **Season-scale run
+   done 2026-09-08** — 265 real events, market Brier 0.178, longshot fit ≈ identity:
+   see [`reports/2026-09-08-milestone1-season.md`](reports/2026-09-08-milestone1-season.md).
+   Remaining: swap the placeholder baseline for fv_bot's devigged sharp-book
+   probabilities when those logs land (CLOB purges old price history, so retro coverage
+   is partial — live decision-time recording is the durable source).
 2. **Kalshi decision-time snapshot service** — **BUILT** (`kalshi_snapshots.py`, stdlib-only,
    read-only, GET-only; every snapshot row SHA-256-sealed at write time). Verified live:
    84 weather-daily markets across KXHIGH{NY,CHI,MIA,AUS,DEN,LAX,PHIL} snapshotted in one
