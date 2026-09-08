@@ -33,6 +33,27 @@ def _team_in_text(team: str, text_tokens: set[str]) -> bool:
     return bool(tt & text_tokens)
 
 
+def _nickname(team: str) -> str:
+    toks = re.findall(r"[a-z0-9]+", team.lower())
+    return toks[-1] if toks else ""
+
+
+def _match_score(g, text_tokens: set[str]) -> int:
+    """How well a sportsbook game matches market text. Nicknames ('yankees',
+    'bruins') are distinctive and score 2; city/other tokens score 1. Both
+    teams must match something, and both nicknames matching dominates any
+    city-token coincidence with another game in the same town."""
+    score = 0
+    for team in (g.home_team, g.away_team):
+        tt = _tokens(team)
+        if not (tt & text_tokens):
+            return 0
+        score += 1
+        if _nickname(team) in text_tokens:
+            score += 2
+    return score
+
+
 def _team_position(team: str, text: str) -> int | None:
     """Earliest character position at which any token of the team name appears in text."""
     low = text.lower()
@@ -42,6 +63,14 @@ def _team_position(team: str, text: str) -> int | None:
         if m:
             positions.append(m.start())
     return min(positions) if positions else None
+
+
+_NEGATED_RE = re.compile(r"\b(lose|loses|lost|losing|eliminated|relegated|swept|fail to)\b")
+
+
+def _question_negated(question: str) -> bool:
+    """'Will the Bills lose to the Chiefs?' — Yes means the subject does NOT win."""
+    return bool(_NEGATED_RE.search(question.lower()))
 
 
 def _subject_team(cons: dict[str, float], question: str) -> str | None:
@@ -81,13 +110,15 @@ def match_and_estimate(
     for mkt in markets:
         text_tokens = _tokens(mkt.question) | _tokens(mkt.event_title)
 
-        game = None
+        # score every candidate and keep the best — first-match with shared city
+        # tokens ('new', 'york', 'boston') can lock onto a different sport's game
+        game, best_score = None, 0
         for g in games:
             if mkt.game_start and abs(g.commence_time - mkt.game_start) > time_slack:
                 continue
-            if _team_in_text(g.home_team, text_tokens) and _team_in_text(g.away_team, text_tokens):
-                game = g
-                break
+            score = _match_score(g, text_tokens)
+            if score > best_score:
+                game, best_score = g, score
         if game is None:
             continue
 
@@ -109,6 +140,8 @@ def match_and_estimate(
                 team = _subject_team(cons, mkt.question)
                 if team is not None:
                     p = cons[team]
+                    if _question_negated(mkt.question):
+                        p = 1 - p  # "Will <team> lose ...?" — Yes means they don't win
                     prob = p if outcome.lower() == "yes" else 1 - p
                     matched_team = team
             if prob is None:

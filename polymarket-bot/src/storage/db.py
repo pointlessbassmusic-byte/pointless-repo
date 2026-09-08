@@ -106,6 +106,18 @@ class Database:
         rows = self.conn.execute("SELECT token_id, outcome FROM settlements").fetchall()
         return dict(rows)
 
+    def placed_unsettled_condition_ids(self) -> list[str]:
+        """Condition ids for tokens with live orders and no resolution yet — the
+        set the daily-loss circuit breaker needs resolved every cycle."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT e.condition_id FROM estimates e"
+            " JOIN orders o ON o.token_id = e.token_id"
+            " WHERE o.status LIKE 'placed%' AND e.condition_id IS NOT NULL"
+            " AND e.condition_id != ''"
+            " AND o.token_id NOT IN (SELECT token_id FROM settlements)"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def unsettled_condition_ids(self) -> list[str]:
         rows = self.conn.execute(
             "SELECT DISTINCT condition_id FROM estimates WHERE condition_id IS NOT NULL"
@@ -122,10 +134,12 @@ class Database:
         return {r[0] for r in rows}
 
     def live_exposure(self, days: int = 7) -> float:
-        """USD committed to live orders recently; counts against max_total_exposure."""
+        """USD committed to still-OPEN live orders; counts against
+        max_total_exposure. Settled positions release their exposure."""
         row = self.conn.execute(
             "SELECT COALESCE(SUM(stake_usd), 0) FROM orders"
-            " WHERE status LIKE 'placed%' AND ts >= datetime('now', ?)",
+            " WHERE status LIKE 'placed%' AND ts >= datetime('now', ?)"
+            " AND token_id NOT IN (SELECT token_id FROM settlements)",
             (f"-{int(days)} days",),
         ).fetchone()
         return float(row[0])

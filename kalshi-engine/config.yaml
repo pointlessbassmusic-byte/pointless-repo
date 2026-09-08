@@ -44,7 +44,8 @@ substrate:
       drift_strength: 0.15
 
 strategy:
-  min_edge: 0.05
+  min_edge: 0.05             # required edge AFTER fees
+  fee_rate: 0.07             # Kalshi taker fee ~= rate * P * (1-P), folded into edge/Kelly
   kelly_fraction: 0.25
   bankroll_usd: 500
   max_stake_per_market: 40

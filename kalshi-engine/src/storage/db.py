@@ -72,10 +72,12 @@ class Database:
         return {r[0] for r in rows}
 
     def live_exposure(self, days: int = 30) -> float:
-        """USD committed to live orders recently; counts against max_total_exposure."""
+        """USD committed to still-OPEN live orders; counts against
+        max_total_exposure. Settled positions release their exposure."""
         row = self.conn.execute(
             "SELECT COALESCE(SUM(stake_usd), 0) FROM orders"
-            " WHERE status LIKE 'placed%' AND ts >= datetime('now', ?)",
+            " WHERE status LIKE 'placed%' AND ts >= datetime('now', ?)"
+            " AND ticker NOT IN (SELECT ticker FROM settlements)",
             (f"-{int(days)} days",),
         ).fetchone()
         return float(row[0])
@@ -130,6 +132,15 @@ class Database:
         rows = self.conn.execute(
             "SELECT DISTINCT ticker FROM forecasts"
             " WHERE ticker NOT IN (SELECT ticker FROM settlements)"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def placed_unsettled_tickers(self) -> list[str]:
+        """Tickers with live orders and no settlement yet — the set the daily-loss
+        circuit breaker needs resolved every cycle."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT ticker FROM orders WHERE status LIKE 'placed%'"
+            " AND ticker NOT IN (SELECT ticker FROM settlements)"
         ).fetchall()
         return [r[0] for r in rows]
 

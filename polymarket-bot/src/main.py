@@ -25,7 +25,21 @@ from .strategy.edge import build_signals
 log = logging.getLogger("polymarket-bot")
 
 
+def settle_open_positions(db: Database, gamma: GammaClient) -> None:
+    """Resolve outcomes for markets we hold live orders in, every cycle —
+    the daily-loss circuit breaker is blind without this."""
+    pending = db.placed_unsettled_condition_ids()
+    if not pending:
+        return
+    outcomes = gamma.resolutions(pending)
+    if outcomes:
+        db.record_settlements(outcomes)
+        log.info("settled %d open positions (realized PnL today: %+.2f USD)",
+                 len(outcomes), db.realized_pnl_today())
+
+
 def run_cycle(cfg, gamma: GammaClient, clob: ClobClient, odds: OddsApiClient, executor: Executor, db: Database) -> None:
+    settle_open_positions(db, gamma)
     markets = gamma.active_sports_markets()
 
     games = []

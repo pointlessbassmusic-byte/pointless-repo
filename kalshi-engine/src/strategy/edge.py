@@ -46,6 +46,10 @@ def build_signals(
     min_price = float(strategy_cfg.get("min_price", 0.05))
     max_price = float(strategy_cfg.get("max_price", 0.95))
     max_spread = float(strategy_cfg.get("max_spread", 0.10))
+    # Kalshi taker fee ~= rate * P * (1-P) per contract; folding it into the
+    # effective price keeps edge and Kelly honest (0.05 "edge" at mid prices
+    # is really ~0.033 after fees)
+    fee_rate = float(strategy_cfg.get("fee_rate", 0.07))
 
     signals: list[TradeSignal] = []
     for res in results:
@@ -66,10 +70,11 @@ def build_signals(
         for side, fair, price in candidates:
             if not (min_price <= price <= max_price):
                 continue
-            edge = fair - price
+            eff_price = price + fee_rate * price * (1 - price)
+            edge = fair - eff_price
             if edge < min_edge:
                 continue
-            stake = min(kelly_stake(fair, price, bankroll, kelly_fraction), max_stake)
+            stake = min(kelly_stake(fair, eff_price, bankroll, kelly_fraction), max_stake)
             count = int(stake / price)
             if count < 1:
                 continue

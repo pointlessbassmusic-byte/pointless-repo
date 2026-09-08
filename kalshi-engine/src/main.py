@@ -49,7 +49,25 @@ def build_ensemble(substrate_cfg: dict) -> Ensemble:
     return Ensemble(gens)
 
 
+def settle_open_positions(db: Database, client: KalshiClient) -> None:
+    """Resolve settlements for markets we hold live orders in, every cycle —
+    the daily-loss circuit breaker is blind without this."""
+    pending = db.placed_unsettled_tickers()
+    if not pending:
+        return
+    results = {
+        m.ticker: m.result
+        for m in client.markets_by_tickers(pending)
+        if m.status in ("settled", "finalized") and m.result in ("yes", "no")
+    }
+    if results:
+        db.record_settlements(results)
+        log.info("settled %d open positions (realized PnL today: %+.2f USD)",
+                 len(results), db.realized_pnl_today())
+
+
 def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor, db: Database) -> None:
+    settle_open_positions(db, client)
     mcfg = cfg.markets
     whitelist = mcfg.get("series_whitelist") or []
     statuses = mcfg.get("statuses", ["open"])
@@ -84,9 +102,16 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
     log.info("%d markets after filters", len(markets))
 
     # build context from *prior* scans' history, then record this scan's prices —
-    # recording first would make "N scans ago" off by one for every generator
-    ctx = Context(price_history=db.price_history([m.ticker for m in markets]))
-    db.record_prices({m.ticker: m.mid for m in markets})
+    # recording first would make "N scans ago" off by one for every generator.
+    # Only genuine two-sided mids are recorded: on a one-sided book, .mid falls
+    # back to last_price, which can be hours stale and would poison the history
+    # that mean-reversion/momentum trade on.
+    ctx = Context(price_history=db.price_history([m.ticker for m in markets]),
+                  scan_interval_sec=cfg.scan_interval_sec)
+    db.record_prices({
+        m.ticker: (m.yes_bid + m.yes_ask) / 2
+        for m in markets if m.yes_bid > 0 and m.yes_ask > 0
+    })
 
     results, n_forecasts = [], 0
     for m in markets:

@@ -179,3 +179,47 @@ def test_backtest_replay_scores_against_outcome(tmp_path):
     assert scores["market (baseline)"].n == scores["ensemble"].n
     # market-implied == baseline here, so their Brier must match
     assert abs(scores["ensemble"].brier - scores["market (baseline)"].brier) < 1e-9
+
+
+def test_fees_gate_marginal_edges():
+    from src.substrate.ensemble import EnsembleResult
+
+    m = make_market(0.50)
+    m.yes_bid, m.yes_ask = 0.49, 0.50
+    # raw edge exactly 0.05 at price 0.50 — fees (~0.0175) push it below min_edge
+    res = EnsembleResult(market=m, prob_yes=0.55, total_confidence=1.0, forecasts=[])
+    assert build_signals([res], {"min_edge": 0.05}) == []
+    assert build_signals([res], {"min_edge": 0.05, "fee_rate": 0.0}) != []
+
+
+def test_settled_positions_release_exposure(tmp_path):
+    from src.storage.db import Database
+    db = Database(tmp_path / "t.db")
+    db.conn.execute(
+        "INSERT INTO orders (ts, ticker, side, price, count, stake_usd, status)"
+        " VALUES (datetime('now'), 'T1', 'yes', 0.40, 100, 40, 'placed:x')")
+    db.conn.commit()
+    assert db.live_exposure() == 40.0
+    db.record_settlements({"T1": "yes"})
+    assert db.live_exposure() == 0.0
+
+
+def test_history_gap_disables_lookback_generators():
+    from src.substrate.generators.momentum import Momentum
+
+    gen = MeanReversion({"confidence": 0.3, "lookback_scans": 3,
+                         "overreaction_threshold": 0.10, "reversion_factor": 0.5})
+    m = make_market(0.70)
+    # 3 rows spanning 3 DAYS with a 900s scan interval — a weekend gap
+    gapped = [("2026-01-01T00:00:00+00:00", 0.50),
+              ("2026-01-02T00:00:00+00:00", 0.55),
+              ("2026-01-03T00:00:00+00:00", 0.65)]
+    ctx = Context(price_history={m.ticker: gapped}, scan_interval_sec=900)
+    assert gen.forecast(m, ctx) is None
+    # same rows with no interval configured (backtest mode): check disabled
+    ctx2 = Context(price_history={m.ticker: gapped})
+    assert gen.forecast(m, ctx2) is not None
+
+    mom = Momentum({"confidence": 0.25, "lookback_scans": 3, "min_total_move": 0.03,
+                    "max_step": 0.06, "min_consistency": 0.7})
+    assert mom.forecast(m, ctx) is None

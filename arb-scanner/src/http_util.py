@@ -10,7 +10,7 @@ def retrying_session(allow_post: bool = False, total: int = 3, backoff: float = 
     """Session that retries 429/5xx with exponential backoff.
 
     POST retries are opt-in: only enable them for read-only POST endpoints
-    (e.g. CLOB /prices) — never for order placement.
+    — never for order placement.
     """
     methods = ["GET", "HEAD"] + (["POST"] if allow_post else [])
     retry = Retry(

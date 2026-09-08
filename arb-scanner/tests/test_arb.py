@@ -71,3 +71,17 @@ def test_implausible_cross_platform_edge_flagged_as_suspect():
     k = bm("kalshi", "TICK", no_ask=0.05)  # "90% edge" = wrong-question match
     opps = det.scan_pairs([MarketPair(poly=p, kalshi=k, similarity=0.55)])
     assert [o.kind for o in opps] == ["suspect_match"]
+
+
+def test_polarity_inverted_markets_never_pair():
+    now = datetime.now(timezone.utc)
+    p = bm("polymarket", "tok", question="Will BTC be below $100k on Dec 31?",
+           close=now + timedelta(days=5))
+    k_inverted = bm("kalshi", "KXUP", question="BTC above $100k on Dec 31?",
+                    close=now + timedelta(days=5))
+    assert find_pairs([p], [k_inverted], min_similarity=0.3) == []
+    # same direction still pairs
+    k_same = bm("kalshi", "KXDOWN", question="BTC below $100k on Dec 31?",
+                close=now + timedelta(days=5))
+    pairs = find_pairs([p], [k_same], min_similarity=0.3)
+    assert len(pairs) == 1 and pairs[0].kalshi.market_id == "KXDOWN"

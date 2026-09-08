@@ -7,7 +7,7 @@ large move is mean-reversion's territory and is ignored here.
 """
 from __future__ import annotations
 
-from ..base import Context, Forecast, SignalGenerator
+from ..base import Context, Forecast, SignalGenerator, window_contiguous
 from ...client import Market
 
 
@@ -24,6 +24,8 @@ class Momentum(SignalGenerator):
         history = ctx.price_history.get(market.ticker, [])
         if len(history) < lookback:
             return None
+        if not window_contiguous(history[-lookback:], ctx.scan_interval_sec):
+            return None  # gap in history: the "drift" may span days of downtime
         window = [p for _, p in history[-lookback:]] + [market.mid]
         mid = market.mid
         if not (0 < mid < 1):

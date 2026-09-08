@@ -76,8 +76,9 @@ def build_signals(
             continue
         if not (min_price <= q.ask <= max_price):
             continue
-        # a wide book means an illiquid market and a stale/unreliable quote
-        if q.bid is not None and (q.ask - q.bid) > max_spread:
+        # a one-sided or wide book means an illiquid market and a stale/
+        # unreliable quote — a missing bid is worse than a wide one
+        if q.bid is None or (q.ask - q.bid) > max_spread:
             continue
 
         edge = est.fair_prob - q.ask

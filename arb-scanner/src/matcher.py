@@ -15,9 +15,22 @@ from .feeds import BinaryMarket
 STOPWORDS = {
     "will", "the", "a", "an", "be", "to", "in", "on", "by", "at", "of", "for",
     "what", "who", "which", "when", "is", "are", "was", "were", "or", "and",
-    "market", "prediction", "bet", "odds", "vs", "v",
-    "yes", "no", "above", "below", "over", "under",  # keep numbers, drop direction fillers
+    "market", "prediction", "bet", "odds", "vs", "v", "yes", "no",
+    # direction words ('above'/'below'/...) are deliberately NOT stopwords:
+    # dropping them made polarity-inverted markets tokenize identically and
+    # pair up, turning a double directional bet into a phantom "arb"
 }
+
+_UP_WORDS = {"above", "over", "exceed", "exceeds", "higher", "more"}
+_DOWN_WORDS = {"below", "under", "lower", "less", "fewer"}
+
+
+def _polarity(toks: frozenset[str]) -> int:
+    """+1 above-ish, -1 below-ish, 0 neutral/both."""
+    up, down = bool(toks & _UP_WORDS), bool(toks & _DOWN_WORDS)
+    if up == down:
+        return 0
+    return 1 if up else -1
 
 # common aliases so "Bitcoin" matches "BTC" etc.
 ALIASES = {
@@ -64,9 +77,14 @@ def find_pairs(
         pt = tokens(p.question)
         if not pt:
             continue
+        p_pol = _polarity(pt)
         best, best_sim = None, min_similarity
         for k, kt in k_tokens:
             if p.close_time and k.close_time and abs(p.close_time - k.close_time) > slack:
+                continue
+            # opposite-direction questions are the same topic but inverted
+            # outcomes — "buying both sides" would be one big directional bet
+            if p_pol * _polarity(kt) == -1:
                 continue
             sim = jaccard(pt, kt)
             if sim > best_sim:

@@ -6,7 +6,7 @@ sharp move usually decays.
 """
 from __future__ import annotations
 
-from ..base import Context, Forecast, SignalGenerator
+from ..base import Context, Forecast, SignalGenerator, window_contiguous
 from ...client import Market
 
 
@@ -21,6 +21,8 @@ class MeanReversion(SignalGenerator):
         history = ctx.price_history.get(market.ticker, [])
         if len(history) < lookback:
             return None
+        if not window_contiguous(history[-lookback:], ctx.scan_interval_sec):
+            return None  # gap in history: "N scans ago" spans days, not scans
         old_price = history[-lookback][1]
         mid = market.mid
         if not (0 < mid < 1) or not (0 < old_price < 1):

@@ -106,3 +106,53 @@ def test_risk_gate_kill_switch_and_daily_loss(tmp_path):
     (tmp_path / "KILL").touch()
     ok, reason = gate.check()
     assert not ok and "kill switch" in reason
+
+
+def test_best_game_wins_over_first_city_token_match():
+    """'New York ... Boston ...' must not lock onto a different sport's game
+    that shares city tokens; nickname matches dominate."""
+    from src.clients.odds_api import Game
+    start = datetime.now(timezone.utc) + timedelta(hours=24)
+    nhl = Game(sport_key="icehockey_nhl", home_team="Boston Bruins",
+               away_team="New York Rangers", commence_time=start,
+               book_odds=[{"Boston Bruins": 1.5, "New York Rangers": 2.8}] * 3)
+    mlb = Game(sport_key="baseball_mlb", home_team="Boston Red Sox",
+               away_team="New York Yankees", commence_time=start,
+               book_odds=[{"Boston Red Sox": 2.4, "New York Yankees": 1.65}] * 3)
+    mkt = make_market("Will the New York Yankees beat the Boston Red Sox?",
+                      ["Yes", "No"], ["t-yes", "t-no"], start)
+    # NHL game listed first: old first-match logic would grab it via city tokens
+    ests = {e.outcome_name: e for e in
+            match_and_estimate([mkt], [nhl, mlb], min_books=3, blend_market_weight=0.0)}
+    assert "Yankees" in ests["Yes"].matched_game or "Red Sox" in ests["Yes"].matched_game
+    assert ests["Yes"].fair_prob > 0.5  # Yankees favored at 1.65
+
+
+def test_negated_question_inverts_probability():
+    start = datetime.now(timezone.utc) + timedelta(hours=24)
+    books = [{"Buffalo Bills": 1.6, "Kansas City Chiefs": 2.6}] * 3
+    game = Game(sport_key="americanfootball_nfl", home_team="Kansas City Chiefs",
+                away_team="Buffalo Bills", commence_time=start, book_odds=books)
+    mkt = make_market("Will the Bills lose to the Chiefs?", ["Yes", "No"],
+                      ["t-yes", "t-no"], start)
+    ests = {e.outcome_name: e for e in
+            match_and_estimate([mkt], [game], min_books=3, blend_market_weight=0.0)}
+    # Bills are favorites to WIN (~0.62), so "Bills lose" must be ~0.38
+    assert ests["Yes"].fair_prob < 0.5
+
+
+def test_one_sided_book_is_filtered():
+    quotes = {"tok1": Quote(token_id="tok1", bid=None, ask=0.50)}
+    assert build_signals([_estimate(fair=0.90)], quotes, {"min_liquidity": 100}) == []
+
+
+def test_settled_positions_release_exposure(tmp_path):
+    from src.storage.db import Database
+    db = Database(tmp_path / "t.db")
+    db.conn.execute(
+        "INSERT INTO orders (ts, token_id, ask, shares, stake_usd, status)"
+        " VALUES (datetime('now'), 'tokX', 0.40, 100, 40, 'placed')")
+    db.conn.commit()
+    assert db.live_exposure() == 40.0
+    db.record_settlements({"tokX": 1.0})
+    assert db.live_exposure() == 0.0
