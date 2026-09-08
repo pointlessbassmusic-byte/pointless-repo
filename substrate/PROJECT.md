@@ -55,7 +55,14 @@ Deps: numpy + matplotlib only. Use `MPLBACKEND=Agg` on headless boxes.
    earliest (max-lead) sealed snapshot. Runs on the server via
    `deploy/systemd/kalshi-snapshots.{service,timer}` (every 30 min). Remaining: let it
    accumulate weeks of snapshots + settlements; add a climatology baseline.
-3. **ARV session runner** — real image pool, CLI/local web UI, sealed ledger in sqlite.
+3. **ARV session runner** — **BUILT** (`arv_session.py`, 2026-09-08): CLI over a real image
+   pool (directory of files; optional `tags.json` restores the orthogonal-pair constraint),
+   sqlite-persisted CommitLedger with the same record shape/hash recipe, immutable trials,
+   QRNG-marked 20% ablation at open, committed delta=0.04. Verified end-to-end: open →
+   transcript seal → blind judge (scrambled order, assignment never printed pre-resolve) →
+   call seal → resolve with feedback image (E-process math hand-checked: one NO-call miss
+   → E=0.920 = 0.46/0.5). Remaining: fill a real image pool (curate ~100+ diverse tagged
+   photos) and start sessions against snapshot-service events.
 4. **Live dashboard** — e-process wealth curves, fusion weights, trial counts.
 5. **Post-certification only** — impact-decay sweep + promotion logic.
 
