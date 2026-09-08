@@ -194,17 +194,44 @@ class Runner:
 
     # ------------------------------------------------------------------
     def _mlb_context(self) -> dict[str, dict]:
-        """Probable pitchers for MLB markets, keyed later by matching."""
+        """Probable pitchers + rest-day differential for MLB markets.
+
+        Rest feeds the model's +2.3 Elo/rest-day adjustment (capped at ±3
+        days there); a team that hasn't appeared in the lookback window is
+        treated as fully rested at the cap.
+        """
         try:
+            from datetime import datetime, timedelta, timezone
+
             from sportsbot.data.mlb_data import MLBStatsClient
 
-            games = MLBStatsClient().upcoming(days=2)
-            return {
-                (g.home, g.away): {"home_sp": g.home_sp, "away_sp": g.away_sp}
-                for g in games
-            }
+            client = MLBStatsClient()
+            games = client.upcoming(days=2)
+            today = datetime.now(timezone.utc).date()
+            last_played: dict[str, object] = {}
+            for r in client.results(today - timedelta(days=6), today):
+                for team in (r.home, r.away):
+                    d = r.date.date()
+                    if team not in last_played or d > last_played[team]:
+                        last_played[team] = d
+
+            def rest(team: str, game_date) -> float:
+                last = last_played.get(team)
+                if last is None:
+                    return 3.0  # no game in a week: fully rested (model cap)
+                return max(0.0, (game_date - last).days - 1)
+
+            out = {}
+            for g in games:
+                gd = g.date.date()
+                out[(g.home, g.away)] = {
+                    "home_sp": g.home_sp,
+                    "away_sp": g.away_sp,
+                    "rest_diff_days": rest(g.home, gd) - rest(g.away, gd),
+                }
+            return out
         except Exception:
-            log.exception("probable-pitcher fetch failed; predicting without SP")
+            log.exception("MLB context fetch failed; predicting without SP/rest")
             return {}
 
     def _settle_resolved(self) -> int:

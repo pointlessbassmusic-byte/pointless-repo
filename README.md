@@ -86,6 +86,10 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
     ingest schema (milestone 1: real-history backtest feed).
   - `sportsbot weather-snapshot [--loop 3600]` — Kalshi weather-dailies
     decision-time snapshot service, read-only (milestone 2).
+  - `substrate/arv_cli.py` — ARV session runner (milestone 3): real image
+    pool, sealed double-blind open→transcribe→judge→resolve workflow,
+    SQLite CommitLedger persistence, pre-registered 20% feedback ablation
+    (`python3 substrate/arv_cli.py --self-test`).
 - **`maker/`** — paper-only tennis market-making research: live L2
   capture + conservative queue-fill maker bot, and a pre-registered
   parameter replay optimizer. See `maker/README.md`.
