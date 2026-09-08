@@ -85,3 +85,15 @@ def test_polarity_inverted_markets_never_pair():
                 close=now + timedelta(days=5))
     pairs = find_pairs([p], [k_same], min_similarity=0.3)
     assert len(pairs) == 1 and pairs[0].kalshi.market_id == "KXDOWN"
+
+
+def test_disjoint_strike_numbers_never_pair():
+    now = datetime.now(timezone.utc)
+    p = bm("polymarket", "tok", question="Highest temperature in NYC between 82-83 on September 8?",
+           close=now + timedelta(days=1))
+    wrong_band = bm("kalshi", "KX8081", question="Highest temperature in NYC between 80-81 on September 8?",
+                    close=now + timedelta(days=1))
+    right_band = bm("kalshi", "KX8283", question="Highest temperature in NYC between 82-83 on September 8?",
+                    close=now + timedelta(days=1))
+    pairs = find_pairs([p], [wrong_band, right_band], min_similarity=0.3)
+    assert len(pairs) == 1 and pairs[0].kalshi.market_id == "KX8283"

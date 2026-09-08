@@ -32,6 +32,20 @@ def _polarity(toks: frozenset[str]) -> int:
         return 0
     return 1 if up else -1
 
+
+def _strike_numbers(toks: frozenset[str]) -> frozenset[float]:
+    """Threshold-like numbers: > 31 (not a day of month) and not a year.
+    'Temp between 82-83' vs 'between 80-81' share every word but these."""
+    out = set()
+    for t in toks:
+        try:
+            v = float(t)
+        except ValueError:
+            continue
+        if v > 31 and not (1900 <= v <= 2100):
+            out.add(v)
+    return frozenset(out)
+
 # common aliases so "Bitcoin" matches "BTC" etc.
 ALIASES = {
     "btc": "bitcoin", "eth": "ethereum", "sol": "solana",
@@ -78,6 +92,7 @@ def find_pairs(
         if not pt:
             continue
         p_pol = _polarity(pt)
+        p_strikes = _strike_numbers(pt)
         best, best_sim = None, min_similarity
         for k, kt in k_tokens:
             if p.close_time and k.close_time and abs(p.close_time - k.close_time) > slack:
@@ -85,6 +100,10 @@ def find_pairs(
             # opposite-direction questions are the same topic but inverted
             # outcomes — "buying both sides" would be one big directional bet
             if p_pol * _polarity(kt) == -1:
+                continue
+            # different strikes = different questions, however similar the words
+            ks = _strike_numbers(kt)
+            if p_strikes and ks and not (p_strikes & ks):
                 continue
             sim = jaccard(pt, kt)
             if sim > best_sim:
