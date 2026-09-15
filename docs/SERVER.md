@@ -19,7 +19,7 @@ The server is a **runtime host only**. No editing code on the box. It runs the t
 From the laptop, in the repo root:
 
 ```bash
-./deploy/setup_server.sh
+./deploy/engines_setup.sh   # engine suite (sportsbot has its own deploy/setup_server.sh)
 ```
 
 This SSHes in and: installs python3-venv + git, clones the repo to `/opt/pointless-repo`, creates
