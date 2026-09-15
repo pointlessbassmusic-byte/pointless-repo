@@ -1,8 +1,14 @@
-# PROJECT: Polymarket Sports Betting Bot
+# PROJECT: Polymarket Sports Betting Bot (generation history)
 
-_Master project file — everything about this engine lives here.
-See [`CLAUDE.md`](CLAUDE.md) (imported handoff, 2026-08-19) for the full context that
-produced the current thesis; its go-live gates are binding._
+> **Superseded for new development (2026-09-15):** the consolidated engine at the repo
+> root (`sportsbot/` — see the root `README.md` and `docs/ARCHITECTURE.md`) is now the
+> authoritative bot. This directory remains the **generation history**: the Aug 19
+> fair-value handoff ([`CLAUDE.md`](CLAUDE.md), still describing the fv_bot system running
+> on the VPS), the v2 websocket bot + history downloader ([`v2/`](v2/)), and the
+> falsification archive ([`archive/`](archive/)). The v1 consensus scanner and the
+> maker-lab copies were removed in the consolidation merge (maker tools live at
+> `../maker/`; v1's ideas live on in `sportsbot/`). The hard-won conclusions and go-live
+> gates below still bind anything that trades.
 
 ## Generation lineage (newest first)
 

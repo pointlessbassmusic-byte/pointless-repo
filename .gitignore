@@ -1,8 +1,43 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
 .venv/
+venv/
+
+# Secrets and local config — NEVER commit keys
 .env
 *.pem
-data/
+*.key
+config/local.yaml
+secrets/
+
+# Data and runtime state
+data/raw/
+data/cache/
+data/ratings/
+*.sqlite
+*.sqlite3
 *.db
+logs/
+*.log
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor
 .DS_Store
+.idea/
+.vscode/
+
+# Legacy / side-project runtime state
+dotless/jobs/
+substrate/data/
+polymarket-bot/**/data/

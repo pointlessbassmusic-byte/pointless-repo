@@ -1,6 +1,11 @@
 # Milestone 1 — first season-scale real-history report (2026-09-08)
 
-Run on this repo's laptop-era environment; fully reproducible:
+> Historical note (2026-09-15): the `bot_backtest.py` adapter used below was superseded
+> in the consolidation by `sportsbot substrate-export` (`sportsbot/substrate_bridge/`),
+> which adds a real baseline (the bot model's own probability). The numbers and findings
+> here stand as recorded.
+
+Run on this repo's laptop-era environment; fully reproducible at the time:
 
 ```
 polymarket-bot/v2$ python3 history_downloader.py --days 365 \

@@ -1,6 +1,14 @@
 # Master Plan
 
-_Last updated: 2026-09-06 (rev 3 — chat-handoff drops 1–4 integrated)_
+_Last updated: 2026-09-15 (rev 4 — consolidation merged)_
+
+> **Rev 4:** a parallel session consolidated the trading stack into one `sportsbot/`
+> package (per-sport Elo/Markov models, Polymarket + Kalshi exchange clients, risk-managed
+> paper-first bot, walk-forward backtests, CI) and it merged to `main` as PR #1. This
+> branch adopted it and pruned the superseded per-project engines (v1 scanner,
+> kalshi-engine, standalone substrate milestone tools — now `sportsbot/substrate_bridge/`
+> and `substrate/arv_cli.py`). Everything below rev 4 is historical context; the
+> authoritative architecture doc is now `docs/ARCHITECTURE.md` + the root `CLAUDE.md`.
 
 > **Drops 2–4:** the Polymarket bot's full generation history is now in the repo. Current
 > production is the **fair-value system** (`fv_bot.py`/`edge_model.py`, Aug 19 — still on the
