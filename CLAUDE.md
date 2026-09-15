@@ -119,8 +119,9 @@ python -m src.backtest             # kalshi-engine: replay history offline
 - The Odds API free tier is 500 requests/month — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
-- `py-clob-client` (live orders, lazily imported) is dormant upstream —
-  migrate to `polymarket-client` before enabling live trading.
+- Live orders use the official `polymarket-client` py-sdk (same SDK as
+  sportsbot), lazily imported so dry-run needs nothing installed. The old
+  `py-clob-client` is archived/dead — never reintroduce it.
 
 ### Conventions
 

@@ -156,3 +156,34 @@ def test_settled_positions_release_exposure(tmp_path):
     assert db.live_exposure() == 40.0
     db.record_settlements({"tokX": 1.0})
     assert db.live_exposure() == 0.0
+
+
+def test_place_limit_buy_uses_polymarket_client_sdk(monkeypatch):
+    from src.clients import clob as clob_mod
+
+    placed = {}
+
+    class FakeSecureClient:
+        @classmethod
+        def create(cls, **kwargs):
+            placed["create_kwargs"] = kwargs
+            return cls()
+
+        def place_limit_order(self, **kwargs):
+            placed["order_kwargs"] = kwargs
+            return {"order_id": "ord-123", "status": "live"}
+
+    monkeypatch.setattr(clob_mod, "_import_secure_client", lambda: FakeSecureClient)
+    c = clob_mod.ClobClient(private_key="0xkey", funder="0xwallet")
+    resp = c.place_limit_buy("tok1", 0.4567, 12.345)
+    assert resp["success"] and resp["orderID"] == "ord-123" and resp["errorMsg"] == ""
+    assert placed["create_kwargs"] == {"private_key": "0xkey", "wallet": "0xwallet"}
+    assert placed["order_kwargs"] == {"token_id": "tok1", "side": "BUY",
+                                      "price": 0.457, "size": 12.35}
+
+
+def test_trader_requires_private_key():
+    import pytest
+    from src.clients.clob import ClobClient
+    with pytest.raises(RuntimeError, match="POLYMARKET_PRIVATE_KEY"):
+        ClobClient()._get_trader()

@@ -12,7 +12,6 @@ from ..http_util import retrying_session
 log = logging.getLogger(__name__)
 
 CLOB_BASE = "https://clob.polymarket.com"
-POLYGON_CHAIN_ID = 137
 
 
 @dataclass
@@ -59,30 +58,45 @@ class ClobClient:
         return out
 
     # ---- writes (auth; only used with --live) ----
+    # Live orders go through the official `polymarket-client` py-sdk — the old
+    # py-clob-client is archived and targets retired V1 contracts; never
+    # reintroduce it. Imported lazily so dry-run needs no SDK installed.
 
     def _get_trader(self):
         if self._trader is None:
-            from py_clob_client.client import ClobClient as PyClobClient
-
             if not self._private_key:
                 raise RuntimeError("POLYMARKET_PRIVATE_KEY not set — cannot trade live")
-            kwargs = dict(key=self._private_key, chain_id=POLYGON_CHAIN_ID)
+            secure_client_cls = _import_secure_client()
+            kwargs: dict = {"private_key": self._private_key}
             if self._funder:
-                # signature_type 1 = email/magic proxy, 2 = browser wallet proxy
-                kwargs.update(signature_type=2, funder=self._funder)
-            client = PyClobClient(CLOB_BASE, **kwargs)
-            client.set_api_creds(client.create_or_derive_api_creds())
-            self._trader = client
+                kwargs["wallet"] = self._funder
+            self._trader = secure_client_cls.create(**kwargs)
         return self._trader
 
     def place_limit_buy(self, token_id: str, price: float, size_shares: float) -> dict:
-        from py_clob_client.clob_types import OrderArgs, OrderType
-        from py_clob_client.order_builder.constants import BUY
-
         trader = self._get_trader()
-        order = trader.create_order(
-            OrderArgs(price=round(price, 3), size=round(size_shares, 2), side=BUY, token_id=token_id)
+        resp = trader.place_limit_order(
+            token_id=token_id, side="BUY",
+            price=round(price, 3), size=round(size_shares, 2),
         )
-        resp = trader.post_order(order, OrderType.GTC)
-        log.info("placed order: %s", resp)
-        return resp
+        data = resp if isinstance(resp, dict) else getattr(resp, "__dict__", {"resp": str(resp)})
+        order_id = str(data.get("order_id") or data.get("orderID") or data.get("id") or "")
+        error = str(data.get("error") or data.get("errorMsg") or "")
+        # keep the shape the executor expects ({success, errorMsg, orderID})
+        out = {"success": bool(order_id) and not error, "orderID": order_id,
+               "errorMsg": error, "raw": data}
+        log.info("placed order: %s", out)
+        return out
+
+
+def _import_secure_client():
+    try:
+        from polymarket import SecureClient
+    except ImportError:
+        try:
+            from polymarket_client import SecureClient
+        except ImportError as exc:
+            raise RuntimeError(
+                "polymarket-client SDK not installed — pip install polymarket-client"
+            ) from exc
+    return SecureClient

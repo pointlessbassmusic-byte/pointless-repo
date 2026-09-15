@@ -1,4 +1,4 @@
 requests>=2.31
 python-dotenv>=1.0
 PyYAML>=6.0
-py-clob-client>=0.19  ; python_version >= "3.9"
+polymarket-client>=0.9   # official py-sdk; live orders only (lazily imported)
