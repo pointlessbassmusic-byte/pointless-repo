@@ -1,0 +1,24 @@
+[Unit]
+Description=sportsbot trading loop (paper by default)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=/opt/sportsbot/.env
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot run
+Restart=on-failure
+RestartSec=30
+# Hard memory ceiling for the 4GB Linode; the bot uses far less.
+MemoryMax=1500M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
