@@ -252,6 +252,58 @@ def weather_snapshot(config: str = CONFIG_OPT,
         console.print(svc.export_ingest_csv(export))
 
 
+@app.command("dashboard")
+def dashboard(config: str = CONFIG_OPT,
+              out: str = typer.Option("data/dashboard.html"),
+              arv_db: str = typer.Option("arv_sessions.sqlite",
+                                         help="arv_cli session DB (skipped if missing)"),
+              resolve: bool = typer.Option(False,
+                                           help="fetch outcomes for unbet markets (network)"),
+              weather_db: str = typer.Option("data/weather_snapshots.sqlite",
+                                             help="weather snapshot DB (skipped if missing)")):
+    """One-shot substrate dashboard (milestone 4): export bot events (plus the
+    Kalshi weather ingest when snapshots exist) and build the self-contained
+    HTML via substrate/dashboard.py."""
+    import subprocess
+    from pathlib import Path
+
+    cfg = _setup(config)
+    from sportsbot.bot.runner import build_exchange
+    from sportsbot.data.store import Store
+    from sportsbot.substrate_bridge import export_events_csv
+
+    dash = Path(__file__).resolve().parents[1] / "substrate" / "dashboard.py"
+    if not dash.exists():
+        console.print("[red]substrate/dashboard.py not found — run from a full "
+                      "repo checkout (pip install -e .)")
+        raise typer.Exit(1)
+
+    out_dir = os.path.dirname(out) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    data_client = build_exchange(cfg)[1] if resolve else None
+    events_csv = os.path.join(out_dir, "substrate_events.csv")
+    console.print(export_events_csv(store, events_csv, data_client=data_client))
+    csvs = [events_csv]
+
+    if os.path.exists(weather_db):
+        from sportsbot.substrate_bridge import WeatherSnapshotService
+
+        weather_csv = os.path.join(out_dir, "weather_ingest.csv")
+        console.print(WeatherSnapshotService(db_path=weather_db)
+                      .export_ingest_csv(weather_csv))
+        csvs.append(weather_csv)
+
+    cmd = [sys.executable, str(dash), "--out", os.path.abspath(out),
+           "--arv-db", os.path.abspath(arv_db)]
+    for path in csvs:
+        cmd += ["--events", os.path.abspath(path)]
+    proc = subprocess.run(cmd, cwd=dash.parent, capture_output=True, text=True)
+    console.print((proc.stdout + proc.stderr).strip())
+    if proc.returncode != 0:
+        raise typer.Exit(proc.returncode)
+
+
 @app.command("reset-kill-switch")
 def reset_kill_switch(config: str = CONFIG_OPT):
     cfg = _setup(config)
