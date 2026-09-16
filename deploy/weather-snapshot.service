@@ -1,0 +1,23 @@
+[Unit]
+Description=substrate milestone 2: Kalshi weather-dailies decision-time snapshots (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot weather-snapshot --loop 1800
+Restart=on-failure
+RestartSec=60
+MemoryMax=300M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
