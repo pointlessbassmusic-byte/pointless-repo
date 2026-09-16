@@ -29,6 +29,21 @@ CREATE TABLE IF NOT EXISTS forecasts (
     confidence REAL,
     rationale TEXT
 );
+CREATE TABLE IF NOT EXISTS weather_log (
+    id INTEGER PRIMARY KEY,
+    logged_date TEXT NOT NULL,    -- station-local date the forecast was made
+    station TEXT NOT NULL,        -- series prefix, e.g. KXHIGHNY
+    target_date TEXT NOT NULL,
+    lead_days INTEGER NOT NULL,
+    forecast_f REAL NOT NULL,
+    UNIQUE(logged_date, station, target_date)
+);
+CREATE TABLE IF NOT EXISTS weather_observed (
+    station TEXT NOT NULL,
+    target_date TEXT NOT NULL,
+    observed_f REAL NOT NULL,     -- midpoint of the settled YES band
+    PRIMARY KEY (station, target_date)
+);
 CREATE TABLE IF NOT EXISTS settlements (
     ticker TEXT PRIMARY KEY,
     result TEXT NOT NULL,     -- 'yes' | 'no'

@@ -208,6 +208,12 @@ class KalshiClient:
         log.info("kalshi: %d markets from %d events", len(out), seen_events)
         return out
 
+    def markets_by_event(self, event_ticker: str) -> list[Market]:
+        """All markets of one event (any status) — e.g. a settled daily-high event."""
+        data = self._request("GET", "/markets", params={"event_ticker": event_ticker,
+                                                        "limit": 100})
+        return [_parse_market(m) for m in data.get("markets", [])]
+
     def markets_by_tickers(self, tickers: list[str]) -> list[Market]:
         """Fetch specific markets (any status) — used to look up settlements."""
         out: list[Market] = []

@@ -70,6 +70,11 @@ Pipeline per cycle:
       bands (Normal error model, lead-time-scaled sigma, per-station forecast cache;
       keyless API). Daily settlement makes these the fastest calibration feedback
       loop in the engine.
+- [x] Weather sigma calibrator (`python -m src.weather_calibrate` + daily systemd
+      timer): fits sigma_base/sigma_per_day empirically — from open-meteo's
+      previous-runs history where reachable, else from self-logged forecasts scored
+      against Kalshi's own settled bands (the YES band's midpoint is the observed
+      high).
 - [ ] Injuries/news feed generator (needs a data source decision)
 - [x] Calibration/report harness over recorded scans (`python -m src.report` in each engine)
 - [x] Real settlement tracking: reports score against actual Kalshi results / Gamma resolutions,

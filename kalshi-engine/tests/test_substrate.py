@@ -262,3 +262,46 @@ def test_weather_generator_end_to_end():
     m2 = make_market(0.5, ticker=f"KXNOTACITY-{ticker_date}-B77.5")
     m2.event_ticker = f"KXNOTACITY-{ticker_date}"
     assert gen.forecast(m2, Context()) is None
+
+
+def test_fit_sigma_recovers_linear_error_growth():
+    from src.weather_calibrate import fit_sigma
+
+    # symmetric errors whose spread grows with lead: std ~= 1.5 + 0.5*lead
+    samples = []
+    for lead in range(5):
+        spread = 1.5 + 0.5 * lead
+        samples += [(lead, spread), (lead, -spread)] * 5
+    base, slope = fit_sigma(samples)
+    assert 1.4 < base < 1.8 and 0.4 < slope < 0.7
+
+    assert fit_sigma([(0, 1.0)]) is None  # too little data
+
+
+def test_observed_from_settled_bands():
+    from src.weather_calibrate import event_ticker_for, observed_from_markets
+    from datetime import date
+
+    def mk(result, floor, cap):
+        m = make_market(0.5, ticker="KXHIGHNY-26SEP14-X")
+        m.result, m.floor_strike, m.cap_strike = result, floor, cap
+        return m
+
+    ms = [mk("no", 76.0, 77.0), mk("yes", 74.0, 75.0), mk("no", None, 74.0)]
+    assert observed_from_markets(ms) == 74.5
+    # YES on an open-ended threshold only bounds the temp — censored, skip
+    assert observed_from_markets([mk("yes", 81.0, None)]) is None
+    assert event_ticker_for("KXHIGHNY", date(2026, 9, 14)) == "KXHIGHNY-26SEP14"
+
+
+def test_weather_log_and_scoring_roundtrip(tmp_path):
+    from src.storage.db import Database
+    from src.weather_calibrate import self_logged_samples
+
+    db = Database(tmp_path / "t.db")
+    db.conn.execute("INSERT INTO weather_log (logged_date, station, target_date,"
+                    " lead_days, forecast_f) VALUES ('2026-09-10','KXHIGHNY','2026-09-12',2,80.0)")
+    db.conn.execute("INSERT INTO weather_observed (station, target_date, observed_f)"
+                    " VALUES ('KXHIGHNY','2026-09-12',77.5)")
+    db.conn.commit()
+    assert self_logged_samples(db) == [(2, 2.5)]

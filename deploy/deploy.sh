@@ -18,7 +18,7 @@ for eng in polymarket-bot kalshi-engine arb-scanner; do
   ./.venv/bin/pip install -q -r requirements.txt
 done
 
-cp "$DEST"/deploy/systemd/*.service /etc/systemd/system/
+cp "$DEST"/deploy/systemd/*.service "$DEST"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart polymarket-bot kalshi-engine arb-scanner
 systemctl --no-pager status polymarket-bot kalshi-engine arb-scanner | head -20
