@@ -65,7 +65,12 @@ Pipeline per cycle:
 - [ ] Deploy to Linode, run dry for ≥1 week, review SQLite logs
 - [ ] Calibration review: are fair probs beating market closes?
 - [ ] Turn on live mode with small bankroll caps
-- [ ] Add generators: injuries/news feed, weather (outdoor sports), line-movement momentum
+- [x] Line-movement momentum generator
+- [x] Weather generator: open-meteo daily-high forecasts vs Kalshi KXHIGH* strike
+      bands (Normal error model, lead-time-scaled sigma, per-station forecast cache;
+      keyless API). Daily settlement makes these the fastest calibration feedback
+      loop in the engine.
+- [ ] Injuries/news feed generator (needs a data source decision)
 - [x] Calibration/report harness over recorded scans (`python -m src.report` in each engine)
 - [x] Real settlement tracking: reports score against actual Kalshi results / Gamma resolutions,
       falling back to a price proxy for still-open markets

@@ -40,6 +40,8 @@ class Market:
     expiration: datetime | None
     status: str
     result: str = ""     # "yes" | "no" once settled, else ""
+    floor_strike: float | None = None   # scalar markets: YES if value > floor
+    cap_strike: float | None = None     # scalar markets: YES if value < cap (both = band)
 
     @property
     def mid(self) -> float:
@@ -94,7 +96,16 @@ def _parse_market(m: dict) -> Market:
         expiration=exp,
         status=m.get("status", ""),
         result=m.get("result", "") or "",
+        floor_strike=_strike(m.get("floor_strike")),
+        cap_strike=_strike(m.get("cap_strike")),
     )
+
+
+def _strike(v) -> float | None:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 class KalshiClient:

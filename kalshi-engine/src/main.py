@@ -25,6 +25,7 @@ from .substrate.generators.market_implied import MarketImplied
 from .substrate.generators.mean_reversion import MeanReversion
 from .substrate.generators.momentum import Momentum
 from .substrate.generators.time_decay import TimeDecay
+from .substrate.generators.weather import WeatherHigh
 
 log = logging.getLogger("kalshi-engine")
 
@@ -33,6 +34,7 @@ GENERATOR_REGISTRY = {
     "mean_reversion": MeanReversion,
     "momentum": Momentum,
     "time_decay": TimeDecay,
+    "weather": WeatherHigh,
 }
 
 

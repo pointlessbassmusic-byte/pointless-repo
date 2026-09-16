@@ -223,3 +223,42 @@ def test_history_gap_disables_lookback_generators():
     mom = Momentum({"confidence": 0.25, "lookback_scans": 3, "min_total_move": 0.03,
                     "max_step": 0.06, "min_consistency": 0.7})
     assert mom.forecast(m, ctx) is None
+
+
+def test_weather_band_probabilities():
+    from src.substrate.generators.weather import band_probability
+
+    # forecast dead-center in a 2-degree band -> dominant probability
+    # 2-degree band under sigma=1.8: ~0.42 is the single most likely band
+    p_band = band_probability(mu=77.5, sigma=1.8, floor=77, cap=78)
+    assert 0.40 < p_band < 0.45
+    # far-away band -> negligible
+    assert band_probability(mu=77.5, sigma=1.8, floor=90, cap=91) < 0.01
+    # threshold sides complement the middle
+    p_below = band_probability(mu=77.5, sigma=1.8, floor=None, cap=77)   # <= 76
+    p_above = band_probability(mu=77.5, sigma=1.8, floor=78, cap=None)   # >= 79
+    assert abs(p_band + p_below + p_above - 1.0) < 1e-9
+
+
+def test_weather_generator_end_to_end():
+    from datetime import datetime, timezone
+    from src.substrate.generators.weather import WeatherHigh, _event_date
+    import time as _time
+
+    today = datetime.now(timezone.utc).date()
+    assert _event_date("KXHIGHNY-26SEP16-B77.5") is not None
+
+    gen = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6})
+    ticker_date = today.strftime("%y%b%d").upper()
+    m = make_market(0.48, ticker=f"KXHIGHNY-{ticker_date}-B77.5")
+    m.event_ticker = f"KXHIGHNY-{ticker_date}"
+    m.floor_strike, m.cap_strike = 77.0, 78.0
+    # inject a cached forecast: no network in tests
+    gen._cache["KXHIGHNY"] = (_time.monotonic(), {today.isoformat(): 77.5})
+    f = gen.forecast(m, Context())
+    assert f is not None and 0.40 < f.prob_yes < 0.45 and f.generator == "weather"
+
+    # unknown station -> no view
+    m2 = make_market(0.5, ticker=f"KXNOTACITY-{ticker_date}-B77.5")
+    m2.event_ticker = f"KXNOTACITY-{ticker_date}"
+    assert gen.forecast(m2, Context()) is None

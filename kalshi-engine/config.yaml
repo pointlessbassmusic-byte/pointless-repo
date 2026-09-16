@@ -42,6 +42,14 @@ substrate:
       confidence: 0.2
       horizon_hours: 48      # only near expiry
       drift_strength: 0.15
+    weather:
+      enabled: true          # daily-high temp markets (KXHIGH*) vs open-meteo forecast
+      confidence: 0.4
+      sigma_base_f: 1.8      # forecast error stddev for same-day, in F
+      sigma_per_day_f: 0.6   # extra stddev per day of lead time
+      cache_ttl_sec: 1800    # one forecast fetch per station per TTL
+      # stations default to the KXHIGH* city list in generators/weather.py;
+      # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..}}
 
 strategy:
   min_edge: 0.05             # required edge AFTER fees
