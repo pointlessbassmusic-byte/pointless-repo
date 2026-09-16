@@ -35,7 +35,6 @@ import json
 import os
 import sqlite3
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from arv import ARVProtocol, ARVTrial, _u64  # noqa: E402
@@ -294,6 +293,10 @@ def self_test() -> int:
         cmd_open(ns)
         store = Store(db)
         tr, _ = store.load_all()["EV1"]
+        # cmd_open still QRNG-draws the ablation arm (p=0.2) when --ablation
+        # is absent; pin this trial to the feedback arm so the feedback-image
+        # check below is deterministic.
+        store.save(tr, False)
         ck("assignment sealed at open", len(tr.assignment_hash) == 64)
         ck("pair drawn from real files", tr.img_yes.endswith(".png")
            and tr.img_no.endswith(".png") and tr.img_yes != tr.img_no)
