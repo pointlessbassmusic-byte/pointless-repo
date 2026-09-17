@@ -12,6 +12,7 @@ from sportsbot.bot.positions import (
     PositionConfig,
     adaptive_overrides,
     aggregate_open_bets,
+    category_report,
     evaluate_exit,
     scaled_kelly,
 )
@@ -129,6 +130,26 @@ def test_adaptive_tightens_negative_clv_and_never_loosens():
     assert "baseball" not in edge                   # positive CLV: untouched
     # invariant: no override is ever looser than the configured base
     assert all(v >= 0.03 for v in edge.values())
+
+
+def test_category_report_reflects_adaptive_state():
+    def rows(sport, clv, n, pnl, outcome):
+        return [{"sport": sport, "entry_price": 0.5, "closing_price": 0.5 + clv,
+                 "pnl": pnl, "outcome": outcome} for _ in range(n)]
+
+    # store order is newest first; tennis (losing) is the most recent run
+    settled = rows("tennis", -0.02, 40, -2.0, 0) + rows("baseball", 0.02, 40, 3.0, 1)
+    rep = category_report(settled, {}, 0.03, 50.0, {}, {}, 0.25, 250.0)
+
+    t, b = rep["by_sport"]["tennis"], rep["by_sport"]["baseball"]
+    assert t["tightened"] and t["min_edge"] == 0.05 and t["max_stake"] == 25.0
+    assert not b["tightened"] and b["min_edge"] == 0.03
+    assert b["pnl"] == 120.0 and t["pnl"] == -80.0
+    assert t["hit_rate"] == 0.0 and b["hit_rate"] == 1.0
+    # oldest-first: baseball +120 peak, then tennis -80 -> drawdown 80
+    assert rep["current_drawdown"] == 80.0
+    assert abs(rep["effective_kelly"] - 0.25 * (1 - 80.0 / 250.0)) < 1e-9
+    assert rep["tightened"] == ["tennis"]
 
 
 # ------------------------------------------------------- close accounting

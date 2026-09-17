@@ -43,7 +43,8 @@ from sportsbot.core.types import MarketQuote, Side
 log = logging.getLogger(__name__)
 
 __all__ = ["PositionConfig", "ExitDecision", "aggregate_open_bets",
-           "evaluate_exit", "scaled_kelly", "adaptive_overrides"]
+           "evaluate_exit", "scaled_kelly", "adaptive_overrides",
+           "category_report"]
 
 
 @dataclass
@@ -201,3 +202,71 @@ def adaptive_overrides(
             stake_over[sport] = base_stake * stake_cut
             tightened.append(sport)
     return edge_over, stake_over, tightened
+
+
+def category_report(
+    settled: list[dict],
+    adaptive: dict,
+    base_min_edge: float,
+    base_max_stake: float,
+    sports_base_edge: dict[str, float],
+    sports_base_stake: dict[str, float],
+    base_kelly: float,
+    max_drawdown: float,
+) -> dict:
+    """Per-category performance + the adaptive layer's current state, for
+    `sportsbot status` and the dashboard's ops panel. Pure read: computes
+    exactly what the runner's `_cycle_configs` would apply next cycle.
+
+    Returns {"by_sport": {sport: {n, pnl, mean_clv, hit_rate, tightened,
+    min_edge, max_stake}}, "current_drawdown", "effective_kelly",
+    "tightened": [...]}.
+    """
+    stats: dict[str, dict] = {}
+    for r in settled:
+        s = r.get("sport") or "unknown"
+        d = stats.setdefault(s, {"n": 0, "pnl": 0.0, "clvs": [],
+                                 "wins": 0, "n_outcome": 0})
+        d["n"] += 1
+        d["pnl"] += r.get("pnl") or 0.0
+        if (r.get("closing_price") is not None
+                and r.get("entry_price") is not None):
+            d["clvs"].append(r["closing_price"] - r["entry_price"])
+        if r.get("outcome") is not None:
+            d["n_outcome"] += 1
+            d["wins"] += r["outcome"]
+
+    edge_over, stake_over, tightened = adaptive_overrides(
+        settled, sports_base_edge, base_min_edge,
+        sports_base_stake, base_max_stake,
+        window=int(adaptive.get("clv_window", 50)),
+        min_bets=int(adaptive.get("clv_min_bets", 30)),
+        tighten_edge=float(adaptive.get("tighten_edge", 0.02)),
+        stake_cut=float(adaptive.get("stake_cut", 0.5)),
+    )
+
+    cum = peak = 0.0
+    for r in reversed(settled):  # oldest first
+        cum += r.get("pnl") or 0.0
+        peak = max(peak, cum)
+    current_dd = peak - cum
+    eff_kelly = base_kelly
+    if bool(adaptive.get("drawdown_stake_scaling", True)):
+        eff_kelly = scaled_kelly(base_kelly, current_dd, max_drawdown,
+                                 float(adaptive.get("stake_floor", 0.25)))
+
+    by_sport = {}
+    for sport, d in sorted(stats.items()):
+        by_sport[sport] = {
+            "n": d["n"],
+            "pnl": round(d["pnl"], 2),
+            "mean_clv": (round(sum(d["clvs"]) / len(d["clvs"]), 4)
+                         if d["clvs"] else None),
+            "hit_rate": (round(d["wins"] / d["n_outcome"], 4)
+                         if d["n_outcome"] else None),
+            "tightened": sport in tightened,
+            "min_edge": round(edge_over.get(sport, base_min_edge), 4),
+            "max_stake": round(stake_over.get(sport, base_max_stake), 2),
+        }
+    return {"by_sport": by_sport, "current_drawdown": round(current_dd, 2),
+            "effective_kelly": round(eff_kelly, 4), "tightened": tightened}

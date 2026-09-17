@@ -22,4 +22,6 @@ def test_dashboard_command_builds_html(tmp_path, monkeypatch):
     assert "Bot operations" in doc      # ops panel renders even for empty store
     assert "clear" in doc               # kill switch not tripped
     assert (tmp_path / "data" / "substrate_events.csv").exists()
-    assert (tmp_path / "data" / "ops.json").exists()
+    import json
+    ops = json.loads((tmp_path / "data" / "ops.json").read_text())
+    assert "categories" in ops and "effective_kelly" in ops["categories"]

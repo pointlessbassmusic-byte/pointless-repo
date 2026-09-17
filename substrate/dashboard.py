@@ -254,13 +254,37 @@ def _ops_card(ops):
     tiles.append(tile("Kill switch", "■ TRIPPED" if ks else "● clear",
                       "manual reset required" if ks else
                       f"{ops.get('mode', 'paper')} mode"))
+    cats = ops.get("categories") or {}
+    if cats.get("effective_kelly") is not None:
+        tiles.append(tile("Effective Kelly", f"{cats['effective_kelly']:.3f}",
+                          f"{money(cats.get('current_drawdown', 0.0))} below "
+                          "peak; scales down only"))
 
-    by_sport = exp.get("by_sport") or {}
-    sport_rows = "".join(
-        f"<tr><td>{html.escape(str(k))}</td><td>${v:,.2f}</td></tr>"
-        for k, v in sorted(by_sport.items()))
-    sport_table = (f"<table><tr><th>sport</th><th>exposure</th></tr>"
-                   f"{sport_rows}</table>" if sport_rows else "")
+    exposure_by = exp.get("by_sport") or {}
+    by_cat = cats.get("by_sport") or {}
+    sports = sorted(set(exposure_by) | set(by_cat))
+    if by_cat:
+        rows = []
+        for s in sports:
+            d = by_cat.get(s, {})
+            clv = d.get("mean_clv")
+            rows.append(
+                f"<tr><td>{html.escape(str(s))}</td>"
+                f"<td>{money(exposure_by.get(s, 0.0))}</td>"
+                f"<td>{d.get('n', 0)}</td>"
+                f"<td>{money(d['pnl']) if 'pnl' in d else '—'}</td>"
+                f"<td>{'—' if clv is None else f'{clv:+.4f}'}</td>"
+                f"<td>{'▲ tightened' if d.get('tightened') else '● normal'}"
+                "</td></tr>")
+        sport_table = ("<table><tr><th>category</th><th>exposure</th>"
+                       "<th>settled</th><th>PnL</th><th>mean CLV</th>"
+                       "<th>state</th></tr>" + "".join(rows) + "</table>")
+    else:
+        sport_rows = "".join(
+            f"<tr><td>{html.escape(str(k))}</td><td>{money(v)}</td></tr>"
+            for k, v in sorted(exposure_by.items()))
+        sport_table = (f"<table><tr><th>sport</th><th>exposure</th></tr>"
+                       f"{sport_rows}</table>" if sport_rows else "")
 
     pnl_curve = ops.get("cum_pnl") or []
     chart = (svg_line_chart([("cumulative PnL", pnl_curve)],
@@ -463,7 +487,18 @@ def self_test() -> int:
                                    "mean_clv": 0.011, "brier": 0.21,
                                    "log_loss": 0.62, "hit_rate": 0.5},
                        "max_drawdown": 8.0, "kill_switch": False,
-                       "cum_pnl": [2.0, -1.0, 6.0, 12.5]}, fh)
+                       "cum_pnl": [2.0, -1.0, 6.0, 12.5],
+                       "categories": {
+                           "effective_kelly": 0.21, "current_drawdown": 8.0,
+                           "tightened": ["mlb"],
+                           "by_sport": {
+                               "tennis": {"n": 3, "pnl": 15.0, "mean_clv": 0.02,
+                                          "hit_rate": 0.67, "tightened": False,
+                                          "min_edge": 0.03, "max_stake": 50.0},
+                               "mlb": {"n": 1, "pnl": -2.5, "mean_clv": -0.01,
+                                       "hit_rate": 0.0, "tightened": True,
+                                       "min_edge": 0.05, "max_stake": 25.0}}}},
+                      fh)
 
         out_path = os.path.join(tmp, "dashboard.html")
         summary = build([csv_path], db, out_path, refresh=60, ops_json=ops_path)
@@ -488,6 +523,9 @@ def self_test() -> int:
         ck("ops panel rendered",
            all(s in doc for s in ("Bot operations", "$123.45", "cumulative PnL",
                                   "clear", "tennis")))
+        ck("category table + adaptive state rendered",
+           all(s in doc for s in ("Effective Kelly", "0.210", "▲ tightened",
+                                  "● normal", "mean CLV")))
         ck("certification threshold drawn", "stroke-dasharray" in doc)
 
         # empty inputs still render
