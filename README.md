@@ -106,6 +106,11 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
     first settled weather cohort the triple null lands coin 0.25 →
     climatology 0.193 → market 0.052 Brier, market-vs-coin certifies on
     both arms, and fusion strips the weaker experts' weight.
+- **`sportsbot/signals/`** — external data feeds (research-first): NWS
+  forecasts now back the weather arm's baseline at decision time (first
+  live check: Pearson +0.86 vs market on next-day markets), and
+  `sportsbot signals-scan` collects public social chatter with an
+  evidence-gated correlation report. See `docs/SIGNALS_2026-09-17.md`.
 - **`maker/`** — paper-only tennis market-making research: live L2
   capture + conservative queue-fill maker bot, and a pre-registered
   parameter replay optimizer. See `maker/README.md`.

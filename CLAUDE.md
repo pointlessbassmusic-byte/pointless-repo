@@ -29,6 +29,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   touching it. `substrate/PROTOCOL_v1.md` is FROZEN (hash-committed):
   never edit it; parameter changes require a new v1.x per its amendment
   policy. Shadow mode is non-negotiable — do not wire live staking.
+- `sportsbot/signals/` — external signal collectors, DATA ONLY (never
+  wired into trading without backtest/CLV evidence): `nws.py` (NWS point
+  forecasts -> weather-arm baseline, lead-aware sigma, no-backfill rule),
+  `chatter.py` (Bluesky public search chatter counts + correlation report;
+  Reddit deliberately not used — it refuses datacenter clients).
 - `maker/` — standalone paper-only maker research scripts (L2 capture bot
   + replay optimizer), kept as verbatim consolidations with self-tests
   (`python3 maker/<file>.py --self-test`).
