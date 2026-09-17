@@ -80,7 +80,7 @@ class RiskManager:
 
             today = self.store.bets_today()
             realized_today = sum(
-                (r.get("pnl") or 0.0) for r in today if r.get("outcome") is not None
+                (r.get("pnl") or 0.0) for r in today if r.get("pnl") is not None
             )
             if realized_today <= -abs(self.cfg.daily_loss_limit):
                 return False, f"daily loss limit ({realized_today:.2f})"
@@ -89,7 +89,11 @@ class RiskManager:
             if staked_today >= self.cfg.max_daily_new_risk * self.cfg.bankroll:
                 return False, f"daily new-risk cap ({staked_today:.2f})"
 
-            recent = [r for r in settled[: 200] if r.get("model_prob") is not None]
+            # Early-closed bets carry pnl but no outcome — they belong in the
+            # drawdown/daily-loss sums above but not in calibration scoring.
+            recent = [r for r in settled[: 200]
+                      if r.get("model_prob") is not None
+                      and r.get("outcome") is not None]
             if len(recent) >= self.cfg.calibration_min_bets:
                 b = brier_score(
                     [r["model_prob"] for r in recent],

@@ -32,6 +32,7 @@ from typing import Any, Optional
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from sportsbot.core.books import sell_levels, walk_sell
 from sportsbot.core.types import (
     BookLevel,
     Exchange,
@@ -306,6 +307,49 @@ class KalshiClient(ExchangeClient):
             order.status = OrderStatus.REJECTED
             order.raw = {"error": str(exc)}
         return order
+
+    def close_position(self, market_id: str, side: Side, quote: MarketQuote,
+                       min_price: float = 0.02) -> Optional[dict]:
+        """Close an open position by buying the opposite side — Kalshi nets
+        YES against NO automatically, so buying NO while holding YES settles
+        the pair to cash. The IOC limit is priced so net proceeds per
+        contract are never below `min_price`; an empty or collapsed book
+        closes nothing (the caller holds and retries).
+
+        Returns {closed_size, avg_price, proceeds, fee} like the paper
+        venue, with avg_price/proceeds derived from walking the quote's
+        levels for the filled count (the same levels the IOC crossed)."""
+        pos_size = 0.0
+        for p in self.get_positions():
+            if p.market_id == market_id and p.side == side and p.size > 0:
+                pos_size = p.size
+                break
+        if pos_size <= 0:
+            return None
+        exit_avg, sellable = walk_sell(sell_levels(quote, side),
+                                       min_price, pos_size)
+        if sellable <= 0 or exit_avg <= 0:
+            return None
+
+        opposite = Side.NO if side == Side.YES else Side.YES
+        order = Order(
+            client_id=f"close-{int(time.time() * 1000)}",
+            market_id=market_id,
+            side=opposite,
+            # price of the side being bought; proceeds/contract >= min_price
+            price=round(1.0 - min_price, 4),
+            size=sellable,
+            order_type=OrderType.IOC,
+        )
+        placed = self.place_order(order)
+        if placed.status == OrderStatus.REJECTED or placed.filled <= 0:
+            return None
+        avg, _ = walk_sell(sell_levels(quote, side), min_price, placed.filled)
+        fee = kalshi_taker_fee(avg, placed.filled,
+                               fee_multiplier=0.5 if "MLB" in market_id else 1.0)
+        return {"closed_size": placed.filled, "avg_price": round(avg, 4),
+                "proceeds": round(avg * placed.filled - fee, 4),
+                "fee": round(fee, 4)}
 
     def cancel_order(self, order_id: str) -> bool:
         try:
