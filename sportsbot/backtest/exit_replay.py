@@ -92,10 +92,16 @@ def load_paths(data_dir: str) -> list[dict]:
     return out
 
 
-def simulate(rec: dict, stop: Optional[float],
-             edge: Optional[float]) -> Optional[PathSim]:
+def simulate(rec: dict, stop: Optional[float], edge: Optional[float],
+             inplay_exits: bool = True) -> Optional[PathSim]:
     """Enter at the first in-band (pre-start when known) tick; replay the
-    exit rule over the rest of the path. Stake normalized to $1."""
+    exit rule over the rest of the path. Stake normalized to $1.
+
+    inplay_exits=False restricts exits to ticks before the pre-start
+    cutoff — the fill-REALISTIC regime (in-play sports books jump
+    discontinuously, so 'exit at the last printed price' overstates what a
+    mid-collapse close would actually get). Records with no known
+    game_start can't be classified and return None in that mode."""
     path = rec["path"]
     entry_idx = None
     for i, (ts, p) in enumerate(path):
@@ -111,10 +117,14 @@ def simulate(rec: dict, stop: Optional[float],
     size = 1.0 / p0
     pnl_hold = size * 1.0 - 1.0 if rec["won"] else -1.0
 
+    if not inplay_exits and not rec["game_start"]:
+        return None
     exited, exit_net, reason = False, 0.0, ""
     for ts, p in path[entry_idx + 1:]:
         if ts - ts0 < MIN_HOLD_S:
             continue
+        if not inplay_exits and ts > rec["game_start"] - PRE_START_CUTOFF_S:
+            break
         net = max(0.0, p - SPREAD_PENALTY - SLIPPAGE)
         if net <= 0.02:
             continue  # production never dumps below min_exit_price
@@ -132,15 +142,15 @@ def simulate(rec: dict, stop: Optional[float],
                    exited=exited, exit_reason=reason)
 
 
-def run_grid(records: list[dict]) -> dict:
-    """Every (stop, edge) cell over every path. Returns the full report."""
+def _grid_cells(records: list[dict], inplay_exits: bool) -> list[dict]:
     cells = []
     for stop in STOP_GRID:
         for edge in EDGE_GRID:
             if stop is None and edge is None:
                 continue  # the hold baseline is the comparison, not a cell
-            sims = [s for s in (simulate(r, stop, edge) for r in records)
-                    if s is not None]
+            sims = [s for s in (simulate(r, stop, edge,
+                                         inplay_exits=inplay_exits)
+                                for r in records) if s is not None]
             if not sims:
                 continue
             losers = [s for s in sims if not s.won]
@@ -159,6 +169,11 @@ def run_grid(records: list[dict]) -> dict:
                 "saves": sum(1 for s in losers if s.exited),
                 "whipsaws": sum(1 for s in winners if s.exited),
             })
+    return cells
+
+
+def run_grid(records: list[dict]) -> dict:
+    """Every (stop, edge) cell over every path, in both fill regimes."""
     base = [s for s in (simulate(r, None, None) for r in records)
             if s is not None]
     return {
@@ -169,8 +184,15 @@ def run_grid(records: list[dict]) -> dict:
         if base else None,
         "by_sport": {sp: sum(1 for s in base if s.sport == sp)
                      for sp in sorted({s.sport for s in base})},
-        "grid": cells,
+        "grid": _grid_cells(records, inplay_exits=True),
+        "grid_prestart": _grid_cells(records, inplay_exits=False),
         "production": {"stop": 0.5, "edge": -0.05},
+        "caveats": [
+            "no-skill entry proxy: deltas are insurance bounds, not edge",
+            "grid (all ticks) assumes fills at printed in-play prices — "
+            "optimistic during score jumps; grid_prestart is fill-realistic "
+            "but only covers records with a known game start",
+        ],
     }
 
 
