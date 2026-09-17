@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import math
 import os
 import sys
@@ -111,10 +112,19 @@ def load_arv(db_path):
 # ---------------------------------------------------------------- inline SVG
 
 def _ticks(lo, hi, n=5):
+    """~n round-valued ticks covering [lo, hi] (1/2/5 stepping)."""
     if hi <= lo:
         hi = lo + 1.0
-    step = (hi - lo) / (n - 1)
-    return [lo + i * step for i in range(n)]
+    raw = (hi - lo) / (n - 1)
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(s * mag for s in (1, 2, 5, 10) if s * mag >= raw)
+    start = math.floor(lo / step) * step
+    out = []
+    while start <= hi + step * 1e-9:
+        if start >= lo - step * 1e-9:
+            out.append(start)
+        start += step
+    return out or [lo, hi]
 
 
 def svg_line_chart(series, title, ylabel, ylog=False, hline=None,
@@ -142,7 +152,7 @@ def svg_line_chart(series, title, ylabel, ylog=False, hline=None,
              f'<text x="{ml}" y="18" class="ct">{html.escape(title)}</text>']
     for tv in _ticks(lo, hi):
         py = mt + ph * (1 - (tv - lo) / (hi - lo))
-        lab = f"{10 ** tv:.3g}" if ylog else f"{tv:.2f}"
+        lab = f"{10 ** tv:.3g}" if ylog else f"{tv:g}"
         parts.append(f'<line x1="{ml}" y1="{py:.1f}" x2="{width - mr}" '
                      f'y2="{py:.1f}" class="grid"/>'
                      f'<text x="{ml - 6}" y="{py + 4:.1f}" class="tick" '
@@ -159,10 +169,19 @@ def svg_line_chart(series, title, ylabel, ylog=False, hline=None,
         pts = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(data))
         c = PALETTE[k % len(PALETTE)]
         parts.append(f'<polyline points="{pts}" fill="none" stroke="{c}" '
-                     f'stroke-width="1.8"/>')
-        parts.append(f'<text x="{width - mr - 4}" y="{mt + 14 + 15 * k}" '
-                     f'text-anchor="end" class="tick" fill="{c}">'
-                     f'{html.escape(label)}</text>')
+                     f'stroke-width="2"/>')
+    if len(series) > 1:   # single series: the title names it, no legend
+        parts.append(f'<rect x="{width - mr - 165}" y="{mt + 2}" width="163" '
+                     f'height="{15 * len(series) + 10}" rx="4" fill="#fff" '
+                     f'fill-opacity="0.88"/>')
+        for k, (label, _) in enumerate(series):
+            c = PALETTE[k % len(PALETTE)]
+            ly = mt + 8 + 15 * k
+            parts.append(f'<rect x="{width - mr - 14}" y="{ly}" width="10" '
+                         f'height="10" rx="2" fill="{c}"/>'
+                         f'<text x="{width - mr - 18}" y="{ly + 9}" '
+                         f'text-anchor="end" class="tick">'
+                         f'{html.escape(label)}</text>')
     parts.append(f'<text x="14" y="{mt + ph / 2:.0f}" class="tick" '
                  f'transform="rotate(-90 14 {mt + ph / 2:.0f})" '
                  f'text-anchor="middle">{html.escape(ylabel)}</text>')
@@ -187,7 +206,72 @@ th{background:#eef1f5;font-weight:600}
 .ok{color:#059669;font-weight:600}.no{color:#5a626d}
 .ct{font-size:13px;font-weight:600;fill:#1a1d21}
 .tick{font-size:10px;fill:#5a626d}.grid{stroke:#eef1f5}
+.tiles{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+.tile{flex:1 1 150px;background:#f6f7f9;border:1px solid #e2e5ea;
+      border-radius:6px;padding:8px 12px;min-width:0}
+.tlabel{font-size:11px;color:#5a626d}
+.tvalue{font-size:20px;font-weight:600;margin:2px 0}
+.tnote{font-size:11px;color:#5a626d}
 """
+
+
+def _ops_card(ops):
+    """Bot operations panel from the ops JSON `sportsbot dashboard` emits.
+    Tolerant of missing keys — renders whatever is present."""
+    s = ops.get("summary", {})
+    exp = ops.get("exposure", {})
+
+    def tile(label, value, note=""):
+        note_html = (f"<div class='tnote'>{html.escape(note)}</div>"
+                     if note else "")
+        return (f"<div class='tile'><div class='tlabel'>{html.escape(label)}"
+                f"</div><div class='tvalue'>{html.escape(value)}</div>"
+                f"{note_html}</div>")
+
+    def money(v):
+        return f"-${abs(v):,.2f}" if v < 0 else f"${v:,.2f}"
+
+    def num(key, fmt="{:.4f}"):
+        v = s.get(key)
+        if v is None:
+            return "—"
+        return money(v) if fmt == "$" else fmt.format(v)
+
+    tiles = [
+        tile("Open exposure", money(exp.get("total", 0.0)),
+             f"{exp.get('open_positions', 0)} positions"),
+        tile("Settled PnL", num("pnl", "$"),
+             f"ROI {num('roi', '{:.1%}')} · max DD "
+             f"{money(ops.get('max_drawdown', 0.0))}"),
+        tile("Mean CLV", num("mean_clv", "{:+.4f}"),
+             "closing line value; positive = edge"),
+        tile("Settled bets", str(s.get("n_settled", 0)),
+             "go-live gate: 200"),
+        tile("Rolling Brier", num("brier"),
+             f"log loss {num('log_loss')} · hit {num('hit_rate', '{:.1%}')}"),
+    ]
+    ks = ops.get("kill_switch")
+    tiles.append(tile("Kill switch", "■ TRIPPED" if ks else "● clear",
+                      "manual reset required" if ks else
+                      f"{ops.get('mode', 'paper')} mode"))
+
+    by_sport = exp.get("by_sport") or {}
+    sport_rows = "".join(
+        f"<tr><td>{html.escape(str(k))}</td><td>${v:,.2f}</td></tr>"
+        for k, v in sorted(by_sport.items()))
+    sport_table = (f"<table><tr><th>sport</th><th>exposure</th></tr>"
+                   f"{sport_rows}</table>" if sport_rows else "")
+
+    pnl_curve = ops.get("cum_pnl") or []
+    chart = (svg_line_chart([("cumulative PnL", pnl_curve)],
+                            "settled bets — cumulative PnL ($)", "PnL ($)")
+             if len(pnl_curve) >= 2 else
+             "<p class='sub'>PnL curve appears after 2+ settled bets.</p>")
+
+    return ("<div class='card'><h2 style='margin-top:0'>Bot operations</h2>"
+            "<div class='tiles'>" + "".join(tiles) + "</div>"
+            "<div class='row'><div>" + chart + "</div><div>" + sport_table
+            + "</div></div></div>")
 
 
 def _score_table(book):
@@ -206,9 +290,9 @@ def _gate_line(mart, label):
             f"threshold {THRESHOLD:g}) — <span class='{cls}'>{word}</span>")
 
 
-def render(arms, arv, pending, generated=None, refresh=0):
+def render(arms, arv, pending, generated=None, refresh=0, ops=None):
     """arms: {name: run_arm(...) result}; arv: load_arv(...) or None;
-    pending: {arm_name: n_open}."""
+    pending: {arm_name: n_open}; ops: bot-operations dict or None."""
     generated = generated or time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
     meta = (f'<meta http-equiv="refresh" content="{int(refresh)}">'
             if refresh else "")
@@ -218,6 +302,9 @@ def render(arms, arv, pending, generated=None, refresh=0):
            f"<div class='sub'>generated {html.escape(generated)} · shadow mode "
            f"(nothing here stakes money) · null = raw market prob · "
            f"gate: e-process, certify at E &ge; {THRESHOLD:g}</div>"]
+
+    if ops:
+        out.append(_ops_card(ops))
 
     # trial counts
     out.append("<div class='card'><h2 style='margin-top:0'>Trial counts</h2>"
@@ -231,7 +318,7 @@ def render(arms, arv, pending, generated=None, refresh=0):
                    f"<td>{arv['n_total'] - arv['n_resolved']}</td><td>—</td></tr>")
     out.append("</table></div>")
 
-    if not arms and not arv:
+    if not arms and not arv and not ops:
         out.append("<div class='card'>No data yet — export events with "
                    "<code>sportsbot substrate-export</code> / "
                    "<code>sportsbot weather-snapshot --export</code>, or run "
@@ -287,11 +374,15 @@ def render(arms, arv, pending, generated=None, refresh=0):
 
 # ---------------------------------------------------------------- build
 
-def build(event_csvs, arv_db, out_path, refresh=0):
+def build(event_csvs, arv_db, out_path, refresh=0, ops_json=None):
     """Load inputs, run the arms, write the HTML. Returns a summary dict."""
     events = []
     for path in event_csvs:
         events.extend(load_events_csv(path))
+    ops = None
+    if ops_json and os.path.exists(ops_json):
+        with open(ops_json) as fh:
+            ops = json.load(fh)
     arv = load_arv(arv_db)
     calls = arv["calls"] if arv else {}
     arms, pending = {}, {}
@@ -301,7 +392,7 @@ def build(event_csvs, arv_db, out_path, refresh=0):
         pending[domain] = len(rows) - len(resolved)
         if resolved:
             arms[domain] = run_arm(resolved, calls)
-    html_doc = render(arms, arv, pending, refresh=refresh)
+    html_doc = render(arms, arv, pending, refresh=refresh, ops=ops)
     with open(out_path, "w") as fh:
         fh.write(html_doc)
     return {"out": out_path,
@@ -363,8 +454,19 @@ def self_test() -> int:
             arv_cli.cmd_judge(argparse.Namespace(**ns, score_a=0.8, score_b=0.1))
             arv_cli.cmd_resolve(argparse.Namespace(**ns, outcome=outcome))
 
+        ops_path = os.path.join(tmp, "ops.json")
+        with open(ops_path, "w") as fh:
+            json.dump({"mode": "paper/polymarket",
+                       "exposure": {"total": 123.45, "open_positions": 3,
+                                    "by_sport": {"tennis": 100.0, "mlb": 23.45}},
+                       "summary": {"n_settled": 4, "pnl": 12.5, "roi": 0.05,
+                                   "mean_clv": 0.011, "brier": 0.21,
+                                   "log_loss": 0.62, "hit_rate": 0.5},
+                       "max_drawdown": 8.0, "kill_switch": False,
+                       "cum_pnl": [2.0, -1.0, 6.0, 12.5]}, fh)
+
         out_path = os.path.join(tmp, "dashboard.html")
-        summary = build([csv_path], db, out_path, refresh=60)
+        summary = build([csv_path], db, out_path, refresh=60, ops_json=ops_path)
         doc = open(out_path).read()
 
         ck("two arms scored", set(summary["arms"]) == {"sports", "weather"})
@@ -383,6 +485,9 @@ def self_test() -> int:
         ck("html has all sections",
            all(s in doc for s in ("sports arm", "weather arm", "ARV arm",
                                   "Trial counts", "<svg", "refresh")))
+        ck("ops panel rendered",
+           all(s in doc for s in ("Bot operations", "$123.45", "cumulative PnL",
+                                  "clear", "tennis")))
         ck("certification threshold drawn", "stroke-dasharray" in doc)
 
         # empty inputs still render
@@ -403,6 +508,9 @@ def main():
                    help="ingest-schema CSV (repeatable)")
     p.add_argument("--arv-db", default="arv_sessions.sqlite",
                    help="arv_cli SQLite DB (skipped if missing)")
+    p.add_argument("--ops", default="",
+                   help="bot-operations JSON from `sportsbot dashboard` "
+                        "(skipped if missing)")
     p.add_argument("--out", default="dashboard.html")
     p.add_argument("--loop", type=int, default=0,
                    help="rebuild every N seconds (also sets HTML auto-refresh)")
@@ -410,7 +518,8 @@ def main():
     if args.self_test:
         sys.exit(self_test())
     while True:
-        print(build(args.events, args.arv_db, args.out, refresh=args.loop))
+        print(build(args.events, args.arv_db, args.out, refresh=args.loop,
+                    ops_json=args.ops))
         if not args.loop:
             break
         time.sleep(args.loop)

@@ -19,5 +19,7 @@ def test_dashboard_command_builds_html(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     doc = (tmp_path / "data" / "dashboard.html").read_text()
     assert "Substrate dashboard" in doc
-    assert "No data yet" in doc  # empty store -> empty-state page
+    assert "Bot operations" in doc      # ops panel renders even for empty store
+    assert "clear" in doc               # kill switch not tripped
     assert (tmp_path / "data" / "substrate_events.csv").exists()
+    assert (tmp_path / "data" / "ops.json").exists()

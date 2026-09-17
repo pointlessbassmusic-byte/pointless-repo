@@ -252,6 +252,39 @@ def weather_snapshot(config: str = CONFIG_OPT,
         console.print(svc.export_ingest_csv(export))
 
 
+def _write_ops_json(cfg: dict, store, path: str) -> None:
+    """Bot-operations summary (mirrors `sportsbot status`) for the dashboard's
+    ops panel."""
+    import json
+    import time as _time
+
+    from sportsbot.core.calibration import BetRecord, PerformanceTracker
+
+    tracker = PerformanceTracker()
+    cum, cum_pnl = 0.0, []
+    for r in store.settled_bets():
+        tracker.add(BetRecord(
+            market_id=r["market_id"], side=r["side"], model_prob=r["model_prob"],
+            entry_price=r["entry_price"], stake=r["stake"],
+            closing_price=r.get("closing_price"), outcome=r.get("outcome"),
+            pnl=r.get("pnl"),
+        ))
+        cum += r.get("pnl") or 0.0
+        cum_pnl.append(round(cum, 2))
+    ops = {
+        "generated": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "mode": f"{cfg.get('mode', 'paper')}/{cfg.get('exchange', 'polymarket')}",
+        "bankroll": cfg.get("bankroll", {}).get("amount"),
+        "exposure": store.exposure_by(),
+        "summary": tracker.summary(),
+        "max_drawdown": tracker.drawdown(),
+        "kill_switch": bool(store.get_kv("kill_switch_tripped", False)),
+        "cum_pnl": cum_pnl,
+    }
+    with open(path, "w") as fh:
+        json.dump(ops, fh, indent=1)
+
+
 @app.command("dashboard")
 def dashboard(config: str = CONFIG_OPT,
               out: str = typer.Option("data/dashboard.html"),
@@ -285,6 +318,8 @@ def dashboard(config: str = CONFIG_OPT,
     events_csv = os.path.join(out_dir, "substrate_events.csv")
     console.print(export_events_csv(store, events_csv, data_client=data_client))
     csvs = [events_csv]
+    ops_json = os.path.join(out_dir, "ops.json")
+    _write_ops_json(cfg, store, ops_json)
 
     if os.path.exists(weather_db):
         from sportsbot.substrate_bridge import WeatherSnapshotService
@@ -295,7 +330,8 @@ def dashboard(config: str = CONFIG_OPT,
         csvs.append(weather_csv)
 
     cmd = [sys.executable, str(dash), "--out", os.path.abspath(out),
-           "--arv-db", os.path.abspath(arv_db)]
+           "--arv-db", os.path.abspath(arv_db),
+           "--ops", os.path.abspath(ops_json)]
     for path in csvs:
         cmd += ["--events", os.path.abspath(path)]
     proc = subprocess.run(cmd, cwd=dash.parent, capture_output=True, text=True)
