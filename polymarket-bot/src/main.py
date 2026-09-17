@@ -17,6 +17,7 @@ from .clients.gamma import GammaClient
 from .clients.odds_api import OddsApiClient
 from .config import load_config
 from .models.fair_value import match_and_estimate
+from .models.weather import WeatherModel
 from .execution.executor import Executor
 from .risk import RiskGate
 from .storage.db import Database
@@ -38,7 +39,8 @@ def settle_open_positions(db: Database, gamma: GammaClient) -> None:
                  len(outcomes), db.realized_pnl_today())
 
 
-def run_cycle(cfg, gamma: GammaClient, clob: ClobClient, odds: OddsApiClient, executor: Executor, db: Database) -> None:
+def run_cycle(cfg, gamma: GammaClient, clob: ClobClient, odds: OddsApiClient,
+              executor: Executor, db: Database, weather: WeatherModel | None) -> None:
     settle_open_positions(db, gamma)
     markets = gamma.active_sports_markets()
 
@@ -55,6 +57,10 @@ def run_cycle(cfg, gamma: GammaClient, clob: ClobClient, odds: OddsApiClient, ex
         min_books=int(cfg.odds.get("min_books", 3)),
         blend_market_weight=float(cfg.model.get("blend_market_weight", 0.15)),
     )
+    if weather is not None:
+        wcfg = cfg.model.get("weather", {})
+        estimates += weather.estimate(
+            gamma.weather_markets(max_events=int(wcfg.get("max_events", 400))))
 
     token_ids = list({e.market.clob_token_ids[e.outcome_index] for e in estimates})
     quotes = clob.quotes(token_ids) if token_ids else {}
@@ -96,10 +102,12 @@ def main() -> None:
     )
     gate = RiskGate(db, cfg.raw.get("risk", {}), Path(__file__).resolve().parent.parent)
     executor = Executor(clob, db, live=live, risk_gate=gate)
+    wcfg = cfg.model.get("weather", {})
+    weather = WeatherModel(wcfg) if wcfg.get("enabled", True) else None
 
     while True:
         try:
-            run_cycle(cfg, gamma, clob, odds, executor, db)
+            run_cycle(cfg, gamma, clob, odds, executor, db, weather)
         except Exception:  # noqa: BLE001 — keep the loop alive across transient API failures
             log.exception("scan cycle failed")
         if args.once:

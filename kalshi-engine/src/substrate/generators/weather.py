@@ -134,24 +134,34 @@ class WeatherHigh(SignalGenerator):
         cached = self._cache.get(prefix)
         if cached and time.monotonic() - cached[0] < self.cache_ttl:
             return cached[1]
-        out: dict[str, float] = {}
+        # batch-fetch every station sharing this variable in ONE request —
+        # per-station requests (25+/cycle, times retries) trip open-meteo's
+        # rate limit and starve the whole cycle
         var = _daily_variable(station)
+        group = [(name, st) for name, st in self.stations.items()
+                 if _daily_variable(st) == var]
+        now = time.monotonic()
         try:
             r = self.http.get(OPEN_METEO, params={
-                "latitude": station["latitude"], "longitude": station["longitude"],
+                "latitude": ",".join(str(st["latitude"]) for _, st in group),
+                "longitude": ",".join(str(st["longitude"]) for _, st in group),
+                "timezone": ",".join(st.get("timezone", "UTC") for _, st in group),
                 "daily": var, "temperature_unit": "fahrenheit",
-                "forecast_days": 16, "timezone": station.get("timezone", "UTC"),
-            }, timeout=20)
+                "forecast_days": 16,
+            }, timeout=30)
             r.raise_for_status()
-            daily = r.json().get("daily", {})
-            out = {d: t for d, t in zip(daily.get("time", []), daily.get(var, []))
-                   if t is not None}
+            payload = r.json()
+            results = payload if isinstance(payload, list) else [payload]
+            for (name, _), loc in zip(group, results):
+                daily = loc.get("daily", {})
+                self._cache[name] = (now, {
+                    d: t for d, t in zip(daily.get("time", []), daily.get(var, []))
+                    if t is not None})
         except Exception:  # noqa: BLE001 — a dead weather feed must not sink the cycle
-            log.warning("weather forecast fetch failed for %s", prefix, exc_info=True)
-        # cache failures too (briefly, via the same TTL) so one outage doesn't
-        # retry per-market within a cycle
-        self._cache[prefix] = (time.monotonic(), out)
-        return out
+            log.warning("weather batch fetch failed (%s)", var, exc_info=True)
+            for name, _ in group:  # cache the failure briefly: no per-market retries
+                self._cache.setdefault(name, (now, {}))
+        return self._cache.get(prefix, (now, {}))[1]
 
     def forecast(self, market: Market, ctx: Context) -> Forecast | None:
         prefix = market.ticker.split("-", 1)[0]

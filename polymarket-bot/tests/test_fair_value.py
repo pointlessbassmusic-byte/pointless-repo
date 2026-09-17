@@ -187,3 +187,41 @@ def test_trader_requires_private_key():
     from src.clients.clob import ClobClient
     with pytest.raises(RuntimeError, match="POLYMARKET_PRIVATE_KEY"):
         ClobClient()._get_trader()
+
+
+def test_weather_question_parser_dialects():
+    from src.models.weather import parse_question
+
+    q = parse_question("Will the highest temperature in New York City be between 72-73°F on September 17?", 2026)
+    assert (q.city, q.unit, q.floor, q.cap) == ("new york city", "fahrenheit", 72.0, 73.0)
+    assert q.target.isoformat() == "2026-09-17"
+
+    q = parse_question("Will the highest temperature in Miami be 77°F or below on September 17?", 2026)
+    assert (q.floor, q.cap) == (None, 78.0)   # T <= 77
+
+    q = parse_question("Will the highest temperature in Wuhan be 21°C on September 17?", 2026)
+    assert (q.unit, q.floor, q.cap) == ("celsius", 21.0, 21.0)
+
+    q = parse_question("Will the highest temperature in London be 30°C or above on September 17?", 2026)
+    assert (q.floor, q.cap) == (29.0, None)   # T >= 30
+
+    assert parse_question("Will the Chiefs beat the Bills?", 2026) is None
+
+
+def test_weather_model_prices_band_market():
+    import time as _time
+    from src.models.weather import WeatherModel
+
+    today = datetime.now(timezone.utc)
+    mkt = make_market(
+        "Will the highest temperature in Miami be between 88-89°F on "
+        f"{today.strftime('%B')} {today.day}?",
+        ["Yes", "No"], ["t-yes", "t-no"], None)
+    mkt.end_date = today
+    mkt.outcome_prices = [0.5, 0.5]
+
+    model = WeatherModel({"sigma_base_f": 1.8, "blend_market_weight": 0.0})
+    model._cache["miami"] = (_time.monotonic(), {today.date().isoformat(): 88.5})
+    ests = {e.outcome_name: e for e in model.estimate([mkt])}
+    assert 0.40 < ests["Yes"].consensus_prob < 0.45   # dead-center 2F band
+    assert abs(ests["Yes"].consensus_prob + ests["No"].consensus_prob - 1.0) < 1e-9

@@ -119,6 +119,34 @@ class GammaClient:
         log.info("gamma: %d active sports markets", len(out))
         return out
 
+    def weather_markets(self, max_events: int = 400) -> list[SportsMarket]:
+        """Active daily-temperature markets ("Highest temperature in <city> ...").
+
+        Weather events carry no sports tag, so they are found by scanning the
+        top events by 24h volume and filtering titles.
+        """
+        out: list[SportsMarket] = []
+        offset = 0
+        while offset < max_events:
+            batch = self._get("/events", closed="false", active="true", limit=100,
+                              offset=offset, order="volume24hr", ascending="false")
+            if not isinstance(batch, list) or not batch:
+                break
+            for ev in batch:
+                if "temperature" not in (ev.get("title") or "").lower():
+                    continue
+                for m in ev.get("markets", []) or []:
+                    if m.get("closed") or not m.get("active"):
+                        continue
+                    sm = _parse_market(m, event_title=ev.get("title", ""))
+                    if sm:
+                        out.append(sm)
+            if len(batch) < 100:
+                break
+            offset += 100
+        log.info("gamma: %d active weather markets", len(out))
+        return out
+
     def resolutions(self, condition_ids: list[str]) -> dict[str, float]:
         """token_id -> resolved outcome (1.0/0.0) for closed markets.
 

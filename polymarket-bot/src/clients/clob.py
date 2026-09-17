@@ -39,22 +39,29 @@ class ClobClient:
 
     # ---- reads (no auth) ----
 
-    def quotes(self, token_ids: list[str]) -> dict[str, Quote]:
-        """Best bid/ask for a batch of token ids via the /prices endpoint."""
+    def quotes(self, token_ids: list[str], chunk: int = 100) -> dict[str, Quote]:
+        """Best bid/ask for a batch of token ids via the /prices endpoint.
+
+        Chunked: with hundreds of tokens (weather markets), a single giant
+        POST can stall or be rejected; 100 tokens = 200 body entries per call.
+        """
         out: dict[str, Quote] = {}
-        if not token_ids:
-            return out
-        body = [{"token_id": t, "side": s} for t in token_ids for s in ("BUY", "SELL")]
-        r = self.http.post(f"{CLOB_BASE}/prices", json=body, timeout=30)
-        r.raise_for_status()
-        data = r.json()  # {token_id: {"BUY": "...", "SELL": "..."}}
-        for t in token_ids:
-            entry = data.get(t, {})
-            # side=BUY returns the best bid (highest resting buy order);
-            # side=SELL returns the best ask (lowest resting sell order)
-            bid = float(entry["BUY"]) if entry.get("BUY") else None
-            ask = float(entry["SELL"]) if entry.get("SELL") else None
-            out[t] = Quote(token_id=t, bid=bid, ask=ask)
+        for i in range(0, len(token_ids), chunk):
+            ids = token_ids[i:i + chunk]
+            body = [{"token_id": t, "side": s} for t in ids for s in ("BUY", "SELL")]
+            r = self.http.post(f"{CLOB_BASE}/prices", json=body, timeout=30)
+            r.raise_for_status()
+            data = r.json()  # {token_id: {"BUY": "...", "SELL": "..."}}
+            for t in ids:
+                entry = data.get(t, {})
+                # side=BUY returns the best bid (highest resting buy order);
+                # side=SELL returns the best ask (lowest resting sell order)
+                bid = float(entry["BUY"]) if entry.get("BUY") else None
+                ask = float(entry["SELL"]) if entry.get("SELL") else None
+                out[t] = Quote(token_id=t, bid=bid, ask=ask)
+            if len(token_ids) > chunk:
+                log.info("clob quotes: %d/%d tokens", min(i + chunk, len(token_ids)),
+                         len(token_ids))
         return out
 
     # ---- writes (auth; only used with --live) ----

@@ -17,6 +17,12 @@ odds:
 
 model:
   blend_market_weight: 0.15   # weight given to Polymarket mid when blending fair value
+  weather:                    # daily-temperature markets priced from open-meteo (keyless)
+    enabled: true
+    sigma_base_f: 2.4         # same empirical values as kalshi-engine's calibrated fit
+    sigma_per_day_f: 1.0      # (Celsius markets scale sigma by 5/9 internally)
+    cache_ttl_sec: 1800
+    max_events: 400           # top gamma events scanned for temperature titles
 
 strategy:
   min_edge: 0.04              # fair_prob - ask must exceed this to buy
