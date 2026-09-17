@@ -98,3 +98,10 @@ def test_export_never_uses_post_decision_forecast(tmp_path, monkeypatch):
     assert res["nws_rows"] == 1
     baseline = float(out.read_text().splitlines()[1].split(",")[5])
     assert baseline > 0.9  # forecast 90 vs threshold >82
+
+
+def test_retro_query_mapping():
+    from sportsbot.signals.chatter import retro_query_for_event
+    assert retro_query_for_event("mlb-lad-atl-2026-08-27") == "Dodgers Braves"
+    assert retro_query_for_event("mlb-xxx-atl-2026-08-27") is None   # unknown code -> skip
+    assert retro_query_for_event("will-novak-djokovic-win-the-2026-australian-open") is None
