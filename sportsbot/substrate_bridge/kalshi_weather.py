@@ -6,10 +6,11 @@ substrate protocol's decision point) plus periodic refreshes, then fills in
 outcomes when markets settle. `export_ingest_csv` emits the substrate
 ingest.py schema using the max-lead snapshot as market_prob.
 
-baseline_prob caveat: until a real climatology/GenCast feed is wired, the
-conventional baseline is emitted as 0.5 (no-skill stand-in). The market null
-is unaffected; treat baseline-expert scores as placeholders and replace the
-column when a climatology source lands.
+baseline_prob is the station climatology (climatology.py: NOAA NCEI TMAX,
+±7-day day-of-year window, prior years only — leak-proof by construction),
+falling back to the 0.5 no-skill stand-in when a station or title can't be
+resolved. Measured on the first settled cohort: coin 0.25 → climatology
+~0.19 → market ~0.05 Brier — the triple-null hierarchy the protocol expects.
 """
 
 from __future__ import annotations
@@ -137,15 +138,21 @@ class WeatherSnapshotService:
     # ------------------------------------------------------------------
     def export_ingest_csv(self, out_path: str) -> dict:
         """Emit substrate ingest schema using each ticker's max-lead (first)
-        snapshot as the decision-time market probability."""
+        snapshot as the decision-time market probability. baseline_prob is the
+        station climatology (prior years only — see climatology.py's no-leak
+        rule) and falls back to the 0.5 no-skill stand-in when the station or
+        title can't be resolved."""
+        from sportsbot.substrate_bridge.climatology import Climatology
+
+        climo = Climatology()
         rows = self.conn.execute(
-            """SELECT s.ticker, MIN(s.ts) AS first_ts, s.close_ts,
-                      o.outcome, o.settled_ts
+            """SELECT s.ticker, s.series, s.title, MIN(s.ts) AS first_ts,
+                      s.close_ts, o.outcome, o.settled_ts
                FROM weather_snapshots s
                LEFT JOIN weather_outcomes o ON o.ticker = s.ticker
                GROUP BY s.ticker"""
         ).fetchall()
-        written = 0
+        written = climo_rows = 0
         with open(out_path, "w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(["event_id", "domain", "close_time", "resolve_time",
@@ -159,13 +166,16 @@ class WeatherSnapshotService:
                 if snap is None or snap["yes_bid"] is None or snap["yes_ask"] is None:
                     continue
                 mid = (snap["yes_bid"] + snap["yes_ask"]) / 2.0
+                baseline = climo.prob(r["series"], r["title"])
+                if baseline is not None:
+                    climo_rows += 1
                 w.writerow([
                     r["ticker"], "weather",
                     f"{r['first_ts']:.0f}",
                     f"{(r['settled_ts'] or r['close_ts'] or r['first_ts']):.0f}",
                     f"{mid:.4f}",
-                    "0.5000",  # placeholder baseline; see module docstring
+                    f"{(0.5 if baseline is None else baseline):.4f}",
                     "" if r["outcome"] is None else int(r["outcome"]),
                 ])
                 written += 1
-        return {"rows": written, "path": out_path}
+        return {"rows": written, "path": out_path, "climatology_rows": climo_rows}
