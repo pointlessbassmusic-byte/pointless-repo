@@ -133,6 +133,21 @@ class BlueskyChatter:
             time.sleep(PAUSE)
         return texts
 
+    def _search_window(self, query: str, since_iso: str, until_iso: str) -> list[str]:
+        """One bounded-window page (retro study): posts strictly before until_iso."""
+        params = {"q": query, "limit": 100, "since": since_iso, "until": until_iso}
+        last_exc: Optional[Exception] = None
+        for url in (SEARCH_URL, FALLBACK_URL):
+            try:
+                resp = httpx.get(url, params=params,
+                                 headers={"User-Agent": USER_AGENT}, timeout=30)
+                resp.raise_for_status()
+                return [str(post.get("record", {}).get("text", ""))
+                        for post in resp.json().get("posts", [])]
+            except Exception as exc:  # noqa: BLE001 — try the fallback host
+                last_exc = exc
+        raise RuntimeError(f"bluesky window search failed for {query!r}: {last_exc}")
+
     def scan(self, entities: list[str], window_hours: float = 24.0) -> list[dict]:
         """Collect and persist one chatter row per entity. Returns the rows."""
         since_iso = time.strftime(
@@ -224,3 +239,133 @@ def correlation_report(db_path: str, events_csv: str) -> str:
     return (f"n={n} chatter-event pairs; Spearman(flag_share, |outcome - market|) "
             f"= {rho:+.3f}. |rho| < ~0.2 on this n is noise — demand consistency "
             f"across weeks before believing it.")
+
+
+# ---------------------------------------------------------------- retro study
+
+# Slug team codes (history-downloader MLB ids: mlb-<away>-<home>-<date>).
+MLB_TEAMS = {
+    "ari": "Diamondbacks", "atl": "Braves", "bal": "Orioles", "bos": "Red Sox",
+    "chc": "Cubs", "cws": "White Sox", "chw": "White Sox", "cin": "Reds",
+    "cle": "Guardians", "col": "Rockies", "det": "Tigers", "hou": "Astros",
+    "kc": "Royals", "laa": "Angels", "lad": "Dodgers", "mia": "Marlins",
+    "mil": "Brewers", "min": "Twins", "nym": "Mets", "nyy": "Yankees",
+    "oak": "Athletics", "ath": "Athletics", "phi": "Phillies", "pit": "Pirates",
+    "sd": "Padres", "sea": "Mariners", "sf": "Giants", "stl": "Cardinals",
+    "tb": "Rays", "tex": "Rangers", "tor": "Blue Jays", "wsh": "Nationals",
+}
+
+_MLB_ID = re.compile(r"^mlb-([a-z]+)-([a-z]+)-\d{4}-\d{2}-\d{2}$")
+
+
+def retro_query_for_event(event_id: str) -> Optional[str]:
+    """Search query for an event id, or None when no confident entity exists.
+    MLB h2h ids map both team codes to nicknames; unknown codes are skipped
+    (conservative matching, like the bot's scanner)."""
+    m = _MLB_ID.match(event_id)
+    if not m:
+        return None
+    a, b = MLB_TEAMS.get(m.group(1)), MLB_TEAMS.get(m.group(2))
+    if not a or not b:
+        return None
+    return f"{a} {b}"
+
+
+def retro_study(events_csv: str, db_path: str = "data/chatter.sqlite",
+                max_events: int = 80, window_hours: float = 24.0,
+                pause: float = 6.0) -> str:
+    """Retrospective pilot: pre-decision chatter for already-resolved events.
+
+    Leak control: the search window ends AT the event's decision time
+    (`until=` close_time), so every post predates the decision — the join is
+    on post timestamps, not collection time. Still a retrospective pilot:
+    treat any correlation as a hypothesis for the live accrual path, never as
+    promotion evidence on its own.
+    """
+    import csv as _csv
+    from datetime import datetime, timezone
+
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE IF NOT EXISTS retro_chatter ("
+        " event_id TEXT PRIMARY KEY, query TEXT, close_time REAL,"
+        " market_prob REAL, outcome INTEGER, posts INTEGER, flagged INTEGER);")
+    collector = BlueskyChatter.__new__(BlueskyChatter)
+    collector.conn = conn
+
+    events = []
+    with open(events_csv) as fh:
+        for r in _csv.DictReader(fh):
+            if r.get("outcome") in ("", None):
+                continue
+            q = retro_query_for_event(r["event_id"])
+            if q is None:
+                continue
+            events.append((r["event_id"], q, float(r["close_time"]),
+                           float(r["market_prob"]), int(r["outcome"])))
+
+    done = {row[0] for row in conn.execute("SELECT event_id FROM retro_chatter")}
+    todo = [e for e in events if e[0] not in done][:max_events]
+    scanned = skipped = 0
+    for event_id, query, close_t, mprob, outcome in todo:
+        since = datetime.fromtimestamp(close_t - window_hours * 3600,
+                                       tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        until = datetime.fromtimestamp(close_t, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        try:
+            texts = collector._search_window(query, since, until)
+        except RuntimeError as exc:
+            log.warning("retro skip %s: %s", event_id, exc)
+            skipped += 1
+            time.sleep(pause)
+            continue
+        flagged, _per = count_flags(texts)
+        conn.execute(
+            "INSERT OR REPLACE INTO retro_chatter (event_id, query, close_time,"
+            " market_prob, outcome, posts, flagged) VALUES (?,?,?,?,?,?,?)",
+            (event_id, query, close_t, mprob, outcome, len(texts), flagged))
+        conn.commit()
+        scanned += 1
+        time.sleep(pause)
+
+    return retro_report(db_path) + f"\n(this run: scanned {scanned}, skipped {skipped}, " \
+                                   f"eligible remaining {len(events) - len(done) - scanned})"
+
+
+def retro_report(db_path: str = "data/chatter.sqlite") -> str:
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT market_prob, outcome, posts, flagged"
+                        " FROM retro_chatter").fetchall()
+    with_posts = [(f / p, abs(o - m)) for m, o, p, f in rows if p > 0]
+    if len(with_posts) < 30:
+        return (f"retro pilot: {len(rows)} events collected, {len(with_posts)} with "
+                f"any pre-decision chatter — need >= 30 for a correlation.")
+
+    def _ranks(xs):
+        order = sorted(range(len(xs)), key=lambda i: xs[i])
+        rk = [0.0] * len(xs)
+        for pos, i in enumerate(order):
+            rk[i] = pos
+        return rk
+
+    ra = _ranks([p[0] for p in with_posts])
+    rb = _ranks([p[1] for p in with_posts])
+    n = len(with_posts)
+    ma, mb = sum(ra) / n, sum(rb) / n
+    cov = sum((a - ma) * (b - mb) for a, b in zip(ra, rb))
+    va = sum((a - ma) ** 2 for a in ra) ** 0.5
+    vb = sum((b - mb) ** 2 for b in rb) ** 0.5
+    rho = cov / (va * vb) if va and vb else 0.0
+    flagged_any = [(fs, res) for fs, res in with_posts if fs > 0]
+    quiet = [(fs, res) for fs, res in with_posts if fs == 0]
+    lines = [f"retro pilot: n={n} events with pre-decision chatter "
+             f"({len(rows)} collected).",
+             f"Spearman(flag_share, |outcome - market|) = {rho:+.3f}"]
+    if flagged_any and quiet:
+        mf = sum(r for _, r in flagged_any) / len(flagged_any)
+        mq = sum(r for _, r in quiet) / len(quiet)
+        lines.append(f"mean |residual|: flagged events {mf:.3f} (n={len(flagged_any)})"
+                     f" vs quiet events {mq:.3f} (n={len(quiet)})")
+    lines.append("Retrospective pilot only — a hypothesis for the live accrual "
+                 "path, not promotion evidence.")
+    return "\n".join(lines)
