@@ -164,6 +164,10 @@ class WeatherHigh(SignalGenerator):
         mu = self._forecasts(prefix, station).get(target.isoformat())
         if mu is None:
             return None
+        # per-station bias correction: bias_f = mean(observed - forecast), fitted
+        # by weather_calibrate from Kalshi-settled truth. Grid-cell forecasts can
+        # run systematically hot/cold vs the exact settlement station.
+        mu += float(station.get("bias_f", 0.0))
         days_ahead = max(0, (target - datetime.now(timezone.utc).date()).days)
         sigma = self.sigma_base + self.sigma_per_day * days_ahead
         p = band_probability(mu, sigma, market.floor_strike, market.cap_strike)

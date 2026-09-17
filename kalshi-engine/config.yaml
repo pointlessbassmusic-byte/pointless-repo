@@ -55,8 +55,10 @@ substrate:
       sigma_base_f: 2.4      # forecast error stddev for same-day, in F
       sigma_per_day_f: 1.0   # extra stddev per day of lead time
       cache_ttl_sec: 1800    # one forecast fetch per station per TTL
-      # stations default to the KXHIGH* city list in generators/weather.py;
-      # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..}}
+      # stations default to the verified series list in generators/weather.py;
+      # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..,
+      #   variable: max|min, bias_f: 0.0}}. bias_f = mean(observed - forecast):
+      # apply the values weather_calibrate suggests once a station reaches n>=10.
 
 strategy:
   min_edge: 0.05             # required edge AFTER fees

@@ -113,6 +113,21 @@ def self_logged_samples(db: Database) -> list[tuple[int, float]]:
     return [(int(lead), float(err)) for lead, err in rows]
 
 
+def station_bias(db: Database, min_n: int = 10) -> list[tuple[str, int, float]]:
+    """Per-station (station, n, mean observed-forecast) from settled truth.
+
+    A persistent nonzero mean is siting bias (grid cell vs the settlement
+    station) — corrected by the generator's per-station bias_f, not by sigma.
+    Only rows with n >= min_n are confident enough to act on.
+    """
+    rows = db.conn.execute(
+        "SELECT l.station, COUNT(*), AVG(o.observed_f - l.forecast_f)"
+        " FROM weather_log l JOIN weather_observed o"
+        " ON o.station = l.station AND o.target_date = l.target_date"
+        " GROUP BY l.station ORDER BY l.station").fetchall()
+    return [(s, int(n), round(float(b), 2)) for s, n, b in rows]
+
+
 def previous_runs_samples(gen: WeatherHigh, past_days: int = 60) -> list[tuple[int, float]]:
     """Instant history where the previous-runs API is reachable: forecast made
     N days ahead vs the model's day-0 analysis for the same date."""
@@ -159,6 +174,16 @@ def main() -> None:
         source = f"self-logged data ({len(samples)} samples so far)"
         print("previous-runs API unreachable here (works without an egress proxy, "
               "e.g. on the server); using self-logged history")
+
+    biases = station_bias(db)
+    if biases:
+        print("\nper-station bias (mean observed - forecast, from settled truth):")
+        for st, n, b in biases:
+            note = (f"  -> set stations.{st}.bias_f: {b}" if n >= 10
+                    else "  (n < 10: watch, don't act yet)")
+            print(f"  {st:<13} n={n:<4} bias={b:+.2f}F{note}")
+        print("  (sigma from the previous-runs API excludes siting bias; bias_f"
+              " comes only from this Kalshi-settled table)")
 
     fitted = fit_sigma(samples)
     if fitted is None:

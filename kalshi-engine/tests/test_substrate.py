@@ -337,3 +337,39 @@ def test_priority_prefixes_survive_the_liquidity_cut():
                   key=lambda m: m.volume, reverse=True)
     capped = priority + rest[:max(0, max_markets - len(priority))]
     assert weather in capped and len(capped) == 2
+
+
+def test_station_bias_correction_shifts_probabilities(tmp_path):
+    from datetime import datetime, timezone
+    import time as _time
+    from src.substrate.generators.weather import WeatherHigh
+    from src.weather_calibrate import station_bias
+    from src.storage.db import Database
+
+    today = datetime.now(timezone.utc).date()
+    ticker_date = today.strftime("%y%b%d").upper()
+
+    def gen_with(bias):
+        st = {"latitude": 0, "longitude": 0, "timezone": "UTC"}
+        if bias:
+            st["bias_f"] = bias
+        g = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8,
+                         "stations": {"KXHIGHMIA": st}})
+        g._cache["KXHIGHMIA"] = (_time.monotonic(), {today.isoformat(): 80.0})
+        return g
+
+    m = make_market(0.5, ticker=f"KXHIGHMIA-{ticker_date}-B84.5")
+    m.event_ticker = f"KXHIGHMIA-{ticker_date}"
+    m.floor_strike, m.cap_strike = 84.0, 85.0
+    p_raw = gen_with(0).forecast(m, Context()).prob_yes
+    # +5F bias correction moves the corrected forecast onto the band
+    p_corrected = gen_with(5.0).forecast(m, Context()).prob_yes
+    assert p_corrected > p_raw and p_corrected > 0.3
+
+    db = Database(tmp_path / "t.db")
+    db.conn.execute("INSERT INTO weather_log (logged_date, station, target_date,"
+                    " lead_days, forecast_f) VALUES ('2026-09-15','KXHIGHMIA','2026-09-16',1,84.9)")
+    db.conn.execute("INSERT INTO weather_observed (station, target_date, observed_f)"
+                    " VALUES ('KXHIGHMIA','2026-09-16',92.5)")
+    db.conn.commit()
+    assert station_bias(db) == [("KXHIGHMIA", 1, 7.6)]
