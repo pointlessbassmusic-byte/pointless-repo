@@ -6,10 +6,14 @@ substrate protocol's decision point) plus periodic refreshes, then fills in
 outcomes when markets settle. `export_ingest_csv` emits the substrate
 ingest.py schema using the max-lead snapshot as market_prob.
 
-baseline_prob caveat: until a real climatology/GenCast feed is wired, the
-conventional baseline is emitted as 0.5 (no-skill stand-in). The market null
-is unaffected; treat baseline-expert scores as placeholders and replace the
-column when a climatology source lands.
+baseline_prob: an EMPIRICAL STRIKE CLIMATOLOGY computed from this service's
+own accumulated outcomes. Kalshi weather strikes repeat daily per station
+(KXHIGHNY-…-B79.5 recurs all season), so the baseline for a strike is the
+historical hit rate of that exact (series, strike) within a ±window of
+day-of-year — using only outcomes settled BEFORE the event's decision time
+(never post-decision information). Until enough history accumulates
+(min_n per strike) the no-skill 0.5 placeholder is emitted instead; the
+export summary reports how many rows used which.
 """
 
 from __future__ import annotations
@@ -135,6 +139,59 @@ class WeatherSnapshotService:
             time.sleep(max(30.0, interval_seconds - (time.time() - started)))
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _series_strike(ticker: str) -> tuple[str, str]:
+        """('KXHIGHNY', 'B79.5') from 'KXHIGHNY-26SEP09-B79.5'."""
+        parts = ticker.split("-")
+        return parts[0], (parts[-1] if len(parts) >= 3 else "")
+
+    def _climatology_obs(self) -> list[dict]:
+        """All resolved (series, strike) observations with day-of-year and
+        settle time, oldest first — the raw material for the baseline."""
+        rows = self.conn.execute(
+            """SELECT s.ticker, MIN(s.close_ts) AS close_ts,
+                      o.outcome, o.settled_ts
+               FROM weather_snapshots s
+               JOIN weather_outcomes o ON o.ticker = s.ticker
+               WHERE o.outcome IS NOT NULL
+               GROUP BY s.ticker ORDER BY o.settled_ts"""
+        ).fetchall()
+        obs = []
+        for r in rows:
+            series, strike = self._series_strike(r["ticker"])
+            if not strike:
+                continue
+            ts = r["close_ts"] or r["settled_ts"]
+            doy = time.gmtime(ts).tm_yday if ts else None
+            obs.append({"series": series, "strike": strike, "doy": doy,
+                        "settled_ts": r["settled_ts"], "outcome": r["outcome"]})
+        return obs
+
+    @staticmethod
+    def _climatology(obs: list[dict], ticker: str, decision_ts: float,
+                     doy: Optional[int], window_days: int = 30,
+                     min_n: int = 8) -> Optional[float]:
+        """Empirical hit rate for this exact (series, strike), from outcomes
+        settled strictly before `decision_ts`. Prefers a ±window_days
+        day-of-year match (seasonality); falls back to all-year; returns
+        None (caller emits the 0.5 placeholder) below min_n either way."""
+        series, strike = WeatherSnapshotService._series_strike(ticker)
+        same = [o for o in obs
+                if o["series"] == series and o["strike"] == strike
+                and o["settled_ts"] is not None
+                and o["settled_ts"] < decision_ts]
+        if doy is not None:
+            windowed = [o for o in same if o["doy"] is not None
+                        and min(abs(o["doy"] - doy),
+                                365 - abs(o["doy"] - doy)) <= window_days]
+        else:
+            windowed = []
+        pool = windowed if len(windowed) >= min_n else same
+        if len(pool) < min_n:
+            return None
+        rate = sum(o["outcome"] for o in pool) / len(pool)
+        return min(max(rate, 0.02), 0.98)
+
     def export_ingest_csv(self, out_path: str) -> dict:
         """Emit substrate ingest schema using each ticker's max-lead (first)
         snapshot as the decision-time market probability."""
@@ -145,7 +202,8 @@ class WeatherSnapshotService:
                LEFT JOIN weather_outcomes o ON o.ticker = s.ticker
                GROUP BY s.ticker"""
         ).fetchall()
-        written = 0
+        obs = self._climatology_obs()
+        written = n_clim = 0
         with open(out_path, "w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(["event_id", "domain", "close_time", "resolve_time",
@@ -159,13 +217,19 @@ class WeatherSnapshotService:
                 if snap is None or snap["yes_bid"] is None or snap["yes_ask"] is None:
                     continue
                 mid = (snap["yes_bid"] + snap["yes_ask"]) / 2.0
+                doy = (time.gmtime(r["close_ts"]).tm_yday
+                       if r["close_ts"] else None)
+                base = self._climatology(obs, r["ticker"], r["first_ts"], doy)
+                if base is not None:
+                    n_clim += 1
                 w.writerow([
                     r["ticker"], "weather",
                     f"{r['first_ts']:.0f}",
                     f"{(r['settled_ts'] or r['close_ts'] or r['first_ts']):.0f}",
                     f"{mid:.4f}",
-                    "0.5000",  # placeholder baseline; see module docstring
+                    f"{0.5 if base is None else base:.4f}",
                     "" if r["outcome"] is None else int(r["outcome"]),
                 ])
                 written += 1
-        return {"rows": written, "path": out_path}
+        return {"rows": written, "climatology_baseline": n_clim,
+                "placeholder_baseline": written - n_clim, "path": out_path}

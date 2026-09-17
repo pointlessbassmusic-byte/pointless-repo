@@ -75,3 +75,80 @@ def test_roundtrip_through_substrate_loader(tmp_path):
     assert by_id["m2"].outcome == 0
     assert 0.0 < by_id["m1"].market_prob < 1.0
     assert by_id["m1"].domain == "sports"
+
+
+# ---------------------------------------------------------------- weather
+
+def _weather_service(tmp_path):
+    from sportsbot.substrate_bridge import WeatherSnapshotService
+
+    return WeatherSnapshotService(client=object(),
+                                  db_path=str(tmp_path / "w.sqlite"))
+
+
+def _seed_weather(svc, ticker, ts, close_ts, bid=0.45, ask=0.49,
+                  outcome=None, settled_ts=None):
+    svc.conn.execute(
+        "INSERT INTO weather_snapshots (ts, ticker, series, title, yes_bid,"
+        " yes_ask, close_ts) VALUES (?,?,?,?,?,?,?)",
+        (ts, ticker, ticker.split("-")[0], ticker, bid, ask, close_ts))
+    if outcome is not None:
+        svc.conn.execute(
+            "INSERT OR REPLACE INTO weather_outcomes (ticker, outcome,"
+            " settled_ts) VALUES (?,?,?)",
+            (ticker, outcome, settled_ts if settled_ts is not None
+             else close_ts + 3600))
+    svc.conn.commit()
+
+
+def test_weather_climatology_baseline(tmp_path):
+    """Same-strike history sets the baseline; sparse strikes keep 0.5."""
+    import csv
+
+    svc = _weather_service(tmp_path)
+    day = 86400.0
+    t0 = 1_756_000_000.0  # 2025-08-24ish; nearby days-of-year
+    # 10 resolved B79.5 days at NYC: 7 hit -> climatology 0.7
+    for i in range(10):
+        _seed_weather(svc, f"KXHIGHNY-25AUG{10 + i}-B79.5",
+                      ts=t0 + i * day, close_ts=t0 + i * day + 3600,
+                      outcome=1 if i < 7 else 0)
+    # the event under test: same strike, decided AFTER all history settled
+    _seed_weather(svc, "KXHIGHNY-25SEP09-B79.5", ts=t0 + 20 * day,
+                  close_ts=t0 + 20 * day + 3600)
+    # different strike with too little history: stays placeholder
+    _seed_weather(svc, "KXHIGHNY-25SEP09-B99.5", ts=t0 + 20 * day,
+                  close_ts=t0 + 20 * day + 3600)
+
+    out = tmp_path / "weather.csv"
+    summary = svc.export_ingest_csv(str(out))
+    rows = {r["event_id"]: r for r in csv.DictReader(open(out))}
+    assert rows["KXHIGHNY-25SEP09-B79.5"]["baseline_prob"] == "0.7000"
+    assert rows["KXHIGHNY-25SEP09-B99.5"]["baseline_prob"] == "0.5000"
+    assert summary["climatology_baseline"] >= 1
+    assert summary["placeholder_baseline"] >= 1
+
+
+def test_weather_climatology_never_uses_future_outcomes(tmp_path):
+    """Walk-forward guard: outcomes settled after an event's decision time
+    must not leak into that event's baseline."""
+    svc = _weather_service(tmp_path)
+    day = 86400.0
+    t0 = 1_756_000_000.0
+    # the event under test is decided at t0 (earliest snapshot)...
+    _seed_weather(svc, "KXHIGHCHI-25AUG24-B85.5", ts=t0, close_ts=t0 + 3600,
+                  outcome=1, settled_ts=t0 + 7200)
+    # ...while ALL same-strike history settles later
+    for i in range(1, 11):
+        _seed_weather(svc, f"KXHIGHCHI-25AUG{24 + i}-B85.5",
+                      ts=t0 + i * day, close_ts=t0 + i * day + 3600,
+                      outcome=1, settled_ts=t0 + i * day + 7200)
+
+    out = tmp_path / "weather.csv"
+    svc.export_ingest_csv(str(out))
+    import csv
+    rows = {r["event_id"]: r for r in csv.DictReader(open(out))}
+    # earliest event: no prior history -> placeholder, despite 10 later hits
+    assert rows["KXHIGHCHI-25AUG24-B85.5"]["baseline_prob"] == "0.5000"
+    # latest event: sees the 10 earlier settles -> climatology (clipped 0.98)
+    assert rows["KXHIGHCHI-25AUG34-B85.5"]["baseline_prob"] == "0.9800"
