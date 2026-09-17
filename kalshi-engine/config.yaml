@@ -45,8 +45,12 @@ substrate:
     weather:
       enabled: true          # daily-high temp markets (KXHIGH*) vs open-meteo forecast
       confidence: 0.4
-      sigma_base_f: 1.8      # forecast error stddev for same-day, in F
-      sigma_per_day_f: 0.6   # extra stddev per day of lead time
+      # provisional empirical fit (weather_calibrate, n=14 settled days,
+      # 2026-09-17) — wider than the original 1.8/0.6 priors, i.e. the priors
+      # were overconfident. The daily calibration timer refines these; re-run
+      # `python -m src.weather_calibrate` and update as the sample grows.
+      sigma_base_f: 2.4      # forecast error stddev for same-day, in F
+      sigma_per_day_f: 1.0   # extra stddev per day of lead time
       cache_ttl_sec: 1800    # one forecast fetch per station per TTL
       # stations default to the KXHIGH* city list in generators/weather.py;
       # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..}}
