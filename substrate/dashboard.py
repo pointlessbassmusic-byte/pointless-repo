@@ -58,11 +58,16 @@ def analyze_arm(name: str, path: Path) -> dict:
     out["notes"].append(f"longshot fit on prior {half} events: a={a:.3f} b={b:.3f}; "
                         f"scored on the remaining {len(scored)}")
 
-    placeholder = all(abs(e.baseline_prob - e.market_prob) < 1e-9 for e in resolved)
+    same_as_market = all(abs(e.baseline_prob - e.market_prob) < 1e-9 for e in resolved)
+    coin_standin = all(abs(e.baseline_prob - 0.5) < 1e-9 for e in resolved)
+    placeholder = same_as_market or coin_standin
     experts = ["market", "market_longshot"] + ([] if placeholder else ["baseline"])
-    if placeholder:
+    if same_as_market:
         out["notes"].append("baseline column equals market (documented placeholder) — "
                             "excluded from experts")
+    elif coin_standin:
+        out["notes"].append("baseline column is the 0.5 no-skill stand-in (no climatology "
+                            "model yet) — excluded from experts")
 
     marts = {"market": TestMartingale(THRESHOLD),          # market vs coin
              "market_longshot": TestMartingale(THRESHOLD)}  # correction vs raw market

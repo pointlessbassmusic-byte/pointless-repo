@@ -93,9 +93,10 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
   - `substrate/dashboard.py` — dashboard (milestone 4): e-process wealth
     curves per arm, Hedge fusion weights, and trial counts as one static
     HTML file from the bridges' ingest CSVs + the ARV sqlite. Latest
-    rendered snapshot: `substrate/reports/dashboard-2026-09-16.html`
-    (sports arm: market-vs-coin certifies at E≈3.9e9 over 133 trials while
-    the longshot-correction null hugs 1 — real signal climbs, noise dies).
+    rendered snapshot: `substrate/reports/dashboard-2026-09-17.html` — both
+    arms live: sports market-vs-coin certifies at E≈3.9e9 (133 trials),
+    weather at E≈2.5e9 with market Brier 0.0588 on the first 84 settled
+    dailies; the longshot nulls hug 1 — real signal climbs, noise dies.
 - **`maker/`** — paper-only tennis market-making research: live L2
   capture + conservative queue-fill maker bot, and a pre-registered
   parameter replay optimizer. See `maker/README.md`.
