@@ -36,3 +36,8 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Legacy / side-project runtime state
+dotless/jobs/
+substrate/data/
+polymarket-bot/**/data/

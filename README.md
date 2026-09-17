@@ -96,10 +96,30 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
     ledger; `--loop 300` regenerates with auto-refresh
     (`python3 substrate/dashboard.py --self-test`). One-shot from the bot
     side: `sportsbot dashboard` exports events and builds the HTML in one
-    command.
+    command. Real-data snapshots live in `substrate/reports/` — on the
+    first settled weather cohort the triple null lands coin 0.25 →
+    climatology 0.193 → market 0.052 Brier, market-vs-coin certifies on
+    both arms, and fusion strips the weaker experts' weight.
 - **`maker/`** — paper-only tennis market-making research: live L2
   capture + conservative queue-fill maker bot, and a pre-registered
   parameter replay optimizer. See `maker/README.md`.
+
+## Provenance & side projects (kept alongside the consolidated engine)
+
+- **`docs/`** — master plan, Linode server runbook, and the **chat-import
+  manifests** recording exactly what each handoff drop contained and where it
+  landed. New drops keep getting manifested there.
+- **`polymarket-bot/`** — the pre-consolidation generation history: the Aug 19
+  fair-value handoff (`CLAUDE.md` — the fv_bot/edge_model system still on the
+  VPS), the v2 websocket bot + history downloader (`v2/`, still the milestone-1
+  retro-data tool), and `archive/` with the Jul 17 falsification record and
+  data-honesty findings. Read before re-litigating any strategy idea.
+- **`substrate/reports/`** — real-data evidence runs (first season-scale
+  milestone-1 report: 265 events, market Brier 0.178, longshot fit ≈ identity).
+- **`dotless/`** — the .less remix server (separate music project; own
+  `PROJECT.md`).
+- **`scripts/`** — `pull_from_server.sh` (fetch fv_bot-era code/logs from the
+  VPS, secret-safe), `sync_chats.sh`.
 
 ## Compliance
 
