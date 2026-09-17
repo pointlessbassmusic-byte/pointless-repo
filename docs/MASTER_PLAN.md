@@ -1,6 +1,28 @@
 # Master Plan
 
-_Last updated: 2026-09-06_
+_Last updated: 2026-09-15 (rev 4 — consolidation merged)_
+
+> **Rev 4:** a parallel session consolidated the trading stack into one `sportsbot/`
+> package (per-sport Elo/Markov models, Polymarket + Kalshi exchange clients, risk-managed
+> paper-first bot, walk-forward backtests, CI) and it merged to `main` as PR #1. This
+> branch adopted it and pruned the superseded per-project engines (v1 scanner,
+> kalshi-engine, standalone substrate milestone tools — now `sportsbot/substrate_bridge/`
+> and `substrate/arv_cli.py`). Everything below rev 4 is historical context; the
+> authoritative architecture doc is now `docs/ARCHITECTURE.md` + the root `CLAUDE.md`.
+
+> **Drops 2–4:** the Polymarket bot's full generation history is now in the repo. Current
+> production is the **fair-value system** (`fv_bot.py`/`edge_model.py`, Aug 19 — still on the
+> VPS only; retrieve with `scripts/pull_from_server.sh`). The Jul 17 optimal build and Aug 14
+> dashboard paper trader are archived under `polymarket-bot/archive/` with the falsification
+> record. See `polymarket-bot/PROJECT.md` for the whole lineage.
+
+> **Drop 1 changed the picture.** The uploaded handoffs contain the real prior work:
+> the **Substrate/Echo engine** (`substrate/` — the authoritative predictions engine, a
+> shadow-mode certification instrument with frozen protocol v1.0) and **Polymarket Sports
+> Bot v2** (`polymarket-bot/v2/` — maker-first scalp/fade/arb, built for the 2026 taker-fee
+> regime). The engines scaffolded earlier the same day are repositioned: the v1 consensus
+> scanner as a signal source, `kalshi-engine/` as the Kalshi market-access layer.
+> Read `substrate/CLAUDE.md` for the invariants that bind all future work.
 
 ## Where we came from / where we are
 

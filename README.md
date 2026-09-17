@@ -90,9 +90,41 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
     pool, sealed double-blind open→transcribe→judge→resolve workflow,
     SQLite CommitLedger persistence, pre-registered 20% feedback ablation
     (`python3 substrate/arv_cli.py --self-test`).
+  - `substrate/dashboard.py` — dashboard (milestone 4): self-contained
+    HTML with per-arm e-process wealth curves, Hedge fusion weights, score
+    tables, and trial counts, built from the ingest CSVs and the ARV
+    ledger; `--loop 300` regenerates with auto-refresh
+    (`python3 substrate/dashboard.py --self-test`). One-shot from the bot
+    side: `sportsbot dashboard` exports events and builds the HTML in one
+    command. Real-data snapshots live in `substrate/reports/` — on the
+    first settled weather cohort the triple null lands coin 0.25 →
+    climatology 0.193 → market 0.052 Brier, market-vs-coin certifies on
+    both arms, and fusion strips the weaker experts' weight.
+- **`sportsbot/signals/`** — external data feeds (research-first): NWS
+  forecasts now back the weather arm's baseline at decision time (first
+  live check: Pearson +0.86 vs market on next-day markets), and
+  `sportsbot signals-scan` collects public social chatter with an
+  evidence-gated correlation report. See `docs/SIGNALS_2026-09-17.md`.
 - **`maker/`** — paper-only tennis market-making research: live L2
   capture + conservative queue-fill maker bot, and a pre-registered
   parameter replay optimizer. See `maker/README.md`.
+
+## Provenance & side projects (kept alongside the consolidated engine)
+
+- **`docs/`** — master plan, Linode server runbook, and the **chat-import
+  manifests** recording exactly what each handoff drop contained and where it
+  landed. New drops keep getting manifested there.
+- **`polymarket-bot/`** — the pre-consolidation generation history: the Aug 19
+  fair-value handoff (`CLAUDE.md` — the fv_bot/edge_model system still on the
+  VPS), the v2 websocket bot + history downloader (`v2/`, still the milestone-1
+  retro-data tool), and `archive/` with the Jul 17 falsification record and
+  data-honesty findings. Read before re-litigating any strategy idea.
+- **`substrate/reports/`** — real-data evidence runs (first season-scale
+  milestone-1 report: 265 events, market Brier 0.178, longshot fit ≈ identity).
+- **`dotless/`** — the .less remix server (separate music project; own
+  `PROJECT.md`).
+- **`scripts/`** — `pull_from_server.sh` (fetch fv_bot-era code/logs from the
+  VPS, secret-safe), `sync_chats.sh`.
 
 ## Compliance
 
@@ -106,21 +138,22 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
 
 ---
 
-## Additional engine suite (independent of sportsbot)
+## Additional engine suite (independent modules)
 
-Three standalone modules that predate the sportsbot consolidation — separate
-venvs, configs, SQLite DBs, and systemd units; nothing here imports sportsbot:
+Three standalone modules built in the optimize-chats-to-code sessions — separate
+venvs, configs, SQLite DBs, and systemd units; nothing here imports sportsbot or
+the imported `polymarket-bot/` VPS-bot history:
 
 | Module | What it does | Money risk |
 |---|---|---|
-| [`polymarket-edge/`](polymarket-edge/) | Sportsbook-consensus fair value vs Polymarket order books | dry-run by default |
-| [`kalshi-engine/`](kalshi-engine/) | Pluggable signal-generator substrate + ensemble on Kalshi | dry-run by default |
+| [`polymarket-edge/`](polymarket-edge/) | Sportsbook-consensus + weather fair value vs Polymarket books | dry-run by default |
+| [`kalshi-engine/`](kalshi-engine/) | Signal-generator substrate + ensemble on Kalshi (weather calibrated daily) | dry-run by default |
 | [`arb-scanner/`](arb-scanner/) | Cross-platform Polymarket↔Kalshi complement-arb detection | never trades |
 
 Per module: `python -m pytest tests -q`, `python -m src.main --once --dry-run`,
-`python -m src.report` (calibration vs real settlements), and in kalshi-engine
-`python -m src.backtest` (offline replay). Server bootstrap for the suite:
-`deploy/engines_setup.sh` then `deploy/deploy.sh` (targets `/opt/pointless-repo`,
-separate from sportsbot's `/opt/sportsbot`). Docs: `docs/MASTER_PLAN.md`;
-Claude Code skills: `pre-live-gate`, `engine-health`.
+`python -m src.report`; kalshi-engine adds `python -m src.backtest` (offline
+replay) and `python -m src.weather_calibrate` (daily sigma/bias fit, systemd
+timer). Server bootstrap: `deploy/engines_setup.sh` then `deploy/deploy.sh`
+(targets `/opt/pointless-repo`, separate from sportsbot). Docs:
+`docs/MASTER_PLAN.md`; skills: `pre-live-gate`, `engine-health`.
 

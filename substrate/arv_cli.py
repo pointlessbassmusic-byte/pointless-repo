@@ -35,7 +35,6 @@ import json
 import os
 import sqlite3
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from arv import ARVProtocol, ARVTrial, _u64  # noqa: E402
@@ -294,6 +293,10 @@ def self_test() -> int:
         cmd_open(ns)
         store = Store(db)
         tr, _ = store.load_all()["EV1"]
+        # cmd_open still QRNG-draws the ablation arm (p=0.2) when --ablation
+        # is absent; pin this trial to the feedback arm so the feedback-image
+        # check below is deterministic.
+        store.save(tr, False)
         ck("assignment sealed at open", len(tr.assignment_hash) == 64)
         ck("pair drawn from real files", tr.img_yes.endswith(".png")
            and tr.img_no.endswith(".png") and tr.img_yes != tr.img_no)
@@ -314,9 +317,15 @@ def self_test() -> int:
         ck("call routed through sealed assignment", tr.call == expected_call)
 
         cmd_resolve(argparse.Namespace(db=db, pool=pool, event_id="EV1", outcome=1))
-        tr, _ = Store(db).load_all()["EV1"]
+        tr, abl = Store(db).load_all()["EV1"]
         ck("hit computed", tr.hit == (tr.call == 1))
-        ck("feedback = actual-outcome image", tr.feedback_img == tr.img_yes)
+        # `ablation=False` on open only declines to FORCE ablation — the QRNG
+        # may still draw this trial into the 20% subset, and both branches are
+        # protocol-correct, so assert whichever behavior applies.
+        if abl:
+            ck("ablation trial withholds feedback", tr.feedback_img is None)
+        else:
+            ck("feedback = actual-outcome image", tr.feedback_img == tr.img_yes)
         n_ledger = Store(db).conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
         ck("3 sealed records (assign/transcript/call)", n_ledger == 3)
 

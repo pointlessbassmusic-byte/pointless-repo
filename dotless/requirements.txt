@@ -1,0 +1,12 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pydantic>=2
+yt-dlp
+demucs>=4.0.1
+librosa>=0.10
+soundfile>=0.12
+numpy
+scipy
+pyrubberband>=0.4
+anthropic>=0.40

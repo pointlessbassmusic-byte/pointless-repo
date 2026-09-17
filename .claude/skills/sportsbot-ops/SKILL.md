@@ -34,6 +34,15 @@ description: Operate, evaluate, and safely evolve the sportsbot trading system i
   `git -C /opt/sportsbot pull && systemctl restart sportsbot`; verify with
   `journalctl -u sportsbot -n 50`.
 
+## Environment notes
+
+- In Claude Code **web/sandbox sessions**, outbound GitHub is scoped to this
+  repo's owner: `raw.githubusercontent.com` for third-party repos 404s, so
+  `sportsbot fit tennis` (Sackmann CSVs) trains on 0 matches there. Run tennis
+  fits on the laptop or server; MLB Stats API, Gamma/CLOB, and Kalshi public
+  endpoints all work from the sandbox (baseball + table_tennis fit, scan, and
+  backtest verified working there 2026-09-15).
+
 ## Tuning map
 
 | knob | file | effect |

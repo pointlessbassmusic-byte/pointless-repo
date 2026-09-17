@@ -42,7 +42,9 @@ Then:
 | refresh ratings (cron this daily) | `... sportsbot fit baseball && ... fit tennis && ... fit table_tennis` |
 | backtest | `... sportsbot backtest tennis` |
 | reset kill switch after review | `... sportsbot reset-kill-switch` |
-| deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot` |
+| substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
+| deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
+| weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 
 Daily ratings refresh via cron (as the sportsbot user):
 
@@ -50,7 +52,30 @@ Daily ratings refresh via cron (as the sportsbot user):
 17 9 * * * /opt/sportsbot/.venv/bin/sportsbot fit baseball >> /opt/sportsbot/logs/fit.log 2>&1
 27 9 * * * /opt/sportsbot/.venv/bin/sportsbot fit table_tennis >> /opt/sportsbot/logs/fit.log 2>&1
 37 9 * * 1 /opt/sportsbot/.venv/bin/sportsbot fit tennis >> /opt/sportsbot/logs/fit.log 2>&1
+47 */6 * * * /opt/sportsbot/.venv/bin/sportsbot signals-scan --from-events /opt/sportsbot/data/substrate_events.csv >> /opt/sportsbot/logs/signals.log 2>&1
 ```
+
+## Substrate dashboard
+
+`sportsbot dashboard` exports the bot's predictions/outcomes (plus Kalshi
+weather snapshots and ARV sessions when their DBs exist) and builds one
+self-contained HTML file — e-process wealth curves per arm, fusion weights,
+score tables, trial counts. Regenerate it every 10 minutes via cron:
+
+```
+*/10 * * * * cd /opt/sportsbot && /opt/sportsbot/.venv/bin/sportsbot dashboard >> logs/dashboard.log 2>&1
+```
+
+The firewall stays SSH-only on purpose — don't open a web port for this.
+View it through an SSH tunnel from your machine:
+
+```bash
+ssh -L 8000:localhost:8000 root@YOUR_SERVER_IP \
+    "cd /opt/sportsbot/data && python3 -m http.server 8000 --bind 127.0.0.1"
+# then open http://localhost:8000/dashboard.html
+```
+
+or just copy it down: `scp root@YOUR_SERVER_IP:/opt/sportsbot/data/dashboard.html .`
 
 ## Going live — the gate, not a suggestion
 
