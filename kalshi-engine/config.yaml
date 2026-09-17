@@ -15,6 +15,9 @@ markets:
   # ticker prefixes to skip (auto-generated multivariate shard markets)
   series_blacklist: [KXMVE]
   max_markets_per_scan: 1500  # keep the most liquid after filters
+  # markets matching these ticker prefixes always survive the liquidity cut
+  # (the weather generator's markets must never be crowded out of the scan)
+  always_include_prefixes: [KXHIGH, KXLOWT]
   min_volume: 100            # contracts traded; skip dead markets
   max_days_to_expiry: 30
 

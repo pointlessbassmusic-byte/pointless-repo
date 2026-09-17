@@ -116,10 +116,13 @@ def self_logged_samples(db: Database) -> list[tuple[int, float]]:
 def previous_runs_samples(gen: WeatherHigh, past_days: int = 60) -> list[tuple[int, float]]:
     """Instant history where the previous-runs API is reachable: forecast made
     N days ahead vs the model's day-0 analysis for the same date."""
+    from .substrate.generators.weather import _daily_variable
+
     leads = range(1, 8)
-    daily_vars = ["temperature_2m_max"] + [f"temperature_2m_max_previous_day{k}" for k in leads]
     samples: list[tuple[int, float]] = []
     for station, cfg in gen.stations.items():
+        var = _daily_variable(cfg)
+        daily_vars = [var] + [f"{var}_previous_day{k}" for k in leads]
         try:
             r = gen.http.get(PREV_RUNS_BASE, params={
                 "latitude": cfg["latitude"], "longitude": cfg["longitude"],
@@ -131,9 +134,9 @@ def previous_runs_samples(gen: WeatherHigh, past_days: int = 60) -> list[tuple[i
             daily = r.json().get("daily", {})
         except Exception:  # noqa: BLE001 — unreachable behind some proxies; fall back
             return []
-        truth = daily.get("temperature_2m_max") or []
+        truth = daily.get(var) or []
         for k in leads:
-            fc = daily.get(f"temperature_2m_max_previous_day{k}") or []
+            fc = daily.get(f"{var}_previous_day{k}") or []
             samples.extend((k, f - t) for f, t in zip(fc, truth)
                            if f is not None and t is not None)
     return samples

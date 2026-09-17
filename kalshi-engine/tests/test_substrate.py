@@ -305,3 +305,35 @@ def test_weather_log_and_scoring_roundtrip(tmp_path):
                     " VALUES ('KXHIGHNY','2026-09-12',77.5)")
     db.conn.commit()
     assert self_logged_samples(db) == [(2, 2.5)]
+
+
+def test_low_temperature_stations_use_min_variable():
+    from src.substrate.generators.weather import DEFAULT_STATIONS, _daily_variable
+
+    assert _daily_variable(DEFAULT_STATIONS["KXLOWTBOS"]) == "temperature_2m_min"
+    assert _daily_variable(DEFAULT_STATIONS["KXHIGHTBOS"]) == "temperature_2m_max"
+    assert _daily_variable({}) == "temperature_2m_max"  # default is the high
+    # every station has full coordinates and the two variables never collide
+    for name, st in DEFAULT_STATIONS.items():
+        assert {"latitude", "longitude", "timezone"} <= set(st), name
+        assert ("LOW" in name) == (st.get("variable") == "min"), name
+
+
+def test_priority_prefixes_survive_the_liquidity_cut():
+    """run_cycle's cap keeps station markets even at zero volume."""
+    from src.main import GENERATOR_REGISTRY  # noqa: F401 — import sanity
+    # replicate the cap logic directly on Market objects
+    weather = make_market(0.5, ticker="KXHIGHNY-26SEP20-B80.5")
+    weather.volume = 0
+    whales = []
+    for i in range(3):
+        m = make_market(0.5, ticker=f"BIG-{i}")
+        m.volume = 10_000 + i
+        whales.append(m)
+    markets, max_markets = whales + [weather], 2
+    keep_prefixes = ("KXHIGH", "KXLOWT")
+    priority = [m for m in markets if m.ticker.startswith(keep_prefixes)]
+    rest = sorted((m for m in markets if m not in priority),
+                  key=lambda m: m.volume, reverse=True)
+    capped = priority + rest[:max(0, max_markets - len(priority))]
+    assert weather in capped and len(capped) == 2

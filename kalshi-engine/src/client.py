@@ -195,7 +195,13 @@ class KalshiClient:
                             "status": "open", "with_nested_markets": "true"}
             if cursor:
                 params["cursor"] = cursor
-            data = self._request("GET", "/events", params=params)
+            try:
+                data = self._request("GET", "/events", params=params)
+            except Exception:  # noqa: BLE001 — a rate limit deep in a 60-page
+                # crawl must not void the whole cycle; scan what we have
+                log.warning("events crawl interrupted after %d events — using "
+                            "partial feed", seen_events, exc_info=True)
+                break
             events = data.get("events", [])
             seen_events += len(events)
             for ev in events:

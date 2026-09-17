@@ -32,17 +32,58 @@ _MONTHS = {m: i + 1 for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"])}
 _DATE_RE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})(?:-|$)")
 
-# default station coordinates for Kalshi's daily-high series (approximate
-# observation sites; sigma absorbs small siting differences)
-DEFAULT_STATIONS = {
-    "KXHIGHNY": {"latitude": 40.783, "longitude": -73.967, "timezone": "America/New_York"},
-    "KXHIGHCHI": {"latitude": 41.786, "longitude": -87.752, "timezone": "America/Chicago"},
-    "KXHIGHMIA": {"latitude": 25.788, "longitude": -80.317, "timezone": "America/New_York"},
-    "KXHIGHAUS": {"latitude": 30.183, "longitude": -97.680, "timezone": "America/Chicago"},
-    "KXHIGHDEN": {"latitude": 39.847, "longitude": -104.656, "timezone": "America/Denver"},
-    "KXHIGHLAX": {"latitude": 33.938, "longitude": -118.389, "timezone": "America/Los_Angeles"},
-    "KXHIGHPHIL": {"latitude": 39.873, "longitude": -75.227, "timezone": "America/New_York"},
+# default station coordinates for Kalshi's daily temperature series
+# (approximate observation sites; sigma absorbs small siting differences).
+# "variable": "min" marks daily-LOW series; default is the daily high.
+# All entries verified to have open markets with Fahrenheit strikes
+# (probe 2026-09-17); international series existed but listed no open
+# markets at the time and were left out.
+_C = {
+    "nyc": (40.783, -73.967, "America/New_York"),
+    "chi": (41.786, -87.752, "America/Chicago"),
+    "mia": (25.788, -80.317, "America/New_York"),
+    "aus": (30.183, -97.680, "America/Chicago"),
+    "den": (39.847, -104.656, "America/Denver"),
+    "lax": (33.938, -118.389, "America/Los_Angeles"),
+    "phl": (39.873, -75.227, "America/New_York"),
+    "bos": (42.361, -71.010, "America/New_York"),
+    "dc": (38.847, -77.038, "America/New_York"),
+    "dal": (32.847, -96.852, "America/Chicago"),
+    "sea": (47.445, -122.314, "America/Los_Angeles"),
+    "sfo": (37.620, -122.365, "America/Los_Angeles"),
+    "phx": (33.428, -112.004, "America/Phoenix"),
+    "lv": (36.072, -115.163, "America/Los_Angeles"),
+    "atl": (33.630, -84.442, "America/New_York"),
+    "nola": (29.993, -90.251, "America/Chicago"),
+    "okc": (35.389, -97.601, "America/Chicago"),
+    "satx": (29.534, -98.470, "America/Chicago"),
+    "ewr": (40.693, -74.169, "America/New_York"),
 }
+
+
+def _st(city: str, variable: str = "max") -> dict:
+    lat, lon, tz = _C[city]
+    return {"latitude": lat, "longitude": lon, "timezone": tz, "variable": variable}
+
+
+DEFAULT_STATIONS = {
+    # daily highs
+    "KXHIGHNY": _st("nyc"), "KXHIGHCHI": _st("chi"), "KXHIGHMIA": _st("mia"),
+    "KXHIGHAUS": _st("aus"), "KXHIGHDEN": _st("den"), "KXHIGHLAX": _st("lax"),
+    "KXHIGHPHIL": _st("phl"), "KXHIGHTBOS": _st("bos"), "KXHIGHTDC": _st("dc"),
+    "KXHIGHTDAL": _st("dal"), "KXHIGHTSEA": _st("sea"), "KXHIGHTSFO": _st("sfo"),
+    "KXHIGHTPHX": _st("phx"), "KXHIGHTLV": _st("lv"), "KXHIGHTATL": _st("atl"),
+    "KXHIGHTNOLA": _st("nola"), "KXHIGHTEWR": _st("ewr"),
+    # daily lows
+    "KXLOWTBOS": _st("bos", "min"), "KXLOWTDC": _st("dc", "min"),
+    "KXLOWTDAL": _st("dal", "min"), "KXLOWTSEA": _st("sea", "min"),
+    "KXLOWTSFO": _st("sfo", "min"), "KXLOWTPHX": _st("phx", "min"),
+    "KXLOWTOKC": _st("okc", "min"), "KXLOWTSATX": _st("satx", "min"),
+}
+
+
+def _daily_variable(station: dict) -> str:
+    return "temperature_2m_min" if station.get("variable") == "min" else "temperature_2m_max"
 
 
 def _event_date(ticker: str) -> date | None:
@@ -94,16 +135,16 @@ class WeatherHigh(SignalGenerator):
         if cached and time.monotonic() - cached[0] < self.cache_ttl:
             return cached[1]
         out: dict[str, float] = {}
+        var = _daily_variable(station)
         try:
             r = self.http.get(OPEN_METEO, params={
                 "latitude": station["latitude"], "longitude": station["longitude"],
-                "daily": "temperature_2m_max", "temperature_unit": "fahrenheit",
+                "daily": var, "temperature_unit": "fahrenheit",
                 "forecast_days": 16, "timezone": station.get("timezone", "UTC"),
             }, timeout=20)
             r.raise_for_status()
             daily = r.json().get("daily", {})
-            out = {d: t for d, t in zip(daily.get("time", []),
-                                        daily.get("temperature_2m_max", []))
+            out = {d: t for d, t in zip(daily.get("time", []), daily.get(var, []))
                    if t is not None}
         except Exception:  # noqa: BLE001 — a dead weather feed must not sink the cycle
             log.warning("weather forecast fetch failed for %s", prefix, exc_info=True)

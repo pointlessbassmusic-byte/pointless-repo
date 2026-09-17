@@ -98,9 +98,15 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
         and (m.expiration is None or m.expiration <= horizon)
         and not (blacklist and m.ticker.startswith(blacklist))
     ]
-    # keep the most liquid markets if the scan is bigger than we want to model
+    # keep the most liquid markets if the scan is bigger than we want to model —
+    # but never drop markets our informed generators understand (weather series):
+    # they must survive the liquidity cut or the engine's best edge never fires
     if len(markets) > max_markets:
-        markets = sorted(markets, key=lambda m: m.volume, reverse=True)[:max_markets]
+        keep_prefixes = tuple(mcfg.get("always_include_prefixes") or [])
+        priority = [m for m in markets if keep_prefixes and m.ticker.startswith(keep_prefixes)]
+        rest = sorted((m for m in markets if m not in priority),
+                      key=lambda m: m.volume, reverse=True)
+        markets = priority + rest[:max(0, max_markets - len(priority))]
     log.info("%d markets after filters", len(markets))
 
     # build context from *prior* scans' history, then record this scan's prices —

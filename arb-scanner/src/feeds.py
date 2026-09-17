@@ -134,9 +134,14 @@ class KalshiFeed:
                             "status": "open", "with_nested_markets": "true"}
             if cursor:
                 params["cursor"] = cursor
-            r = self.http.get(f"{KALSHI_BASE}/events", params=params, timeout=30)
-            r.raise_for_status()
-            data = r.json()
+            try:
+                r = self.http.get(f"{KALSHI_BASE}/events", params=params, timeout=30)
+                r.raise_for_status()
+                data = r.json()
+            except Exception:  # noqa: BLE001 — scan the partial feed rather than nothing
+                log.warning("kalshi events crawl interrupted after %d events — "
+                            "using partial feed", seen_events, exc_info=True)
+                break
             events = data.get("events", [])
             seen_events += len(events)
             for ev in events:
