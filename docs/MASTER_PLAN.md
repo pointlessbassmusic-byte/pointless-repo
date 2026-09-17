@@ -16,7 +16,7 @@ laptop (dev) ──git push──▶ GitHub (source of truth) ──deploy.sh─
 
 ## The two engines
 
-### 1. Polymarket sports betting bot (`polymarket-bot/`)
+### 1. Polymarket sports betting bot (`polymarket-edge/`)
 
 Scans Polymarket sports events, builds a fair-probability estimate for each outcome from
 sportsbook consensus odds (de-vigged) plus model priors, compares against Polymarket's order book,

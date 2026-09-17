@@ -18,7 +18,7 @@ if [ ! -d "$DEST/.git" ]; then
 fi
 cd "$DEST" && git pull origin main
 
-for eng in polymarket-bot kalshi-engine arb-scanner; do
+for eng in polymarket-edge kalshi-engine arb-scanner; do
   cd "$DEST/\$eng"
   [ -d .venv ] || python3 -m venv .venv
   ./.venv/bin/pip install -q -r requirements.txt
@@ -28,8 +28,8 @@ done
 
 cp "$DEST"/deploy/systemd/*.service "$DEST"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable polymarket-bot kalshi-engine arb-scanner
+systemctl enable polymarket-edge kalshi-engine arb-scanner
 systemctl enable --now kalshi-weather-calibrate.timer
-echo "Setup done. Fill in $DEST/polymarket-bot/.env and $DEST/kalshi-engine/.env,"
-echo "then: systemctl start polymarket-bot kalshi-engine arb-scanner"
+echo "Setup done. Fill in $DEST/polymarket-edge/.env and $DEST/kalshi-engine/.env,"
+echo "then: systemctl start polymarket-edge kalshi-engine arb-scanner"
 EOF

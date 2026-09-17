@@ -113,7 +113,7 @@ venvs, configs, SQLite DBs, and systemd units; nothing here imports sportsbot:
 
 | Module | What it does | Money risk |
 |---|---|---|
-| [`polymarket-bot/`](polymarket-bot/) | Sportsbook-consensus fair value vs Polymarket order books | dry-run by default |
+| [`polymarket-edge/`](polymarket-edge/) | Sportsbook-consensus fair value vs Polymarket order books | dry-run by default |
 | [`kalshi-engine/`](kalshi-engine/) | Pluggable signal-generator substrate + ensemble on Kalshi | dry-run by default |
 | [`arb-scanner/`](arb-scanner/) | Cross-platform Polymarket↔Kalshi complement-arb detection | never trades |
 

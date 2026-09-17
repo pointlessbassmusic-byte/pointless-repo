@@ -5,7 +5,7 @@ description: Checklist gate to run BEFORE enabling live trading (live:true + --l
 
 # Pre-Live Gate
 
-Evaluate whether an engine (polymarket-bot, kalshi-engine) is ready for real
+Evaluate whether an engine (polymarket-edge, kalshi-engine) is ready for real
 money. Do not edit `live:` in any config until every check below passes; report
 each check's status to the user either way.
 

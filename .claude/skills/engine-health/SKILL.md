@@ -1,6 +1,6 @@
 ---
 name: engine-health
-description: Health check for the engines in this repo (polymarket-bot, kalshi-engine, arb-scanner). Use when the user asks how the engines are doing, whether signals look right, to review calibration, or to debug an engine that seems idle or broken.
+description: Health check for the engines in this repo (polymarket-edge, kalshi-engine, arb-scanner). Use when the user asks how the engines are doing, whether signals look right, to review calibration, or to debug an engine that seems idle or broken.
 ---
 
 # Engine Health

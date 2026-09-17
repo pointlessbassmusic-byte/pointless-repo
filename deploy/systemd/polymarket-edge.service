@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/pointless-repo/polymarket-bot
-ExecStart=/opt/pointless-repo/polymarket-bot/.venv/bin/python -m src.main
+WorkingDirectory=/opt/pointless-repo/polymarket-edge
+ExecStart=/opt/pointless-repo/polymarket-edge/.venv/bin/python -m src.main
 Restart=always
 RestartSec=30
 

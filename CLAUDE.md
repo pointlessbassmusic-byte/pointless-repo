@@ -62,7 +62,7 @@ mode; Kalshi client implements the same interface for the US-legal path.
 
 ---
 
-## Additional modules: polymarket-bot / kalshi-engine / arb-scanner
+## Additional modules: polymarket-edge / kalshi-engine / arb-scanner
 
 Everything below applies ONLY to these three directories (an independent
 engine suite that predates the sportsbot consolidation — deployed separately,
@@ -77,7 +77,7 @@ edited.
 
 | Module | What it does | Money risk |
 |---|---|---|
-| `polymarket-bot/` | Sportsbook-consensus fair value vs Polymarket order books | dry-run by default |
+| `polymarket-edge/` | Sportsbook-consensus fair value vs Polymarket order books | dry-run by default |
 | `kalshi-engine/` | Pluggable signal-generator substrate + ensemble on Kalshi | dry-run by default |
 | `arb-scanner/` | Cross-platform Polymarket↔Kalshi complement arbitrage detection | never trades |
 
