@@ -52,6 +52,7 @@ Daily ratings refresh via cron (as the sportsbot user):
 17 9 * * * /opt/sportsbot/.venv/bin/sportsbot fit baseball >> /opt/sportsbot/logs/fit.log 2>&1
 27 9 * * * /opt/sportsbot/.venv/bin/sportsbot fit table_tennis >> /opt/sportsbot/logs/fit.log 2>&1
 37 9 * * 1 /opt/sportsbot/.venv/bin/sportsbot fit tennis >> /opt/sportsbot/logs/fit.log 2>&1
+47 */6 * * * /opt/sportsbot/.venv/bin/sportsbot signals-scan --from-events /opt/sportsbot/data/substrate_events.csv >> /opt/sportsbot/logs/signals.log 2>&1
 ```
 
 ## Substrate dashboard

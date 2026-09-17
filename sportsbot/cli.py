@@ -340,6 +340,46 @@ def dashboard(config: str = CONFIG_OPT,
         raise typer.Exit(proc.returncode)
 
 
+@app.command("signals-scan")
+def signals_scan(
+    config: str = CONFIG_OPT,
+    entities: str = typer.Option("", help="comma-separated team/player names to search"),
+    from_events: str = typer.Option("", help="derive entities from an ingest CSV's event ids"),
+    window_hours: float = typer.Option(24.0, help="lookback window for chatter"),
+    db: str = typer.Option("data/chatter.sqlite"),
+):
+    """Collect public social chatter (Bluesky) for entities; store timestamped
+    counts. Data only — nothing is wired into trading."""
+    _setup(config)
+    from sportsbot.signals.chatter import BlueskyChatter, entities_from_events_csv
+
+    names = [e for e in entities.split(",") if e.strip()]
+    if from_events:
+        names += entities_from_events_csv(from_events)
+    if not names:
+        raise typer.BadParameter("pass --entities and/or --from-events")
+    rows = BlueskyChatter(db).scan(names, window_hours=window_hours)
+    table = Table("entity", "posts", "flagged", "top terms")
+    for r in rows:
+        top = ", ".join(f"{k}×{v}" for k, v in sorted(
+            r["flagged_terms"].items(), key=lambda kv: -kv[1])[:3])
+        table.add_row(r["entity"], str(r["posts"]), str(r["flagged"]), top)
+    console.print(table)
+
+
+@app.command("signals-report")
+def signals_report(
+    config: str = CONFIG_OPT,
+    events: str = typer.Option(..., help="ingest-schema CSV with resolved events"),
+    db: str = typer.Option("data/chatter.sqlite"),
+):
+    """Correlate pre-decision chatter with market residuals (evidence harness)."""
+    _setup(config)
+    from sportsbot.signals.chatter import correlation_report
+
+    console.print(correlation_report(db, events))
+
+
 @app.command("reset-kill-switch")
 def reset_kill_switch(config: str = CONFIG_OPT):
     cfg = _setup(config)

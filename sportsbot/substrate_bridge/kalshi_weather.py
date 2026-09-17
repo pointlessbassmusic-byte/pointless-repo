@@ -51,7 +51,15 @@ CREATE TABLE IF NOT EXISTS weather_outcomes (
     outcome INTEGER,
     settled_ts REAL
 );
+CREATE TABLE IF NOT EXISTS weather_forecasts (
+    id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL,
+    series TEXT NOT NULL,
+    target_date TEXT NOT NULL,
+    forecast_high INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_ws_ticker ON weather_snapshots(ticker, ts);
+CREATE INDEX IF NOT EXISTS idx_wf_series_date ON weather_forecasts(series, target_date, ts);
 """
 
 
@@ -73,6 +81,7 @@ class WeatherSnapshotService:
         previously tracked tickers. Returns a summary."""
         recorded = 0
         now = time.time()
+        self._record_forecasts(now)   # BEFORE market rows: forecast ts <= snapshot ts
         for series in self.series:
             try:
                 data = self.client._request(
@@ -101,6 +110,27 @@ class WeatherSnapshotService:
         self.conn.commit()
         settled = self._resolve_outcomes()
         return {"recorded": recorded, "settled": settled}
+
+    def _record_forecasts(self, now: float) -> None:
+        """Record NWS point-forecast highs for each series' settlement station.
+        Runs before market snapshots so every market's first sighting has a
+        decision-time forecast on file (never backfilled)."""
+        try:
+            from sportsbot.signals import nws
+        except ImportError:
+            return
+        for series in self.series:
+            try:
+                highs = nws.forecast_highs(series)
+            except Exception as exc:  # noqa: BLE001 — forecast feed down != no snapshots
+                log.warning("nws forecast failed for %s: %s", series, exc)
+                continue
+            for target, high in highs.items():
+                self.conn.execute(
+                    "INSERT INTO weather_forecasts (ts, series, target_date,"
+                    " forecast_high) VALUES (?,?,?,?)",
+                    (now, series, target.isoformat(), int(high)))
+        self.conn.commit()
 
     def _resolve_outcomes(self, max_calls: int = 100) -> int:
         rows = self.conn.execute(
@@ -142,9 +172,36 @@ class WeatherSnapshotService:
         station climatology (prior years only — see climatology.py's no-leak
         rule) and falls back to the 0.5 no-skill stand-in when the station or
         title can't be resolved."""
-        from sportsbot.substrate_bridge.climatology import Climatology
+        from sportsbot.substrate_bridge.climatology import Climatology, parse_market
 
         climo = Climatology()
+        try:
+            from sportsbot.signals.nws import prob_from_high, sigma_for_lead
+        except ImportError:
+            prob_from_high = None
+
+        def nws_baseline(series: str, title: str, first_ts: float):
+            """Forecast-based P(YES) from the earliest forecast recorded AT OR
+            BEFORE the market's first snapshot — never a later one. Sigma
+            widens with the lead between decision time and the target day."""
+            if prob_from_high is None:
+                return None
+            parsed = parse_market(title)
+            if parsed is None:
+                return None
+            row = self.conn.execute(
+                "SELECT forecast_high FROM weather_forecasts"
+                " WHERE series=? AND target_date=? AND ts <= ?"
+                " ORDER BY ts ASC LIMIT 1",
+                (series, parsed[0].isoformat(), first_ts + 1.0)).fetchone()
+            if row is None:
+                return None
+            from datetime import datetime, timezone
+            lead_days = (datetime.combine(parsed[0], datetime.min.time(),
+                                          tzinfo=timezone.utc).timestamp()
+                         - first_ts) / 86400.0
+            return prob_from_high(title, float(row["forecast_high"]),
+                                  sigma=sigma_for_lead(lead_days))
         rows = self.conn.execute(
             """SELECT s.ticker, s.series, s.title, MIN(s.ts) AS first_ts,
                       s.close_ts, o.outcome, o.settled_ts
@@ -152,7 +209,7 @@ class WeatherSnapshotService:
                LEFT JOIN weather_outcomes o ON o.ticker = s.ticker
                GROUP BY s.ticker"""
         ).fetchall()
-        written = climo_rows = 0
+        written = climo_rows = nws_rows = 0
         with open(out_path, "w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(["event_id", "domain", "close_time", "resolve_time",
@@ -166,9 +223,13 @@ class WeatherSnapshotService:
                 if snap is None or snap["yes_bid"] is None or snap["yes_ask"] is None:
                     continue
                 mid = (snap["yes_bid"] + snap["yes_ask"]) / 2.0
-                baseline = climo.prob(r["series"], r["title"])
+                baseline = nws_baseline(r["series"], r["title"], r["first_ts"])
                 if baseline is not None:
-                    climo_rows += 1
+                    nws_rows += 1
+                else:
+                    baseline = climo.prob(r["series"], r["title"])
+                    if baseline is not None:
+                        climo_rows += 1
                 w.writerow([
                     r["ticker"], "weather",
                     f"{r['first_ts']:.0f}",
@@ -178,4 +239,5 @@ class WeatherSnapshotService:
                     "" if r["outcome"] is None else int(r["outcome"]),
                 ])
                 written += 1
-        return {"rows": written, "path": out_path, "climatology_rows": climo_rows}
+        return {"rows": written, "path": out_path,
+                "nws_rows": nws_rows, "climatology_rows": climo_rows}
