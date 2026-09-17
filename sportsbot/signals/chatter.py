@@ -273,7 +273,9 @@ def retro_query_for_event(event_id: str) -> Optional[str]:
 
 def retro_study(events_csv: str, db_path: str = "data/chatter.sqlite",
                 max_events: int = 80, window_hours: float = 24.0,
-                pause: float = 6.0) -> str:
+                pause: float = 25.0) -> str:
+    # NOTE: the anonymous endpoint rate-limits bounded-window searches after
+    # ~6-8 rapid queries; 25s pacing + resumable rows is the polite budget.
     """Retrospective pilot: pre-decision chatter for already-resolved events.
 
     Leak control: the search window ends AT the event's decision time
