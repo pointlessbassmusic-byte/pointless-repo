@@ -1,21 +1,34 @@
-#!/usr/bin/env python3
-"""Milestone 4 — substrate dashboard: e-process wealth curves per arm, fusion
-weights, and trial counts, rendered as one self-contained static HTML file.
+"""Substrate dashboard (handoff milestone 4): e-process wealth curves per
+arm, Hedge fusion weights, and trial counts, rendered to one self-contained
+HTML file with inline SVG — no matplotlib, no web framework, nothing served
+by default.
 
-Inputs are ingest.py-schema CSVs (one per arm — exactly what the bridges emit:
-`sportsbot substrate-export` for the sports arm, the weather snapshot service's
-export for the weather arm) plus, optionally, the ARV session sqlite.
+New wiring only — engine.py / arv.py / arv_cli.py are untouched. Inputs are
+exactly what milestones 1-3 already produce:
 
-Analysis discipline matches bot_backtest-style reporting: the longshot
-correction is fit on the FIRST half of resolved events and everything is scored
-on the second half only (fit-on-prior). A baseline column equal to the market
-column is detected as the documented placeholder and excluded from experts.
+  * ingest-schema CSVs (`sportsbot substrate-export`,
+    `sportsbot weather-snapshot --export ...`) — one dashboard "arm" per
+    `domain` column value; resolved rows feed the pipeline, open rows are
+    counted as pending.
+  * the ARV session SQLite DB written by `arv_cli.py` — scored as its own
+    arm against the 0.5 coin null, feedback vs ablation split included.
+    ARV calls whose event_id matches an ingested event also run as a
+    channel expert against the market null in that event's arm.
+
+Per arm the pipeline mirrors backtest.py on real data: the null forecaster
+is the raw market probability (no fitted longshot correction — fitting on
+the same data it scores would be leakage), the baseline expert is the bot /
+climatology probability from the CSV, and a TestMartingale tracks the
+anytime-valid evidence that the baseline beats the market (certify at
+E >= 20, alpha = 1/20 per PROTOCOL_v1's gate). HedgeFusion runs over
+{market, baseline}. Shadow mode: this file only reads and reports.
 
 Usage:
-  python3 dashboard.py --arm sports=reports/bot_events_2026-09-08.csv \
-                       --arm weather=data/weather_events.csv \
-                       --arv data/arv_sessions.db \
-                       --out reports/dashboard.html
+  python3 dashboard.py --events data/substrate_events.csv \
+                       --events data/weather_ingest.csv \
+                       --arv-db arv_sessions.sqlite \
+                       --out dashboard.html [--loop 300]
+  python3 dashboard.py --self-test
 """
 from __future__ import annotations
 
@@ -23,333 +36,493 @@ import argparse
 import html
 import json
 import math
-import sqlite3
+import os
 import sys
-from pathlib import Path
+import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from engine import (HedgeFusion, ScoreBook, TestMartingale, channel_prob,  # noqa: E402
-                    fit_longshot, longshot_correct)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from arv_cli import DELTA, Store  # noqa: E402
+from engine import HedgeFusion, ScoreBook, TestMartingale, channel_prob  # noqa: E402
 from ingest import load_events_csv  # noqa: E402
 
 THRESHOLD = 20.0
-DELTA = 0.04
-# color follows the entity, everywhere (validated palette, slots 1-3)
-COLORS = {"market": "var(--s1)", "market_longshot": "var(--s2)",
-          "baseline": "var(--s3)", "channel": "var(--s1)"}
-LABELS = {"market": "market vs coin", "market_longshot": "longshot vs market",
-          "baseline": "baseline vs market"}
+PALETTE = ["#2563eb", "#dc2626", "#059669", "#9333ea", "#ea580c"]
 
 
-def analyze_arm(name: str, path: Path) -> dict:
-    events = load_events_csv(path)
-    resolved = sorted([e for e in events if e.outcome is not None],
-                      key=lambda e: e.close_time)
-    out = {"name": name, "n_total": len(events), "n_resolved": len(resolved),
-           "n_open": len(events) - len(resolved), "curves": {}, "weights": None,
-           "stats": {}, "notes": []}
-    if len(resolved) < 20:
-        out["notes"].append(f"only {len(resolved)} resolved events — curves need ≥20")
-        return out
+# ---------------------------------------------------------------- pipelines
 
-    half = len(resolved) // 2
-    a, b = fit_longshot(resolved[:half])
-    scored = resolved[half:]
-    out["notes"].append(f"longshot fit on prior {half} events: a={a:.3f} b={b:.3f}; "
-                        f"scored on the remaining {len(scored)}")
+def _clip(p, lo=0.02, hi=0.98):
+    return min(max(float(p), lo), hi)
 
-    same_as_market = all(abs(e.baseline_prob - e.market_prob) < 1e-9 for e in resolved)
-    coin_standin = all(abs(e.baseline_prob - 0.5) < 1e-9 for e in resolved)
-    placeholder = same_as_market or coin_standin
-    experts = ["market", "market_longshot"] + ([] if placeholder else ["baseline"])
-    if same_as_market:
-        out["notes"].append("baseline column equals market (documented placeholder) — "
-                            "excluded from experts")
-    elif coin_standin:
-        out["notes"].append("baseline column is the 0.5 no-skill stand-in (no climatology "
-                            "model yet) — excluded from experts")
 
-    marts = {"market": TestMartingale(THRESHOLD),          # market vs coin
-             "market_longshot": TestMartingale(THRESHOLD)}  # correction vs raw market
-    if not placeholder:
-        marts["baseline"] = TestMartingale(THRESHOLD)       # baseline vs market null
-    fusion = HedgeFusion(experts, horizon=len(scored))
-    book = ScoreBook(experts)
+def run_arm(events, arv_calls=None):
+    """Score one arm's resolved events in resolve-time order.
 
-    for e in scored:
-        probs = {"market": e.market_prob,
-                 "market_longshot": longshot_correct(e.market_prob, a, b)}
-        if not placeholder:
-            probs["baseline"] = e.baseline_prob
+    Returns {"n", "n_channel", "mart", "mart_channel", "fusion", "book"}.
+    `arv_calls` maps event_id -> +1/-1 sealed ARV call for the optional
+    channel expert (evaluated on its own martingale vs the market null).
+    """
+    arv_calls = arv_calls or {}
+    events = sorted(events, key=lambda e: e.resolve_time)
+    mart = TestMartingale(threshold=THRESHOLD)
+    mart_channel = TestMartingale(threshold=THRESHOLD)
+    fusion = HedgeFusion(["market", "baseline"], horizon=max(len(events), 1))
+    book = ScoreBook(["market", "baseline", "fusion"])
+    n_channel = 0
+    for e in events:
+        m, b = _clip(e.market_prob), _clip(e.baseline_prob)
+        probs = {"market": m, "baseline": b}
+        probs["fusion"] = fusion.predict(probs)
         book.add(e, probs)
-        marts["market"].update(probs["market"], 0.5, e.outcome)
-        marts["market_longshot"].update(probs["market_longshot"], probs["market"], e.outcome)
-        if not placeholder:
-            marts["baseline"].update(probs["baseline"], probs["market"], e.outcome)
-        fusion.update(probs, e.outcome)
-
-    out["curves"] = {k: m.path for k, m in marts.items()}
-    out["weights"] = {ex: [w[ex] for w in fusion.history] for ex in experts}
-    out["stats"] = {k: {"brier": v["brier"], "log": v["log"], "n": v["n"],
-                        "final_E": marts[k].E if k in marts else None,
-                        "certified": marts[k].certified if k in marts else None,
-                        "weight": fusion.weights()[k]}
-                    for k, v in book.table().items()}
-    return out
+        mart.update(b, m, e.outcome)
+        fusion.update({"market": m, "baseline": b}, e.outcome)
+        if e.event_id in arv_calls:
+            q = channel_prob(m, arv_calls[e.event_id], DELTA)
+            mart_channel.update(q, m, e.outcome)
+            n_channel += 1
+    return {"n": len(events), "n_channel": n_channel, "mart": mart,
+            "mart_channel": mart_channel, "fusion": fusion, "book": book}
 
 
-def analyze_arv(db_path: Path) -> dict | None:
-    if not db_path.exists():
+def load_arv(db_path):
+    """Resolved + pending ARV trials from the arv_cli SQLite store."""
+    if not db_path or not os.path.exists(db_path):
         return None
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute("SELECT call, outcome, ablation FROM trials"
-                        " WHERE outcome IS NOT NULL ORDER BY t_resolved").fetchall()
-    n_all = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-    mart = TestMartingale(THRESHOLD)
-    hits = 0
-    for call, outcome, _ab in rows:
-        mart.update(channel_prob(0.5, call, DELTA), 0.5, outcome)
-        hits += int(call == (1 if outcome == 1 else -1))
-    return {"name": "arv", "n_total": n_all, "n_resolved": len(rows),
-            "n_open": n_all - len(rows), "hits": hits,
-            "curves": {"channel": mart.path} if rows else {},
-            "stats": {}, "weights": None,
-            "notes": [f"hit rate {hits}/{len(rows)}" if rows else "no resolved trials yet"]}
+    trials = Store(db_path).load_all()
+    resolved = [(tr, abl) for tr, abl in trials.values()
+                if tr.outcome is not None]
+    resolved.sort(key=lambda x: x[0].t_resolved)
+    mart = TestMartingale(threshold=THRESHOLD)
+    for tr, _ in resolved:
+        mart.update(channel_prob(0.5, tr.call, DELTA), 0.5,
+                    1 if tr.outcome == 1 else 0)
+
+    def hit_rate(rows):
+        return (sum(1 for tr in rows if tr.hit) / len(rows)) if rows else None
+
+    feed = [tr for tr, abl in resolved if not abl]
+    abls = [tr for tr, abl in resolved if abl]
+    calls = {tr.event_id: tr.call for tr, _ in resolved}
+    return {"n_total": len(trials), "n_resolved": len(resolved), "mart": mart,
+            "hit_rate": hit_rate([tr for tr, _ in resolved]),
+            "feedback": (len(feed), hit_rate(feed)),
+            "ablation": (len(abls), hit_rate(abls)), "calls": calls}
 
 
-# --------------------------------------------------------------- SVG rendering
+# ---------------------------------------------------------------- inline SVG
 
-W, H, ML, MR, MT, MB = 720, 240, 52, 132, 14, 26
+def _ticks(lo, hi, n=5):
+    """~n round-valued ticks covering [lo, hi] (1/2/5 stepping)."""
+    if hi <= lo:
+        hi = lo + 1.0
+    raw = (hi - lo) / (n - 1)
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(s * mag for s in (1, 2, 5, 10) if s * mag >= raw)
+    start = math.floor(lo / step) * step
+    out = []
+    while start <= hi + step * 1e-9:
+        if start >= lo - step * 1e-9:
+            out.append(start)
+        start += step
+    return out or [lo, hi]
 
-def _staggered(entries: list[tuple[float, str]], min_gap: float = 14.0) -> list[float]:
-    """Given desired label y positions, push overlapping ones apart."""
-    order = sorted(range(len(entries)), key=lambda i: entries[i][0])
-    ys = [entries[i][0] for i in order]
-    for j in range(1, len(ys)):
-        if ys[j] - ys[j - 1] < min_gap:
-            ys[j] = ys[j - 1] + min_gap
-    out = [0.0] * len(entries)
-    for pos, i in enumerate(order):
-        out[i] = ys[pos]
-    return out
 
+def svg_line_chart(series, title, ylabel, ylog=False, hline=None,
+                   width=640, height=300):
+    """Minimal multi-series line chart. series = [(label, [float, ...])]."""
+    ml, mr, mt, mb = 58, 12, 30, 34
+    pw, ph = width - ml - mr, height - mt - mb
+    tf = (lambda v: math.log10(max(v, 1e-12))) if ylog else float
+    ys = [tf(v) for _, data in series for v in data]
+    if hline is not None:
+        ys.append(tf(hline))
+    lo, hi = (min(ys), max(ys)) if ys else (0.0, 1.0)
+    if hi - lo < 1e-9:
+        lo, hi = lo - 0.5, hi + 0.5
+    nmax = max((len(d) for _, d in series), default=1)
 
+    def x(i):
+        return ml + pw * (i / max(nmax - 1, 1))
 
-def _log_chart(curves: dict[str, list[float]], chart_id: str) -> str:
-    """Wealth curves on a log-y axis with the E=20 certification rule line."""
-    vals = [v for c in curves.values() for v in c if v > 0]
-    lo = min(0.3, min(vals)) * 0.8
-    hi = max(THRESHOLD * 2, max(vals)) * 1.3
-    llo, lhi = math.log10(lo), math.log10(hi)
-    n = max(len(c) for c in curves.values())
+    def y(v):
+        return mt + ph * (1 - (tf(v) - lo) / (hi - lo))
 
-    def x(i): return ML + (W - ML - MR) * (i / max(n - 1, 1))
-    def y(v): return MT + (H - MT - MB) * (1 - (math.log10(max(v, lo)) - llo) / (lhi - llo))
-
-    parts = [f'<svg viewBox="0 0 {W} {H}" role="img" data-chart="{chart_id}">']
-    # decade gridlines + labels
-    for d in range(math.ceil(llo), math.floor(lhi) + 1):
-        gy = y(10 ** d)
-        parts.append(f'<line x1="{ML}" y1="{gy:.1f}" x2="{W-MR}" y2="{gy:.1f}" class="grid"/>'
-                     f'<text x="{ML-6}" y="{gy+4:.1f}" class="tick" text-anchor="end">'
-                     f'{10**d:g}</text>')
-    ty = y(THRESHOLD)
-    parts.append(f'<line x1="{ML}" y1="{ty:.1f}" x2="{W-MR}" y2="{ty:.1f}" class="rule"/>'
-                 f'<text x="{W-MR+4}" y="{ty+4:.1f}" class="rulelabel">E=20 certify</text>')
-    keys = list(curves)
-    label_ys = _staggered([(y(curves[k][-1]), k) for k in keys])
-    for key, ly in zip(keys, label_ys):
-        curve = curves[key]
-        pts = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(curve))
-        color = COLORS.get(key, "var(--s1)")
-        parts.append(f'<polyline points="{pts}" fill="none" stroke="{color}" '
-                     f'stroke-width="2" stroke-linejoin="round"/>')
-        parts.append(f'<text x="{x(len(curve)-1)+5:.1f}" y="{ly+4:.1f}" '
-                     f'class="serieslabel">'
-                     f'<tspan fill="{color}">●</tspan> {LABELS.get(key, key)}</text>')
-    parts.append(f'<text x="{ML}" y="{H-6}" class="tick">trial 0</text>'
-                 f'<text x="{W-MR}" y="{H-6}" class="tick" text-anchor="end">trial {n-1}</text>')
+    parts = [f'<svg viewBox="0 0 {width} {height}" role="img" '
+             f'style="max-width:{width}px;width:100%;background:#fff">',
+             f'<text x="{ml}" y="18" class="ct">{html.escape(title)}</text>']
+    for tv in _ticks(lo, hi):
+        py = mt + ph * (1 - (tv - lo) / (hi - lo))
+        lab = f"{10 ** tv:.3g}" if ylog else f"{tv:g}"
+        parts.append(f'<line x1="{ml}" y1="{py:.1f}" x2="{width - mr}" '
+                     f'y2="{py:.1f}" class="grid"/>'
+                     f'<text x="{ml - 6}" y="{py + 4:.1f}" class="tick" '
+                     f'text-anchor="end">{lab}</text>')
+    for i in range(0, nmax, max(nmax // 6, 1)):
+        parts.append(f'<text x="{x(i):.1f}" y="{height - 12}" class="tick" '
+                     f'text-anchor="middle">{i}</text>')
+    if hline is not None:
+        parts.append(f'<line x1="{ml}" y1="{y(hline):.1f}" x2="{width - mr}" '
+                     f'y2="{y(hline):.1f}" stroke="#111" stroke-dasharray="5,4"/>')
+    for k, (label, data) in enumerate(series):
+        if not data:
+            continue
+        pts = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(data))
+        c = PALETTE[k % len(PALETTE)]
+        parts.append(f'<polyline points="{pts}" fill="none" stroke="{c}" '
+                     f'stroke-width="2"/>')
+    if len(series) > 1:   # single series: the title names it, no legend
+        parts.append(f'<rect x="{width - mr - 165}" y="{mt + 2}" width="163" '
+                     f'height="{15 * len(series) + 10}" rx="4" fill="#fff" '
+                     f'fill-opacity="0.88"/>')
+        for k, (label, _) in enumerate(series):
+            c = PALETTE[k % len(PALETTE)]
+            ly = mt + 8 + 15 * k
+            parts.append(f'<rect x="{width - mr - 14}" y="{ly}" width="10" '
+                         f'height="10" rx="2" fill="{c}"/>'
+                         f'<text x="{width - mr - 18}" y="{ly + 9}" '
+                         f'text-anchor="end" class="tick">'
+                         f'{html.escape(label)}</text>')
+    parts.append(f'<text x="14" y="{mt + ph / 2:.0f}" class="tick" '
+                 f'transform="rotate(-90 14 {mt + ph / 2:.0f})" '
+                 f'text-anchor="middle">{html.escape(ylabel)}</text>')
     parts.append("</svg>")
-    payload = {"series": {LABELS.get(k, k): [round(v, 4) for v in c]
-                          for k, c in curves.items()}}
-    return (f'<div class="chart" data-points=\'{json.dumps(payload)}\''
-            f' data-ml="{ML}" data-mr="{MR}" data-n="{n}">' + "".join(parts) +
-            '<div class="tip" hidden></div></div>')
+    return "".join(parts)
 
 
-def _weights_chart(weights: dict[str, list[float]]) -> str:
-    n = max(len(c) for c in weights.values())
+# ---------------------------------------------------------------- HTML
 
-    def x(i): return ML + (W - ML - MR) * (i / max(n - 1, 1))
-    def y(v): return MT + (H - MT - MB) * (1 - v)
-
-    parts = [f'<svg viewBox="0 0 {W} {H}" role="img">']
-    for g in (0.0, 0.25, 0.5, 0.75, 1.0):
-        gy = y(g)
-        parts.append(f'<line x1="{ML}" y1="{gy:.1f}" x2="{W-MR}" y2="{gy:.1f}" class="grid"/>'
-                     f'<text x="{ML-6}" y="{gy+4:.1f}" class="tick" text-anchor="end">{g:g}</text>')
-    keys = list(weights)
-    label_ys = _staggered([(y(weights[k][-1]), k) for k in keys])
-    for key, ly in zip(keys, label_ys):
-        curve = weights[key]
-        color = COLORS.get(key, "var(--s1)")
-        pts = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(curve))
-        parts.append(f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="2"/>')
-        parts.append(f'<text x="{x(len(curve)-1)+5:.1f}" y="{ly+4:.1f}" '
-                     f'class="serieslabel"><tspan fill="{color}">●</tspan> {key}</text>')
-    parts.append(f'<text x="{ML}" y="{H-6}" class="tick">trial 0</text>'
-                 f'<text x="{W-MR}" y="{H-6}" class="tick" text-anchor="end">trial {n-1}</text>')
-    parts.append("</svg>")
-    payload = {"series": {k: [round(v, 4) for v in c] for k, c in weights.items()}}
-    return (f'<div class="chart" data-points=\'{json.dumps(payload)}\''
-            f' data-ml="{ML}" data-mr="{MR}" data-n="{n}">' + "".join(parts) +
-            '<div class="tip" hidden></div></div>')
-
-
-def _tiles(arm: dict) -> str:
-    t = [f'<div class="tile"><div class="k">{arm["n_resolved"]}</div><div class="l">resolved</div></div>',
-         f'<div class="tile"><div class="k">{arm["n_open"]}</div><div class="l">open</div></div>']
-    st = arm["stats"].get("market")
-    if st:
-        t.append(f'<div class="tile"><div class="k">{st["brier"]:.4f}</div>'
-                 f'<div class="l">market Brier</div></div>')
-        cert = "✔ certified" if st["certified"] else "not certified"
-        e = st["final_E"]
-        e_txt = f"{e:.2f}" if e < 1e4 else f"{e:.1e}".replace("e+0", "e").replace("e+", "e")
-        t.append(f'<div class="tile"><div class="k">{e_txt}</div>'
-                 f'<div class="l">E market-vs-coin · {cert}</div></div>')
-    if arm.get("hits") is not None and arm["n_resolved"]:
-        t.append(f'<div class="tile"><div class="k">{arm["hits"]}/{arm["n_resolved"]}</div>'
-                 f'<div class="l">ARV hits</div></div>')
-    return '<div class="tiles">' + "".join(t) + "</div>"
-
-
-def _table(arm: dict) -> str:
-    if not arm["stats"]:
-        return ""
-    rows = []
-    for k, v in arm["stats"].items():
-        e_txt = "" if v["final_E"] is None else f"{v['final_E']:.3f}"
-        rows.append(f"<tr><td>{k}</td><td>{v['n']}</td><td>{v['brier']:.4f}</td>"
-                    f"<td>{v['log']:.4f}</td><td>{e_txt}</td>"
-                    f"<td>{v['weight']:.3f}</td></tr>")
-    rows = "".join(rows)
-    return ('<details><summary>data table</summary><table><thead><tr><th>expert</th>'
-            '<th>n</th><th>Brier</th><th>log</th><th>final E</th><th>fusion w</th>'
-            f'</tr></thead><tbody>{rows}</tbody></table></details>')
-
-
-STYLE = """
-.viz-root { color-scheme: light;
-  --surface-1:#fcfcfb; --text-primary:#0b0b0b; --text-secondary:#52514e;
-  --grid:#e4e3df; --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
-  background:var(--surface-1); color:var(--text-primary);
-  font:14px/1.45 system-ui,sans-serif; margin:0 auto; max-width:880px; padding:20px; }
-@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .viz-root {
-  color-scheme: dark; --surface-1:#1a1a19; --text-primary:#ffffff;
-  --text-secondary:#c3c2b7; --grid:#3a3a38; --s1:#3987e5; --s2:#d95926; --s3:#199e70; } }
-:root[data-theme="dark"] .viz-root { color-scheme: dark; --surface-1:#1a1a19;
-  --text-primary:#ffffff; --text-secondary:#c3c2b7; --grid:#3a3a38;
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; }
-body { margin:0; background:#fcfcfb; }
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) body { background:#1a1a19; } }
-:root[data-theme="dark"] body { background:#1a1a19; }
-h1 { font-size:20px; } h2 { font-size:16px; margin:26px 0 6px; }
-.sub, .note { color:var(--text-secondary); font-size:12.5px; }
-.tiles { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
-.tile { border:1px solid var(--grid); border-radius:8px; padding:8px 14px; min-width:96px; }
-.tile .k { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
-.tile .l { color:var(--text-secondary); font-size:12px; }
-.chart { position:relative; margin:8px 0 2px; }
-svg { width:100%; height:auto; display:block; }
-.grid { stroke:var(--grid); stroke-width:1; }
-.rule { stroke:var(--text-secondary); stroke-width:1; stroke-dasharray:5 4; }
-.rulelabel, .serieslabel, .tick { font:11px system-ui,sans-serif; fill:var(--text-secondary); }
-.serieslabel { fill:var(--text-primary); }
-.tip { position:absolute; pointer-events:none; background:var(--surface-1);
-  border:1px solid var(--grid); border-radius:6px; padding:5px 8px; font-size:12px;
-  box-shadow:0 2px 8px rgba(0,0,0,.15); white-space:nowrap; z-index:2; }
-table { border-collapse:collapse; font-size:12.5px; margin:6px 0; }
-td, th { border:1px solid var(--grid); padding:4px 9px; text-align:right; }
-th:first-child, td:first-child { text-align:left; }
-details summary { cursor:pointer; color:var(--text-secondary); font-size:12.5px; }
-"""
-
-SCRIPT = """
-document.querySelectorAll('.chart').forEach(function (el) {
-  var data = JSON.parse(el.dataset.points), tip = el.querySelector('.tip');
-  var n = +el.dataset.n, ml = +el.dataset.ml, mr = +el.dataset.mr, W = 720;
-  el.addEventListener('mousemove', function (ev) {
-    var r = el.getBoundingClientRect(), fx = (ev.clientX - r.left) / r.width * W;
-    var i = Math.round((fx - ml) / (W - ml - mr) * (n - 1));
-    if (i < 0 || i >= n) { tip.hidden = true; return; }
-    var lines = ['trial ' + i];
-    for (var k in data.series) {
-      var v = data.series[k][i];
-      if (v !== undefined) lines.push(k + ': ' + v);
-    }
-    tip.textContent = lines.join('  ·  ');
-    tip.style.left = Math.min(ev.clientX - r.left + 12, r.width - 240) + 'px';
-    tip.style.top = '8px'; tip.hidden = false;
-  });
-  el.addEventListener('mouseleave', function () { tip.hidden = true; });
-});
+_CSS = """
+body{font:14px/1.45 -apple-system,system-ui,sans-serif;margin:0;
+     background:#f6f7f9;color:#1a1d21;padding:20px}
+h1{font-size:20px;margin:0 0 2px}h2{font-size:16px;margin:26px 0 8px}
+.sub{color:#5a626d;font-size:12px;margin-bottom:14px}
+.card{background:#fff;border:1px solid #e2e5ea;border-radius:8px;
+      padding:14px 16px;margin:10px 0;max-width:1360px}
+.row{display:flex;flex-wrap:wrap;gap:14px}.row>div{flex:1 1 420px;min-width:0}
+table{border-collapse:collapse;font-size:13px;margin:6px 0}
+th,td{border:1px solid #e2e5ea;padding:4px 10px;text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{background:#eef1f5;font-weight:600}
+.ok{color:#059669;font-weight:600}.no{color:#5a626d}
+.ct{font-size:13px;font-weight:600;fill:#1a1d21}
+.tick{font-size:10px;fill:#5a626d}.grid{stroke:#eef1f5}
+.tiles{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+.tile{flex:1 1 150px;background:#f6f7f9;border:1px solid #e2e5ea;
+      border-radius:6px;padding:8px 12px;min-width:0}
+.tlabel{font-size:11px;color:#5a626d}
+.tvalue{font-size:20px;font-weight:600;margin:2px 0}
+.tnote{font-size:11px;color:#5a626d}
 """
 
 
-def render(arms: list[dict], arv: dict | None, out: Path, generated: str) -> None:
-    body = [f'<div class="viz-root"><h1>Substrate dashboard</h1>'
-            f'<div class="sub">generated {html.escape(generated)} · shadow mode · '
-            f'certification threshold E ≥ {THRESHOLD:g} · delta {DELTA}</div>']
-    for arm in arms:
-        body.append(f'<h2>{html.escape(arm["name"])} arm</h2>')
-        body.append(_tiles(arm))
-        for note in arm["notes"]:
-            body.append(f'<div class="note">{html.escape(note)}</div>')
-        if arm["curves"]:
-            body.append('<div class="sub">e-process wealth (log scale) — the null a '
-                        'channel must beat stays near 1; real signal climbs</div>')
-            body.append(_log_chart(arm["curves"], arm["name"]))
-        if arm["weights"]:
-            body.append('<div class="sub">Hedge fusion weights over trials</div>')
-            body.append(_weights_chart(arm["weights"]))
-        body.append(_table(arm))
+def _ops_card(ops):
+    """Bot operations panel from the ops JSON `sportsbot dashboard` emits.
+    Tolerant of missing keys — renders whatever is present."""
+    s = ops.get("summary", {})
+    exp = ops.get("exposure", {})
+
+    def tile(label, value, note=""):
+        note_html = (f"<div class='tnote'>{html.escape(note)}</div>"
+                     if note else "")
+        return (f"<div class='tile'><div class='tlabel'>{html.escape(label)}"
+                f"</div><div class='tvalue'>{html.escape(value)}</div>"
+                f"{note_html}</div>")
+
+    def money(v):
+        return f"-${abs(v):,.2f}" if v < 0 else f"${v:,.2f}"
+
+    def num(key, fmt="{:.4f}"):
+        v = s.get(key)
+        if v is None:
+            return "—"
+        return money(v) if fmt == "$" else fmt.format(v)
+
+    tiles = [
+        tile("Open exposure", money(exp.get("total", 0.0)),
+             f"{exp.get('open_positions', 0)} positions"),
+        tile("Settled PnL", num("pnl", "$"),
+             f"ROI {num('roi', '{:.1%}')} · max DD "
+             f"{money(ops.get('max_drawdown', 0.0))}"),
+        tile("Mean CLV", num("mean_clv", "{:+.4f}"),
+             "closing line value; positive = edge"),
+        tile("Settled bets", str(s.get("n_settled", 0)),
+             "go-live gate: 200"),
+        tile("Rolling Brier", num("brier"),
+             f"log loss {num('log_loss')} · hit {num('hit_rate', '{:.1%}')}"),
+    ]
+    ks = ops.get("kill_switch")
+    tiles.append(tile("Kill switch", "■ TRIPPED" if ks else "● clear",
+                      "manual reset required" if ks else
+                      f"{ops.get('mode', 'paper')} mode"))
+
+    by_sport = exp.get("by_sport") or {}
+    sport_rows = "".join(
+        f"<tr><td>{html.escape(str(k))}</td><td>${v:,.2f}</td></tr>"
+        for k, v in sorted(by_sport.items()))
+    sport_table = (f"<table><tr><th>sport</th><th>exposure</th></tr>"
+                   f"{sport_rows}</table>" if sport_rows else "")
+
+    pnl_curve = ops.get("cum_pnl") or []
+    chart = (svg_line_chart([("cumulative PnL", pnl_curve)],
+                            "settled bets — cumulative PnL ($)", "PnL ($)")
+             if len(pnl_curve) >= 2 else
+             "<p class='sub'>PnL curve appears after 2+ settled bets.</p>")
+
+    return ("<div class='card'><h2 style='margin-top:0'>Bot operations</h2>"
+            "<div class='tiles'>" + "".join(tiles) + "</div>"
+            "<div class='row'><div>" + chart + "</div><div>" + sport_table
+            + "</div></div></div>")
+
+
+def _score_table(book):
+    rows = ["<table><tr><th>expert</th><th>n</th><th>Brier</th>"
+            "<th>mean log score</th></tr>"]
+    for name, s in book.table().items():
+        rows.append(f"<tr><td>{html.escape(name)}</td><td>{s['n']}</td>"
+                    f"<td>{s['brier']:.4f}</td><td>{s['log']:.4f}</td></tr>")
+    return "".join(rows) + "</table>"
+
+
+def _gate_line(mart, label):
+    cls, word = (("ok", "CERTIFIED") if mart.certified
+                 else ("no", "not certified"))
+    return (f"{label}: E = {mart.E:.3f} (max {max(mart.path):.3f}, "
+            f"threshold {THRESHOLD:g}) — <span class='{cls}'>{word}</span>")
+
+
+def render(arms, arv, pending, generated=None, refresh=0, ops=None):
+    """arms: {name: run_arm(...) result}; arv: load_arv(...) or None;
+    pending: {arm_name: n_open}; ops: bot-operations dict or None."""
+    generated = generated or time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    meta = (f'<meta http-equiv="refresh" content="{int(refresh)}">'
+            if refresh else "")
+    out = [f"<!doctype html><html><head><meta charset='utf-8'>{meta}"
+           f"<title>substrate dashboard</title><style>{_CSS}</style></head><body>",
+           "<h1>Substrate dashboard</h1>",
+           f"<div class='sub'>generated {html.escape(generated)} · shadow mode "
+           f"(nothing here stakes money) · null = raw market prob · "
+           f"gate: e-process, certify at E &ge; {THRESHOLD:g}</div>"]
+
+    if ops:
+        out.append(_ops_card(ops))
+
+    # trial counts
+    out.append("<div class='card'><h2 style='margin-top:0'>Trial counts</h2>"
+               "<table><tr><th>arm</th><th>resolved</th><th>open</th>"
+               "<th>ARV-linked</th></tr>")
+    for name, a in arms.items():
+        out.append(f"<tr><td>{html.escape(name)}</td><td>{a['n']}</td>"
+                   f"<td>{pending.get(name, 0)}</td><td>{a['n_channel']}</td></tr>")
     if arv:
-        body.append('<h2>ARV arm</h2>')
-        body.append(_tiles(arv))
-        for note in arv["notes"]:
-            body.append(f'<div class="note">{html.escape(note)}</div>')
-        if arv["curves"]:
-            body.append(_log_chart(arv["curves"], "arv"))
-    body.append("</div>")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("<!doctype html><meta charset='utf-8'>"
-                   "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                   f"<title>Substrate dashboard</title><style>{STYLE}</style>"
-                   + "".join(body) + f"<script>{SCRIPT}</script>")
-    print(f"wrote {out}")
+        out.append(f"<tr><td>arv (vs coin)</td><td>{arv['n_resolved']}</td>"
+                   f"<td>{arv['n_total'] - arv['n_resolved']}</td><td>—</td></tr>")
+    out.append("</table></div>")
+
+    if not arms and not arv and not ops:
+        out.append("<div class='card'>No data yet — export events with "
+                   "<code>sportsbot substrate-export</code> / "
+                   "<code>sportsbot weather-snapshot --export</code>, or run "
+                   "ARV sessions with <code>arv_cli.py</code>.</div>")
+
+    for name, a in arms.items():
+        wealth = [("baseline vs market", a["mart"].path)]
+        if a["n_channel"]:
+            wealth.append(("ARV channel vs market", a["mart_channel"].path))
+        weights = [(e, [hrow[e] for hrow in a["fusion"].history])
+                   for e in a["fusion"].experts]
+        out.append(f"<div class='card'><h2 style='margin-top:0'>"
+                   f"{html.escape(name)} arm</h2><div class='row'><div>"
+                   + svg_line_chart(wealth, f"{name} — e-process wealth",
+                                    "evidence E (log)", ylog=True,
+                                    hline=THRESHOLD)
+                   + "</div><div>"
+                   + svg_line_chart(weights, f"{name} — Hedge fusion weights",
+                                    "weight")
+                   + "</div></div>"
+                   + f"<p>{_gate_line(a['mart'], 'baseline vs market null')}"
+                   + (f"<br>{_gate_line(a['mart_channel'], 'ARV channel vs market null')}"
+                      if a["n_channel"] else "")
+                   + "</p>" + _score_table(a["book"]) + "</div>")
+
+    if arv:
+        def _hr(v):
+            return "—" if v is None else f"{v:.3f}"
+
+        nf, hf = arv["feedback"]
+        na, ha = arv["ablation"]
+        out.append("<div class='card'><h2 style='margin-top:0'>ARV arm "
+                   "(coin null)</h2><div class='row'><div>"
+                   + svg_line_chart([("channel vs 0.5", arv["mart"].path)],
+                                    "arv — e-process wealth",
+                                    "evidence E (log)", ylog=True,
+                                    hline=THRESHOLD)
+                   + "</div><div><table><tr><th>subset</th><th>n</th>"
+                   "<th>hit rate</th></tr>"
+                   + f"<tr><td>all resolved</td><td>{arv['n_resolved']}</td>"
+                     f"<td>{_hr(arv['hit_rate'])}</td></tr>"
+                   + f"<tr><td>feedback</td><td>{nf}</td>"
+                     f"<td>{_hr(hf)}</td></tr>"
+                   + f"<tr><td>ablation (no feedback)</td><td>{na}</td>"
+                     f"<td>{_hr(ha)}</td></tr>"
+                   + "</table><p>"
+                   + _gate_line(arv["mart"], "channel vs coin null")
+                   + "</p></div></div></div>")
+
+    out.append("</body></html>")
+    return "".join(out)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--arm", action="append", default=[],
-                    help="name=path.csv (ingest schema); repeatable")
-    ap.add_argument("--arv", default="", help="ARV sessions sqlite (optional)")
-    ap.add_argument("--out", default="reports/dashboard.html")
-    ap.add_argument("--generated", default="", help="timestamp label for the header")
-    args = ap.parse_args()
-    if not args.arm and not args.arv:
-        sys.exit("nothing to draw — pass at least one --arm name=path.csv")
+# ---------------------------------------------------------------- build
 
-    arms = []
-    for spec in args.arm:
-        name, _, path = spec.partition("=")
-        arms.append(analyze_arm(name, Path(path)))
-    arv = analyze_arv(Path(args.arv)) if args.arv else None
-    import time
-    generated = args.generated or time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
-    render(arms, arv, Path(args.out), generated)
+def build(event_csvs, arv_db, out_path, refresh=0, ops_json=None):
+    """Load inputs, run the arms, write the HTML. Returns a summary dict."""
+    events = []
+    for path in event_csvs:
+        events.extend(load_events_csv(path))
+    ops = None
+    if ops_json and os.path.exists(ops_json):
+        with open(ops_json) as fh:
+            ops = json.load(fh)
+    arv = load_arv(arv_db)
+    calls = arv["calls"] if arv else {}
+    arms, pending = {}, {}
+    for domain in sorted({e.domain for e in events}):
+        rows = [e for e in events if e.domain == domain]
+        resolved = [e for e in rows if e.outcome is not None]
+        pending[domain] = len(rows) - len(resolved)
+        if resolved:
+            arms[domain] = run_arm(resolved, calls)
+    html_doc = render(arms, arv, pending, refresh=refresh, ops=ops)
+    with open(out_path, "w") as fh:
+        fh.write(html_doc)
+    return {"out": out_path,
+            "arms": {k: {"n": v["n"], "open": pending.get(k, 0),
+                         "E": round(v["mart"].E, 4),
+                         "certified": v["mart"].certified}
+                     for k, v in arms.items()},
+            "arv": (None if arv is None else
+                    {"n_resolved": arv["n_resolved"],
+                     "E": round(arv["mart"].E, 4)})}
+
+
+# ---------------------------------------------------------------- self-test
+
+def self_test() -> int:
+    import csv
+    import random
+    import tempfile
+
+    import arv_cli
+
+    fails = []
+
+    def ck(name, cond):
+        print(("PASS " if cond else "FAIL ") + name)
+        if not cond:
+            fails.append(name)
+
+    rng = random.Random(11)
+    with tempfile.TemporaryDirectory() as tmp:
+        # --- synthetic ingest CSV: baseline knows the true prob, market is
+        # noisy around it, so the baseline-vs-market martingale should grow.
+        csv_path = os.path.join(tmp, "events.csv")
+        with open(csv_path, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["event_id", "domain", "close_time", "resolve_time",
+                        "market_prob", "baseline_prob", "outcome"])
+            for i in range(160):
+                domain = "sports" if i % 2 == 0 else "weather"
+                p = min(max(rng.gauss(0.5, 0.15), 0.05), 0.95)
+                m = min(max(p + rng.gauss(0, 0.10), 0.02), 0.98)
+                y = 1 if rng.random() < p else 0
+                w.writerow([f"EV{i:03d}", domain, i, i + 1,
+                            f"{m:.4f}", f"{p:.4f}", y])
+            w.writerow(["EVOPEN1", "sports", 999, 1000, 0.5, 0.5, ""])
+            w.writerow(["EVOPEN2", "weather", 999, 1000, 0.5, 0.5, ""])
+
+        # --- ARV DB via the real arv_cli lifecycle, ids matching two events
+        pool = os.path.join(tmp, "pool")
+        os.makedirs(pool)
+        for i in range(6):
+            with open(os.path.join(pool, f"img{i}.png"), "wb") as fh:
+                fh.write(b"\x89PNG\r\n" + bytes([i]))
+        db = os.path.join(tmp, "arv.sqlite")
+        for eid, outcome in (("EV000", 1), ("EV001", 0)):
+            ns = dict(db=db, pool=pool, event_id=eid)
+            arv_cli.cmd_open(argparse.Namespace(**ns, ablation=(eid == "EV001")))
+            arv_cli.cmd_transcribe(argparse.Namespace(**ns, tags="water,bright"))
+            arv_cli.cmd_judge(argparse.Namespace(**ns, score_a=0.8, score_b=0.1))
+            arv_cli.cmd_resolve(argparse.Namespace(**ns, outcome=outcome))
+
+        ops_path = os.path.join(tmp, "ops.json")
+        with open(ops_path, "w") as fh:
+            json.dump({"mode": "paper/polymarket",
+                       "exposure": {"total": 123.45, "open_positions": 3,
+                                    "by_sport": {"tennis": 100.0, "mlb": 23.45}},
+                       "summary": {"n_settled": 4, "pnl": 12.5, "roi": 0.05,
+                                   "mean_clv": 0.011, "brier": 0.21,
+                                   "log_loss": 0.62, "hit_rate": 0.5},
+                       "max_drawdown": 8.0, "kill_switch": False,
+                       "cum_pnl": [2.0, -1.0, 6.0, 12.5]}, fh)
+
+        out_path = os.path.join(tmp, "dashboard.html")
+        summary = build([csv_path], db, out_path, refresh=60, ops_json=ops_path)
+        doc = open(out_path).read()
+
+        ck("two arms scored", set(summary["arms"]) == {"sports", "weather"})
+        ck("resolved counts", all(v["n"] == 80 for v in summary["arms"].values()))
+        ck("open rows counted", all(v["open"] == 1
+                                    for v in summary["arms"].values()))
+        ck("arv resolved", summary["arv"]["n_resolved"] == 2)
+        arm = run_arm([e for e in load_events_csv(csv_path)
+                       if e.domain == "sports" and e.outcome is not None])
+        ck("wealth path length = n+1", len(arm["mart"].path) == 81)
+        ck("skilled baseline beats market on Brier",
+           arm["book"].table()["baseline"]["brier"]
+           < arm["book"].table()["market"]["brier"])
+        ck("fusion weight moved toward baseline",
+           arm["fusion"].weights()["baseline"] > 0.5)
+        ck("html has all sections",
+           all(s in doc for s in ("sports arm", "weather arm", "ARV arm",
+                                  "Trial counts", "<svg", "refresh")))
+        ck("ops panel rendered",
+           all(s in doc for s in ("Bot operations", "$123.45", "cumulative PnL",
+                                  "clear", "tennis")))
+        ck("certification threshold drawn", "stroke-dasharray" in doc)
+
+        # empty inputs still render
+        empty_out = os.path.join(tmp, "empty.html")
+        s2 = build([], None, empty_out)
+        ck("no-data build renders", s2["arms"] == {}
+           and "No data yet" in open(empty_out).read())
+
+    print(("\n%d failure(s)" % len(fails)) if fails else "\nAll self-tests passed.")
+    return 1 if fails else 0
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--self-test", action="store_true")
+    p.add_argument("--events", action="append", default=[],
+                   help="ingest-schema CSV (repeatable)")
+    p.add_argument("--arv-db", default="arv_sessions.sqlite",
+                   help="arv_cli SQLite DB (skipped if missing)")
+    p.add_argument("--ops", default="",
+                   help="bot-operations JSON from `sportsbot dashboard` "
+                        "(skipped if missing)")
+    p.add_argument("--out", default="dashboard.html")
+    p.add_argument("--loop", type=int, default=0,
+                   help="rebuild every N seconds (also sets HTML auto-refresh)")
+    args = p.parse_args()
+    if args.self_test:
+        sys.exit(self_test())
+    while True:
+        print(build(args.events, args.arv_db, args.out, refresh=args.loop,
+                    ops_json=args.ops))
+        if not args.loop:
+            break
+        time.sleep(args.loop)
 
 
 if __name__ == "__main__":
