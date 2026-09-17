@@ -43,7 +43,8 @@ Then:
 | backtest | `... sportsbot backtest tennis` |
 | reset kill switch after review | `... sportsbot reset-kill-switch` |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
-| deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot` |
+| deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
+| weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 
 Daily ratings refresh via cron (as the sportsbot user):
 

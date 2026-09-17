@@ -317,9 +317,15 @@ def self_test() -> int:
         ck("call routed through sealed assignment", tr.call == expected_call)
 
         cmd_resolve(argparse.Namespace(db=db, pool=pool, event_id="EV1", outcome=1))
-        tr, _ = Store(db).load_all()["EV1"]
+        tr, abl = Store(db).load_all()["EV1"]
         ck("hit computed", tr.hit == (tr.call == 1))
-        ck("feedback = actual-outcome image", tr.feedback_img == tr.img_yes)
+        # `ablation=False` on open only declines to FORCE ablation — the QRNG
+        # may still draw this trial into the 20% subset, and both branches are
+        # protocol-correct, so assert whichever behavior applies.
+        if abl:
+            ck("ablation trial withholds feedback", tr.feedback_img is None)
+        else:
+            ck("feedback = actual-outcome image", tr.feedback_img == tr.img_yes)
         n_ledger = Store(db).conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0]
         ck("3 sealed records (assign/transcript/call)", n_ledger == 3)
 
