@@ -225,6 +225,90 @@ def test_runner_exit_pass_wiring(tmp_path):
     assert abs(ex.balance - 970.0) < 1e-6
 
 
+def test_kalshi_close_position_buys_opposite_ioc(monkeypatch):
+    """Closing YES on Kalshi = IOC buy of NO (venue nets the pair), limit
+    priced so proceeds never drop below min_price."""
+    from sportsbot.core.types import OrderStatus, OrderType, Position
+    from sportsbot.exchanges.kalshi import KalshiClient, kalshi_taker_fee
+
+    c = KalshiClient(env="demo")
+    pos = Position(market_id="KXATPMATCH-X", side=Side.YES, size=100.0,
+                   avg_price=0.50)
+    monkeypatch.setattr(c, "get_positions", lambda: [pos])
+    captured = {}
+
+    def fake_place(order):
+        captured["order"] = order
+        order.filled = order.size
+        order.status = OrderStatus.FILLED
+        return order
+
+    monkeypatch.setattr(c, "place_order", fake_place)
+    r = c.close_position("KXATPMATCH-X", Side.YES, quote(0.30, 0.34))
+    o = captured["order"]
+    assert o.side == Side.NO and o.order_type == OrderType.IOC
+    assert abs(o.price - 0.98) < 1e-9        # 1 - min_price floor
+    assert o.size == 100.0
+    assert r["closed_size"] == 100.0 and abs(r["avg_price"] - 0.30) < 1e-9
+    fee = kalshi_taker_fee(0.30, 100.0)
+    assert abs(r["proceeds"] - (30.0 - fee)) < 1e-6
+    # no position on the other side -> nothing to close
+    assert c.close_position("KXATPMATCH-X", Side.NO, quote(0.30, 0.34)) is None
+
+
+def test_runner_partial_close_banks_proceeds(tmp_path):
+    """A partial IOC fill banks its proceeds; bets close only once the whole
+    aggregate is out, with combined proceeds."""
+    from types import SimpleNamespace
+
+    from sportsbot.bot.runner import Runner
+    from sportsbot.bot.strategy import StrategyConfig
+
+    store = Store(str(tmp_path / "t.sqlite"))
+    store.record_bet("m1", "tennis", "yes", 0.6, 0.5, 50.0, 100.0,
+                     0.05, "paper", "paper")
+    fills = [{"closed_size": 40.0, "avg_price": 0.30, "proceeds": 12.0,
+              "fee": 0.0},
+             {"closed_size": 60.0, "avg_price": 0.30, "proceeds": 18.0,
+              "fee": 0.0}]
+    ex = SimpleNamespace(close_position=lambda *a, **k: fills.pop(0))
+    stub = SimpleNamespace(positions=PositionConfig(min_hold_minutes=0.0),
+                           exchange=ex, store=store, fee_fn=lambda p, s: 0.0)
+    quoted = {"m1": (None, quote(0.20, 0.24))}  # hard-stop territory
+
+    assert Runner._manage_positions(stub, quoted, StrategyConfig()) == 0
+    assert len(store.open_bets()) == 1          # still open after partial
+    bank = store.get_kv("partial_close:m1:yes")
+    assert bank == {"closed": 40.0, "proceeds": 12.0}
+
+    assert Runner._manage_positions(stub, quoted, StrategyConfig()) == 1
+    assert store.open_bets() == []
+    assert store.settled_bets()[0]["pnl"] == -20.0   # 12+18 proceeds - 50
+    assert store.get_kv("partial_close:m1:yes") is None
+
+
+def test_settlement_reconciles_partial_close_bank(tmp_path):
+    """A bet that was partially closed early settles on the REMAINING size
+    plus the banked proceeds — never the full original payout."""
+    from types import SimpleNamespace
+
+    from sportsbot.bot.runner import Runner
+
+    store = Store(str(tmp_path / "t.sqlite"))
+    store.record_bet("m1", "tennis", "yes", 0.6, 0.5, 50.0, 100.0,
+                     0.05, "paper", "paper")
+    store.set_kv("partial_close:m1:yes", {"closed": 40.0, "proceeds": 12.0})
+    stub = SimpleNamespace(
+        store=store,
+        data_client=SimpleNamespace(get_resolution=lambda m: True),
+        executor=SimpleNamespace(settle_paper=lambda m, y: 0.0))
+    assert Runner._settle_resolved(stub) == 1
+    row = store.settled_bets()[0]
+    # won: 60 remaining shares pay $60, plus $12 banked, minus $50 stake
+    assert row["outcome"] == 1 and row["pnl"] == 22.0
+    assert store.get_kv("partial_close:m1:yes") is None
+
+
 def test_aggregate_open_bets():
     bets = [
         {"id": 1, "market_id": "m1", "side": "yes", "size": 60.0,

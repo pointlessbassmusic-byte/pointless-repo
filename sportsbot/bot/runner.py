@@ -266,9 +266,22 @@ class Runner:
             if yes_won is None:
                 continue
             snap = self.store.last_snapshot(market_id)
+            # Partial early closes banked proceeds and shrank the venue
+            # position; settlement pays only the remainder.
+            side_sizes: dict[str, float] = {}
+            for b in bets:
+                side_sizes[b["side"]] = side_sizes.get(b["side"], 0.0) + b["size"]
+            banks = {s: (self.store.get_kv(f"partial_close:{market_id}:{s}")
+                         or {"closed": 0.0, "proceeds": 0.0})
+                     for s in side_sizes}
             for b in bets:
                 side_won = (b["side"] == "yes") == yes_won
-                pnl = round((b["size"] - b["stake"]) if side_won else -b["stake"], 2)
+                total = side_sizes[b["side"]] or 1e-9
+                bank = banks[b["side"]]
+                frac_remaining = max(0.0, total - bank["closed"]) / total
+                bank_share = bank["proceeds"] * b["size"] / total
+                payout = b["size"] * frac_remaining if side_won else 0.0
+                pnl = round(bank_share + payout - b["stake"], 2)
                 closing = None
                 if snap and snap.get("bid") is not None and snap.get("ask") is not None:
                     mid = (snap["bid"] + snap["ask"]) / 2.0
@@ -276,6 +289,9 @@ class Runner:
                 self.store.settle_bet(b["id"], outcome=1 if side_won else 0,
                                       pnl=pnl, closing_price=closing)
                 settled += 1
+            for s, bank in banks.items():
+                if bank["closed"]:
+                    self.store.set_kv(f"partial_close:{market_id}:{s}", None)
             self.executor.settle_paper(market_id, yes_won)
             log.info("settled %s: yes_won=%s (%d bets)", market_id, yes_won, len(bets))
         return settled
@@ -358,15 +374,31 @@ class Runner:
                             self.positions.min_exit_price)
             if not result:
                 continue
+            # A live IOC can partially fill against a moving book. Bank the
+            # partial's proceeds in the KV store; the bets close only once
+            # the whole aggregate is out (next cycles retry the remainder),
+            # and settlement reconciles any bank left over.
+            bank_key = f"partial_close:{market_id}:{side}"
+            bank = self.store.get_kv(bank_key) or {"closed": 0.0, "proceeds": 0.0}
+            total_closed = bank["closed"] + result["closed_size"]
+            total_proceeds = bank["proceeds"] + result["proceeds"]
+            if total_closed < agg["size"] * 0.999:
+                self.store.set_kv(bank_key, {"closed": total_closed,
+                                             "proceeds": total_proceeds})
+                log.warning("partial close on %s/%s: %.1f of %.1f out so far; "
+                            "proceeds banked, retrying next cycle",
+                            market_id, side, total_closed, agg["size"])
+                continue
             total_stake = agg["stake"] or 1e-9
             for bet_id, stake in agg["bets"]:
-                pnl = round(result["proceeds"] * (stake / total_stake) - stake, 2)
+                pnl = round(total_proceeds * (stake / total_stake) - stake, 2)
                 self.store.close_bet(bet_id, pnl=pnl,
                                      closing_price=result["avg_price"])
+            self.store.set_kv(bank_key, None)
             exits += 1
             log.info("closed %s/%s: %s -> proceeds $%.2f on stake $%.2f",
                      market_id, side, decision.reason,
-                     result["proceeds"], agg["stake"])
+                     total_proceeds, agg["stake"])
         return exits
 
     def cycle(self) -> dict:
