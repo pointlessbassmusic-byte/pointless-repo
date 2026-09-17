@@ -90,6 +90,13 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
     pool, sealed double-blind open→transcribe→judge→resolve workflow,
     SQLite CommitLedger persistence, pre-registered 20% feedback ablation
     (`python3 substrate/arv_cli.py --self-test`).
+  - `substrate/dashboard.py` — dashboard (milestone 4): self-contained
+    HTML with per-arm e-process wealth curves, Hedge fusion weights, score
+    tables, and trial counts, built from the ingest CSVs and the ARV
+    ledger; `--loop 300` regenerates with auto-refresh
+    (`python3 substrate/dashboard.py --self-test`). One-shot from the bot
+    side: `sportsbot dashboard` exports events and builds the HTML in one
+    command.
 - **`maker/`** — paper-only tennis market-making research: live L2
   capture + conservative queue-fill maker bot, and a pre-registered
   parameter replay optimizer. See `maker/README.md`.

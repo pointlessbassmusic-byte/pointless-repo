@@ -48,7 +48,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 
 - `pytest -q` — full suite (fast, no network).
 - `ruff check sportsbot tests` — lint.
-- `sportsbot fit|backtest|scan|run|status` — CLI (network needed).
+- `sportsbot fit|backtest|scan|run|status|dashboard` — CLI (network needed
+  except `dashboard`, which is offline unless `--resolve`).
 - Live smoke (reads only, safe): `sportsbot scan`.
 
 ## Compliance notes (do not remove)
