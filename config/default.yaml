@@ -28,6 +28,21 @@ execution:
   min_entry_price: 0.15     # skip markets with mid outside this band
   max_entry_price: 0.85
 
+positions:                       # open-position management (edge-driven, never loss-chasing)
+  manage: true
+  exit_edge: -0.05               # close when hold-EV sits this far below the exit value
+  stop_fraction: 0.5             # hard stop: close when sellable value < 50% of cost basis
+  min_hold_minutes: 30           # no churn right after entry
+
+adaptive:                        # profit optimization: tighten-only, anti-martingale
+  enabled: true
+  drawdown_stake_scaling: true   # Kelly multiplier shrinks toward the floor as drawdown grows
+  stake_floor: 0.25              # never below 25% of the configured multiplier
+  clv_window: 50                 # rolling CLV window per sport
+  clv_min_bets: 30               # act only with this many CLV observations
+  tighten_edge: 0.02             # added to a negative-CLV sport's min edge
+  stake_cut: 0.5                 # stake-cap multiplier for a negative-CLV sport
+
 risk:
   daily_loss_limit: 100.0        # stop for the day past this realized loss
   max_daily_new_risk: 0.25       # new stakes per day <= this fraction of bankroll

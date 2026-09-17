@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS bets (
     closing_price REAL,
     outcome INTEGER,
     pnl REAL,
+    status TEXT,
     UNIQUE(market_id, side, ts)
 );
 CREATE TABLE IF NOT EXISTS orders (
@@ -80,6 +81,9 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(bets)")]
+        if "status" not in cols:  # migrate pre-position-management DBs
+            self.conn.execute("ALTER TABLE bets ADD COLUMN status TEXT")
         self.conn.commit()
 
     def close(self) -> None:
@@ -121,6 +125,19 @@ class Store:
             )
             self.conn.commit()
 
+    def close_bet(self, bet_id: int, pnl: float,
+                  closing_price: Optional[float] = None) -> None:
+        """Early exit: position sold before resolution. `outcome` stays NULL
+        (no win/lose observation → excluded from Brier/calibration), but the
+        realized pnl counts toward daily loss, drawdown, and PnL totals."""
+        with self._lock:
+            self.conn.execute(
+                "UPDATE bets SET status='closed', pnl=?,"
+                " closing_price=COALESCE(?, closing_price) WHERE id=?",
+                (pnl, closing_price, bet_id),
+            )
+            self.conn.commit()
+
     def record_order(self, client_id: str, order_id: str, market_id: str, side: str,
                      price: float, size: float, filled: float, status: str,
                      raw: dict | None = None) -> None:
@@ -158,12 +175,17 @@ class Store:
 
     # --- reads -----------------------------------------------------------
     def open_bets(self) -> list[dict]:
-        rows = self.conn.execute("SELECT * FROM bets WHERE outcome IS NULL").fetchall()
+        rows = self.conn.execute(
+            "SELECT * FROM bets WHERE outcome IS NULL"
+            " AND COALESCE(status, 'open') != 'closed'").fetchall()
         return [dict(r) for r in rows]
 
     def settled_bets(self, limit: int = 1000) -> list[dict]:
+        """Bets with realized PnL: resolved (outcome set) or closed early."""
         rows = self.conn.execute(
-            "SELECT * FROM bets WHERE outcome IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT * FROM bets WHERE outcome IS NOT NULL"
+            " OR COALESCE(status, '') = 'closed' ORDER BY id DESC LIMIT ?",
+            (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
 

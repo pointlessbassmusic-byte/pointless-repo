@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-from sportsbot.core.books import buy_levels, walk_book
+from sportsbot.core.books import buy_levels, sell_levels, walk_book, walk_sell
 from sportsbot.core.types import (
     Exchange,
     Fill,
@@ -123,6 +123,30 @@ class PaperExchange(ExchangeClient):
 
     def get_balance(self) -> float:
         return self.balance
+
+    # --- early close (called by the runner's position manager) ----------
+    def close_position(self, market_id: str, side: Side, quote: MarketQuote,
+                       min_price: float = 0.02) -> Optional[dict]:
+        """Sell an open position into the current book (conservative walk of
+        the real levels; taker fee charged). Returns
+        {closed_size, avg_price, proceeds, fee} or None if nothing sellable."""
+        pos = self.positions.get((market_id, side))
+        if pos is None or pos.size <= 0:
+            return None
+        avg, sold = walk_sell(sell_levels(quote, side), min_price, pos.size)
+        if sold <= 0 or avg <= 0:
+            return None
+        fee = self.fee_fn(avg, sold)
+        proceeds = avg * sold - fee
+        self.balance += proceeds
+        pos.realized_pnl += proceeds - pos.avg_price * sold
+        pos.size -= sold
+        self.fills.append(
+            Fill(order_id=f"paper-close-{market_id[:12]}", market_id=market_id,
+                 side=side, price=avg, size=-sold, fee=fee)
+        )
+        return {"closed_size": sold, "avg_price": avg,
+                "proceeds": round(proceeds, 4), "fee": round(fee, 4)}
 
     # --- settlement (called by the runner when a market resolves) -------
     def settle(self, market_id: str, yes_won: bool) -> float:

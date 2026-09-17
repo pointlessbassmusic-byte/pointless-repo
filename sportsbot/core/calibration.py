@@ -83,21 +83,31 @@ class PerformanceTracker:
     def settled(self) -> list[BetRecord]:
         return [r for r in self.records if r.outcome is not None]
 
+    def realized(self) -> list[BetRecord]:
+        """Records with realized pnl: resolved bets AND early closes (which
+        have pnl but no win/lose outcome, so they never touch Brier)."""
+        return [r for r in self.records if r.pnl is not None]
+
     def summary(self) -> dict:
         settled = self.settled()
+        realized = self.realized()
         with_clv = [r for r in self.records if r.clv is not None]
         out: dict = {
             "n_bets": len(self.records),
             "n_settled": len(settled),
+            "n_closed_early": len(realized) - len(settled),
             "total_staked": round(sum(r.stake for r in self.records), 2),
         }
-        if settled:
-            probs = [r.model_prob for r in settled]
-            outcomes = [r.outcome for r in settled]
-            pnl = sum(r.pnl or 0.0 for r in settled)
+        if realized:  # PnL/ROI over everything realized, early closes included
+            pnl = sum(r.pnl or 0.0 for r in realized)
             out.update({
                 "pnl": round(pnl, 2),
-                "roi": round(pnl / max(1e-9, sum(r.stake for r in settled)), 4),
+                "roi": round(pnl / max(1e-9, sum(r.stake for r in realized)), 4),
+            })
+        if settled:   # scoring only over true win/lose observations
+            probs = [r.model_prob for r in settled]
+            outcomes = [r.outcome for r in settled]
+            out.update({
                 "hit_rate": round(sum(outcomes) / len(outcomes), 4),
                 "brier": round(brier_score(probs, outcomes), 4),
                 "log_loss": round(log_loss(probs, outcomes), 4),
@@ -110,11 +120,12 @@ class PerformanceTracker:
         return out
 
     def drawdown(self) -> float:
-        """Max peak-to-trough drawdown of cumulative settled PnL, in dollars."""
+        """Max peak-to-trough drawdown of cumulative realized PnL (resolved
+        and early-closed bets alike), in dollars."""
         peak = 0.0
         cum = 0.0
         max_dd = 0.0
-        for r in self.settled():
+        for r in self.realized():
             cum += r.pnl or 0.0
             peak = max(peak, cum)
             max_dd = max(max_dd, peak - cum)

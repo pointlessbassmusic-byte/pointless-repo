@@ -21,11 +21,18 @@ import yaml
 
 from sportsbot.bot.arb import find_bundle_arb
 from sportsbot.bot.executor import Executor
+from sportsbot.bot.positions import (
+    PositionConfig,
+    adaptive_overrides,
+    aggregate_open_bets,
+    evaluate_exit,
+    scaled_kelly,
+)
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
 from sportsbot.bot.strategy import StrategyConfig, evaluate_market
 from sportsbot.core.staking import StakingConfig
-from sportsbot.core.types import Sport
+from sportsbot.core.types import Side, Sport
 from sportsbot.data.store import Store
 from sportsbot.engine.baseball import BaseballModel
 from sportsbot.engine.tabletennis import TableTennisModel
@@ -186,6 +193,15 @@ class Runner:
             self.store,
             mode=self.mode,
         )
+        pos = cfg.get("positions", {})
+        self.positions = PositionConfig(
+            manage=bool(pos.get("manage", True)),
+            exit_edge=float(pos.get("exit_edge", -0.05)),
+            stop_fraction=float(pos.get("stop_fraction", 0.5)),
+            min_hold_minutes=float(pos.get("min_hold_minutes", 30.0)),
+            slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
+        )
+        self.adaptive = cfg.get("adaptive", {})
         self.scanner = Scanner(self.models)
         self.executor = Executor(
             self.exchange, self.store, mode=self.mode,
@@ -264,10 +280,99 @@ class Runner:
             log.info("settled %s: yes_won=%s (%d bets)", market_id, yes_won, len(bets))
         return settled
 
+    def _cycle_configs(self) -> tuple[StakingConfig, StrategyConfig]:
+        """Cycle-local staking/strategy configs after the adaptive layer.
+
+        Everything here only ever REDUCES risk relative to the configured
+        base (smaller Kelly under drawdown, higher edge bars and smaller
+        caps for negative-CLV sports). No mechanism may loosen the base or
+        raise stakes in response to losses — that's loss-chasing, and it is
+        deliberately impossible in this code path.
+        """
+        staking, strategy = self.staking, self.strategy
+        ad = self.adaptive
+        settled = self.store.settled_bets()
+
+        if bool(ad.get("drawdown_stake_scaling", True)) and settled:
+            cum = peak = 0.0
+            for r in reversed(settled):  # oldest first
+                cum += r.get("pnl") or 0.0
+                peak = max(peak, cum)
+            current_dd = peak - cum
+            eff = scaled_kelly(staking.kelly_multiplier, current_dd,
+                               self.risk.cfg.max_drawdown,
+                               float(ad.get("stake_floor", 0.25)))
+            if eff < staking.kelly_multiplier:
+                log.info("drawdown $%.2f below peak: Kelly multiplier "
+                         "%.3f -> %.3f", current_dd,
+                         staking.kelly_multiplier, eff)
+                staking = StakingConfig(**{**staking.__dict__,
+                                           "kelly_multiplier": eff})
+
+        if bool(ad.get("enabled", True)) and settled:
+            edge_over, stake_over, tightened = adaptive_overrides(
+                settled,
+                self.strategy.min_edge_override, staking.min_edge,
+                self.strategy.max_stake_override, staking.max_stake_per_market,
+                window=int(ad.get("clv_window", 50)),
+                min_bets=int(ad.get("clv_min_bets", 30)),
+                tighten_edge=float(ad.get("tighten_edge", 0.02)),
+                stake_cut=float(ad.get("stake_cut", 0.5)),
+            )
+            if tightened:
+                log.info("adaptive tightening (negative rolling CLV): %s",
+                         tightened)
+                strategy = StrategyConfig(**{**strategy.__dict__,
+                                             "min_edge_override": edge_over,
+                                             "max_stake_override": stake_over})
+        return staking, strategy
+
+    def _manage_positions(self, quoted: dict, strategy: StrategyConfig) -> int:
+        """Exit pass over open positions with a fresh quote this cycle.
+        Returns the number of (market, side) positions closed."""
+        if not self.positions.manage:
+            return 0
+        closer = getattr(self.exchange, "close_position", None)
+        exits = 0
+        for (market_id, side), agg in aggregate_open_bets(
+                self.store.open_bets()).items():
+            pair = quoted.get(market_id)
+            if pair is None:
+                continue  # not discoverable this cycle (e.g. in play): hold
+            _market, quote = pair
+            decision = evaluate_exit(agg, quote, self.positions,
+                                     model_weight=strategy.model_weight,
+                                     fee_fn=self.fee_fn)
+            if not decision.close:
+                continue
+            if decision.sellable < agg["size"] * 0.999:
+                log.info("exit signal on %s/%s but book too thin "
+                         "(%.1f of %.1f sellable); retrying next cycle",
+                         market_id, side, decision.sellable, agg["size"])
+                continue
+            if closer is None:
+                log.warning("exit signal on %s/%s (%s) but venue has no close "
+                            "path; holding", market_id, side, decision.reason)
+                continue
+            result = closer(market_id, Side(side), quote,
+                            self.positions.min_exit_price)
+            if not result:
+                continue
+            total_stake = agg["stake"] or 1e-9
+            for bet_id, stake in agg["bets"]:
+                pnl = round(result["proceeds"] * (stake / total_stake) - stake, 2)
+                self.store.close_bet(bet_id, pnl=pnl,
+                                     closing_price=result["avg_price"])
+            exits += 1
+            log.info("closed %s/%s: %s -> proceeds $%.2f on stake $%.2f",
+                     market_id, side, decision.reason,
+                     result["proceeds"], agg["stake"])
+        return exits
+
     def cycle(self) -> dict:
         """One scan cycle. Returns a summary dict."""
         summary = {"markets": 0, "scanned": 0, "intents": 0, "orders": 0,
-                   "arbs": 0, "settled": 0, "blocked": None}
+                   "arbs": 0, "settled": 0, "exits": 0, "blocked": None}
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
         ok, reason = self.risk.check_global()
@@ -275,6 +380,7 @@ class Runner:
             log.warning("cycle blocked by risk: %s", reason)
             summary["blocked"] = reason
             return summary
+        staking_cfg, strategy_cfg = self._cycle_configs()
 
         sports = self.cfg.get("scan", {}).get("sports", list(SPORT_KEYS))
         markets = []
@@ -309,12 +415,14 @@ class Runner:
         summary["scanned"] = len(scanned)
 
         exposure = self.store.exposure_by()
+        quoted: dict[str, tuple] = {}
         for sm in scanned:
             try:
                 quote = self.exchange.get_quote(sm.market)
             except Exception:
                 log.exception("quote failed for %s", sm.market.market_id)
                 continue
+            quoted[sm.market.market_id] = (sm.market, quote)
             self.store.snapshot_quote(sm.market.market_id, quote.bid, quote.ask)
             self.store.record_prediction(
                 sm.market.market_id,
@@ -333,8 +441,8 @@ class Runner:
                 self.store.set_kv(f"arb:{sm.market.market_id}", arb.__dict__)
 
             intent = evaluate_market(
-                sm.market, quote, sm.prediction, self.staking,
-                self.strategy, self.fee_fn, exposure,
+                sm.market, quote, sm.prediction, staking_cfg,
+                strategy_cfg, self.fee_fn, exposure,
             )
             if intent is None:
                 continue
@@ -348,6 +456,8 @@ class Runner:
                 summary["orders"] += 1
                 # keep exposure fresh within the cycle
                 exposure = self.store.exposure_by()
+
+        summary["exits"] = self._manage_positions(quoted, strategy_cfg)
 
         canceled = self.executor.expire_stale_orders()
         if canceled:
