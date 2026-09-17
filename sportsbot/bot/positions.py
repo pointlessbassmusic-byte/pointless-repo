@@ -101,6 +101,13 @@ def evaluate_exit(
     `agg` comes from `aggregate_open_bets`; `agg['model_prob']` is the stale
     entry-time model prob for the side held — the blend leans on the CURRENT
     market mid (weight 1 - model_weight), so the live market dominates.
+
+    Note the edge rule is two-sided: because the model term is stale, a
+    FAVORABLE move beyond ~(|exit_edge| + exit costs) / model_weight
+    (≈ 22 points at defaults) also trips it — an implicit take-profit that
+    banks ~0.95 on the dollar instead of waiting for settlement. That is
+    deliberate: it frees capital and sheds late-breaking event risk for a
+    small spread cost (see backtest/exit_replay.py for the measurement).
     """
     hold = ExitDecision(False, "hold")
     if not cfg.manage or agg["size"] <= 0:
