@@ -7,6 +7,7 @@
   sportsbot scan                  # one discovery+prediction pass, no orders
   sportsbot run                   # the live/paper loop (what systemd runs)
   sportsbot status                # exposure, PnL, calibration, kill switch
+  sportsbot doctor                # go-live preflight (config/DB/keys/network)
   sportsbot reset-kill-switch
 """
 
@@ -432,6 +433,30 @@ def signals_retro(
     from sportsbot.signals.chatter import retro_study
 
     console.print(retro_study(events, db_path=db, max_events=max_events))
+
+
+@app.command()
+def doctor(config: str = CONFIG_OPT,
+           offline: bool = typer.Option(False, help="skip venue reachability "
+                                                    "and clock-skew checks")):
+    """Go-live preflight: config/gate/schema/ratings/secrets/network/clock.
+    Exits non-zero on any FAIL. Never prints secret values."""
+    cfg = _setup(config)
+    from sportsbot.bot.doctor import FAIL, run_checks, worst_level
+
+    checks = run_checks(cfg, offline=offline)
+    table = Table(title="sportsbot doctor")
+    for col in ("check", "status", "detail"):
+        table.add_column(col)
+    style = {"PASS": "green", "WARN": "yellow", "FAIL": "red"}
+    for c in checks:
+        table.add_row(c.name, f"[{style[c.level]}]{c.level}[/{style[c.level]}]",
+                      c.detail)
+    console.print(table)
+    worst = worst_level(checks)
+    console.print(f"overall: [{style[worst]}]{worst}[/{style[worst]}]")
+    if worst == FAIL:
+        raise typer.Exit(1)
 
 
 @app.command("reset-kill-switch")
