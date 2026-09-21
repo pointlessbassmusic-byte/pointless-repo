@@ -419,6 +419,21 @@ def signals_report(
     console.print(correlation_report(db, events))
 
 
+@app.command("signals-retro")
+def signals_retro(
+    config: str = CONFIG_OPT,
+    events: str = typer.Option(..., help="ingest-schema CSV with resolved events"),
+    max_events: int = typer.Option(80),
+    db: str = typer.Option("data/chatter.sqlite"),
+):
+    """Retrospective pilot: pre-decision chatter windows for resolved events
+    (post timestamps bounded at decision time — hypothesis-generating only)."""
+    _setup(config)
+    from sportsbot.signals.chatter import retro_study
+
+    console.print(retro_study(events, db_path=db, max_events=max_events))
+
+
 @app.command("reset-kill-switch")
 def reset_kill_switch(config: str = CONFIG_OPT):
     cfg = _setup(config)
