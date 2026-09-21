@@ -1,0 +1,9 @@
+[Unit]
+Description=Weather sigma calibration (log forecasts, score settled bands, fit)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pointless-repo/kalshi-engine
+ExecStart=/opt/pointless-repo/kalshi-engine/.venv/bin/python -m src.weather_calibrate

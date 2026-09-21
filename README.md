@@ -141,3 +141,25 @@ leagues carry documented match-fixing risk, so they get stricter thresholds.
 - Sackmann tennis data: CC BY-NC-SA (non-commercial). MLB Stats API:
   personal/non-commercial terms. Review before commercial use.
 - Nothing here is financial advice; trade only what you can afford to lose.
+
+---
+
+## Additional engine suite (independent modules)
+
+Three standalone modules built in the optimize-chats-to-code sessions — separate
+venvs, configs, SQLite DBs, and systemd units; nothing here imports sportsbot or
+the imported `polymarket-bot/` VPS-bot history:
+
+| Module | What it does | Money risk |
+|---|---|---|
+| [`polymarket-edge/`](polymarket-edge/) | Sportsbook-consensus + weather fair value vs Polymarket books | dry-run by default |
+| [`kalshi-engine/`](kalshi-engine/) | Signal-generator substrate + ensemble on Kalshi (weather calibrated daily) | dry-run by default |
+| [`arb-scanner/`](arb-scanner/) | Cross-platform Polymarket↔Kalshi complement-arb detection | never trades |
+
+Per module: `python -m pytest tests -q`, `python -m src.main --once --dry-run`,
+`python -m src.report`; kalshi-engine adds `python -m src.backtest` (offline
+replay) and `python -m src.weather_calibrate` (daily sigma/bias fit, systemd
+timer). Server bootstrap: `deploy/engines_setup.sh` then `deploy/deploy.sh`
+(targets `/opt/pointless-repo`, separate from sportsbot). Docs:
+`docs/MASTER_PLAN.md`; skills: `pre-live-gate`, `engine-health`.
+

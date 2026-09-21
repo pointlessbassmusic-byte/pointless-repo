@@ -1,0 +1,48 @@
+# Polymarket sports betting bot configuration
+
+live: false            # master switch; must ALSO pass --live on the CLI to trade
+scan_interval_sec: 900 # 15 min between scan cycles
+
+sports:                # The Odds API sport keys to model
+  - americanfootball_nfl
+  - basketball_nba
+  - baseball_mlb
+  - icehockey_nhl
+  - soccer_epl
+
+odds:
+  regions: us          # sportsbook regions for The Odds API
+  min_books: 3         # require at least this many books for a consensus
+  cache_ttl_sec: 3600  # reuse odds this long — free tier is 500 requests/month
+
+model:
+  blend_market_weight: 0.15   # weight given to Polymarket mid when blending fair value
+  weather:                    # daily-temperature markets priced from open-meteo (keyless)
+    enabled: true
+    sigma_base_f: 2.4         # same empirical values as kalshi-engine's calibrated fit
+    sigma_per_day_f: 1.0      # (Celsius markets scale sigma by 5/9 internally)
+    cache_ttl_sec: 1800
+    max_events: 400           # top gamma events scanned for temperature titles
+    # per-city forecast bias (native unit): apply values the report's weather
+    # section suggests once a city reaches n>=10 resolved days, e.g.
+    # city_bias: {miami: 4.2, london: -0.8}
+
+strategy:
+  min_edge: 0.04              # fair_prob - ask must exceed this to buy
+  kelly_fraction: 0.25        # quarter-Kelly
+  bankroll_usd: 500           # bankroll used for Kelly sizing
+  max_stake_per_market: 50    # USD cap per market
+  max_total_exposure: 250     # USD cap across all open intents in a cycle
+  min_liquidity: 500          # skip markets with less liquidity (USD)
+  min_hours_to_event: 1       # avoid in-play / about-to-start chaos
+  max_hours_to_event: 96      # only near-term games (fresher odds)
+  min_price: 0.05             # skip extreme longshots/favorites
+  max_price: 0.95
+  max_spread: 0.10            # skip books wider than this (illiquid/stale quote)
+
+storage:
+  db_path: data/bot.db
+
+risk:
+  max_daily_loss_usd: 50      # realized-loss circuit breaker: block new live orders for the day
+  kill_switch_file: data/KILL_SWITCH  # `touch` this file to halt live trading immediately

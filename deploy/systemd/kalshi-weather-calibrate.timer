@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily weather sigma calibration run
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

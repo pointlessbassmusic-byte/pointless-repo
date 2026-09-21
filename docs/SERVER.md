@@ -19,12 +19,12 @@ The server is a **runtime host only**. No editing code on the box. It runs the t
 From the laptop, in the repo root:
 
 ```bash
-./deploy/setup_server.sh
+./deploy/engines_setup.sh   # engine suite (sportsbot has its own deploy/setup_server.sh)
 ```
 
 This SSHes in and: installs python3-venv + git, clones the repo to `/opt/pointless-repo`, creates
 venvs for both engines, installs requirements, installs the systemd units, and creates empty `.env`
-files for you to fill in (`/opt/pointless-repo/polymarket-bot/.env` and
+files for you to fill in (`/opt/pointless-repo/polymarket-edge/.env` and
 `/opt/pointless-repo/kalshi-engine/.env`).
 
 Then SSH in once to fill in the two `.env` files with real keys.
@@ -40,15 +40,15 @@ Pulls latest `main` on the server, reinstalls requirements if they changed, rest
 ## Operating the services
 
 ```bash
-systemctl status polymarket-bot kalshi-engine
-journalctl -u polymarket-bot -f        # live logs
+systemctl status polymarket-edge kalshi-engine
+journalctl -u polymarket-edge -f        # live logs
 journalctl -u kalshi-engine --since today
-systemctl restart polymarket-bot
+systemctl restart polymarket-edge
 ```
 
 Databases (scan/signal/order logs) live at:
 
-- `/opt/pointless-repo/polymarket-bot/data/bot.db`
+- `/opt/pointless-repo/polymarket-edge/data/bot.db`
 - `/opt/pointless-repo/kalshi-engine/data/engine.db`
 
 Back them up by copying the files (they're SQLite).

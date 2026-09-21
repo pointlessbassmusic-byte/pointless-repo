@@ -1,0 +1,79 @@
+# Kalshi predictions engine configuration
+
+live: false             # master switch; must ALSO pass --live on the CLI to trade
+use_demo: true          # target demo-api.kalshi.co (paper exchange) until proven
+read_prod: true         # public market reads from prod (demo data is synthetic); orders still demo
+scan_interval_sec: 900
+
+markets:
+  statuses: [open]
+  # Only scan these series prefixes; empty list = scan everything open
+  series_whitelist: []       # e.g. [KXHIGHNY, KXBTC, KXNBA]; empty = discover via /events
+  # /events discovery (used when whitelist is empty); high cap = full feed
+  max_events_per_scan: 20000
+  categories: []             # e.g. [Sports, Crypto, Economics]; empty = all
+  # ticker prefixes to skip (auto-generated multivariate shard markets)
+  series_blacklist: [KXMVE]
+  max_markets_per_scan: 1500  # keep the most liquid after filters
+  # markets matching these ticker prefixes always survive the liquidity cut
+  # (the weather generator's markets must never be crowded out of the scan)
+  always_include_prefixes: [KXHIGH, KXLOWT]
+  min_volume: 100            # contracts traded; skip dead markets
+  max_days_to_expiry: 30
+
+substrate:
+  generators:                # which signal generators are active
+    market_implied:
+      enabled: true
+      confidence: 0.5
+    mean_reversion:
+      enabled: true
+      confidence: 0.3
+      lookback_scans: 8      # compare vs. price N scans ago
+      overreaction_threshold: 0.10
+      reversion_factor: 0.5
+    momentum:
+      enabled: true
+      confidence: 0.25
+      lookback_scans: 6        # steady drift over this many scans
+      min_total_move: 0.03     # total drift required
+      max_step: 0.05           # any single jump bigger = news shock, not drift
+      min_consistency: 0.7     # fraction of steps agreeing with the drift
+      continuation_factor: 0.4 # forecast drift continuing by this fraction
+    time_decay:
+      enabled: true
+      confidence: 0.2
+      horizon_hours: 48      # only near expiry
+      drift_strength: 0.15
+    weather:
+      enabled: true          # daily-high temp markets (KXHIGH*) vs open-meteo forecast
+      confidence: 0.4
+      # provisional empirical fit (weather_calibrate, n=14 settled days,
+      # 2026-09-17) — wider than the original 1.8/0.6 priors, i.e. the priors
+      # were overconfident. The daily calibration timer refines these; re-run
+      # `python -m src.weather_calibrate` and update as the sample grows.
+      sigma_base_f: 2.4      # forecast error stddev for same-day, in F
+      sigma_per_day_f: 1.0   # extra stddev per day of lead time
+      cache_ttl_sec: 1800    # one forecast fetch per station per TTL
+      # stations default to the verified series list in generators/weather.py;
+      # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..,
+      #   variable: max|min, bias_f: 0.0}}. bias_f = mean(observed - forecast):
+      # apply the values weather_calibrate suggests once a station reaches n>=10.
+
+strategy:
+  min_edge: 0.05             # required edge AFTER fees
+  fee_rate: 0.07             # Kalshi taker fee ~= rate * P * (1-P), folded into edge/Kelly
+  kelly_fraction: 0.25
+  bankroll_usd: 500
+  max_stake_per_market: 40
+  max_total_exposure: 200
+  min_price: 0.05
+  max_price: 0.95
+  max_spread: 0.10           # skip books wider than this (illiquid/stale mid)
+
+storage:
+  db_path: data/engine.db
+
+risk:
+  max_daily_loss_usd: 50      # realized-loss circuit breaker: block new live orders for the day
+  kill_switch_file: data/KILL_SWITCH  # `touch` this file to halt live trading immediately
