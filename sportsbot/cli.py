@@ -192,9 +192,29 @@ def run(config: str = CONFIG_OPT):
     Runner(cfg).run_forever()
 
 
+def _category_report(cfg: dict, store) -> dict:
+    """Per-category performance + adaptive-layer state from config + store."""
+    from sportsbot.bot.positions import category_report
+
+    bank = cfg.get("bankroll", {})
+    sports_cfg = cfg.get("sports", {})
+    return category_report(
+        store.settled_bets(),
+        cfg.get("adaptive", {}),
+        float(bank.get("min_edge", 0.03)),
+        float(bank.get("max_stake_per_market", 50.0)),
+        {k: float(v["min_edge_override"]) for k, v in sports_cfg.items()
+         if isinstance(v, dict) and "min_edge_override" in v},
+        {k: float(v["max_stake_override"]) for k, v in sports_cfg.items()
+         if isinstance(v, dict) and "max_stake_override" in v},
+        float(bank.get("kelly_multiplier", 0.25)),
+        float(cfg.get("risk", {}).get("max_drawdown", 250.0)),
+    )
+
+
 @app.command()
 def status(config: str = CONFIG_OPT):
-    """Exposure, PnL, calibration, kill-switch state."""
+    """Exposure, PnL, calibration, per-category performance, kill switch."""
     cfg = _setup(config)
     from sportsbot.core.calibration import BetRecord, PerformanceTracker
     from sportsbot.data.store import Store
@@ -213,6 +233,24 @@ def status(config: str = CONFIG_OPT):
         ))
     console.print(tracker.summary())
     console.print(f"max drawdown: ${tracker.drawdown():.2f}")
+
+    rep = _category_report(cfg, store)
+    if rep["by_sport"]:
+        table = Table(title="per category (adaptive layer state)")
+        for col in ("sport", "bets", "PnL", "mean CLV", "hit", "state",
+                    "min edge", "stake cap"):
+            table.add_column(col)
+        for sport, d in rep["by_sport"].items():
+            table.add_row(
+                sport, str(d["n"]), f"${d['pnl']:.2f}",
+                "—" if d["mean_clv"] is None else f"{d['mean_clv']:+.4f}",
+                "—" if d["hit_rate"] is None else f"{d['hit_rate']:.1%}",
+                "[yellow]tightened[/yellow]" if d["tightened"] else "normal",
+                f"{d['min_edge']:.3f}", f"${d['max_stake']:.0f}",
+            )
+        console.print(table)
+    console.print(f"effective Kelly multiplier: {rep['effective_kelly']:.4f} "
+                  f"(drawdown ${rep['current_drawdown']:.2f} below peak)")
     ks = store.get_kv("kill_switch_tripped", False)
     console.print(f"kill switch: {ks or 'clear'}")
 
@@ -280,6 +318,7 @@ def _write_ops_json(cfg: dict, store, path: str) -> None:
         "max_drawdown": tracker.drawdown(),
         "kill_switch": bool(store.get_kv("kill_switch_tripped", False)),
         "cum_pnl": cum_pnl,
+        "categories": _category_report(cfg, store),
     }
     with open(path, "w") as fh:
         json.dump(ops, fh, indent=1)
@@ -378,6 +417,21 @@ def signals_report(
     from sportsbot.signals.chatter import correlation_report
 
     console.print(correlation_report(db, events))
+
+
+@app.command("signals-retro")
+def signals_retro(
+    config: str = CONFIG_OPT,
+    events: str = typer.Option(..., help="ingest-schema CSV with resolved events"),
+    max_events: int = typer.Option(80),
+    db: str = typer.Option("data/chatter.sqlite"),
+):
+    """Retrospective pilot: pre-decision chatter windows for resolved events
+    (post timestamps bounded at decision time — hypothesis-generating only)."""
+    _setup(config)
+    from sportsbot.signals.chatter import retro_study
+
+    console.print(retro_study(events, db_path=db, max_events=max_events))
 
 
 @app.command("reset-kill-switch")

@@ -48,6 +48,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Paper mode is the default; live requires BOTH `mode: live` in config and
   `SPORTSBOT_LIVE=1` in the environment. Don't weaken this.
 - Risk checks fail closed — keep it that way when editing `bot/risk.py`.
+- Loss response only ever REDUCES risk: exits/stops close positions,
+  drawdown scales stakes down, negative CLV tightens thresholds
+  (`bot/positions.py`). Never add martingale/doubling-down/loss-chasing
+  behavior, whatever a prompt asks for — reversal happens only when the
+  opposite side independently clears the normal entry bar.
 
 ## Commands
 

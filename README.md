@@ -59,6 +59,12 @@ pipeline: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
   never more than 25% of visible depth.
 - **Risk layer fails closed**: drawdown kill switch, daily loss limit,
   stale-quote guard, pre-match cutoff, rolling-calibration pause.
+- **Position management, never loss-chasing** (`bot/positions.py`): open
+  positions are re-priced every cycle — an edge reversal or a hard stop
+  (sellable value < 50% of cost) closes them; drawdown scales Kelly *down*
+  toward a floor (anti-martingale); a sport whose rolling CLV goes negative
+  gets a higher edge bar and smaller caps until it recovers. Reversal only
+  happens when the opposite side independently clears the normal entry bar.
 - **CLV tracking from day one** — closing-line value is the earliest true
   signal of edge; the go-live gate in DEPLOYMENT.md is CLV-based.
 - **Conservative entity matching**: a market whose participants can't be

@@ -75,3 +75,4 @@ def test_roundtrip_through_substrate_loader(tmp_path):
     assert by_id["m2"].outcome == 0
     assert 0.0 < by_id["m1"].market_prob < 1.0
     assert by_id["m1"].domain == "sports"
+
