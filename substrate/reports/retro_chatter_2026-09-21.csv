@@ -1,0 +1,18 @@
+event_id,query,close_time,market_prob,outcome,posts,flagged
+mlb-mil-stl-2026-05-05,Brewers Cardinals,1783444500.0,0.6,1,84,3
+mlb-tb-bos-2026-05-09,Rays Red Sox,1784306100.0,0.555,0,38,4
+mlb-ari-stl-2026-06-25,Diamondbacks Cardinals,1784837700.0,0.54,1,16,1
+mlb-mil-sd-2026-08-12,Brewers Padres,1786561800.0,0.515,0,85,2
+mlb-bos-tor-2026-08-12,Red Sox Blue Jays,1786572420.0,0.545,0,88,1
+mlb-sea-nyy-2026-08-13,Mariners Yankees,1786638900.0,0.405,1,83,3
+mlb-chc-wsh-2026-08-13,Cubs Nationals,1786647900.0,0.575,0,88,2
+mlb-mil-lad-2026-08-13,Brewers Dodgers,1786669800.0,0.435,1,72,4
+mlb-stl-cin-2026-05-24,Cardinals Reds,1786984800.0,0.505,1,31,5
+mlb-lad-col-2026-08-19,Dodgers Rockies,1787182800.0,0.645,1,99,0
+mlb-atl-cws-2026-06-11,Braves White Sox,1787245800.0,0.505,1,31,4
+mlb-nyy-bal-2026-08-20,Yankees Orioles,1787261700.0,0.515,1,99,2
+mlb-lad-atl-2026-08-26,Dodgers Braves,1787782500.0,0.545,0,100,12
+mlb-min-oak-2026-08-26,Twins Athletics,1787789100.0,0.555,0,68,3
+mlb-lad-atl-2026-08-27,Dodgers Braves,1787868900.0,0.485,0,100,8
+mlb-ari-sf-2026-08-27,Diamondbacks Giants,1787877900.0,0.525,0,18,0
+mlb-bal-oak-2026-08-28,Orioles Athletics,1787964000.0,0.515,1,24,3
