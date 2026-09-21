@@ -66,6 +66,15 @@ def check_mode(cfg: dict) -> list[Check]:
 
 
 def check_params(cfg: dict) -> list[Check]:
+    try:
+        return _check_params(cfg)
+    except (TypeError, ValueError) as exc:
+        # A null/non-numeric knob in the YAML is exactly what the doctor
+        # exists to report — as a FAIL row, never a traceback.
+        return [Check("params", FAIL, f"unparseable config value: {exc}")]
+
+
+def _check_params(cfg: dict) -> list[Check]:
     out = []
     bank = cfg.get("bankroll", {})
     km = float(bank.get("kelly_multiplier", 0.25))
@@ -100,16 +109,25 @@ def check_storage(cfg: dict) -> list[Check]:
 
     out = []
     path = cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite")
+    if not os.path.exists(path):
+        # Opening would CREATE a fresh DB (and pass every check) — a wrong
+        # cwd/path must not masquerade as a healthy install.
+        return [Check("storage", WARN,
+                      f"{path} does not exist — fresh install (bot has not "
+                      "run here), or the doctor is running from the wrong "
+                      "directory")]
     try:
         store = Store(path)
         cols = [r[1] for r in store.conn.execute("PRAGMA table_info(bets)")]
         out.append(_ck("storage.schema", "status" in cols,
                        f"{path}: bets schema current (status column present)",
                        f"{path}: bets.status missing — migration didn't run"))
-        probe = f"doctor:ping:{int(time.time())}"
+        probe = "doctor:ping"
         store.set_kv(probe, "ok")
         ok = store.get_kv(probe) == "ok"
-        store.set_kv(probe, None)
+        with store._lock:
+            store.conn.execute("DELETE FROM kv WHERE key=?", (probe,))
+            store.conn.commit()
         out.append(_ck("storage.kv", ok, "KV read/write OK",
                        "KV round-trip failed"))
         ks = store.get_kv("kill_switch_tripped", False)
@@ -192,33 +210,45 @@ def _ping(url: str, timeout: float = 6.0):
 
 def check_network(cfg: dict) -> list[Check]:
     out = []
-    server_date = None
-    targets = [("net.gamma", GAMMA_PING), ("net.clob", CLOB_PING)]
-    kalshi_env = (os.environ.get("KALSHI_ENV") or "demo").lower()
-    targets.append(("net.kalshi",
-                    KALSHI_PING["prod" if kalshi_env == "prod" else "demo"]))
+    skew: float | None = None
+    exchange = cfg.get("exchange", "polymarket")
+    # Only the venues this deployment actually talks to: a blocked venue
+    # the config never uses must not fail the preflight.
+    targets = []
+    if exchange in ("polymarket", "paper"):
+        targets += [("net.gamma", GAMMA_PING), ("net.clob", CLOB_PING)]
+    if exchange == "kalshi":
+        kalshi_env = (os.environ.get("KALSHI_ENV") or "demo").lower()
+        targets.append(("net.kalshi",
+                        KALSHI_PING["prod" if kalshi_env == "prod" else "demo"]))
     for name, url in targets:
         try:
             resp, ms = _ping(url)
-            ok = resp.status_code < 500
-            out.append(_ck(name, ok, f"{resp.status_code} in {ms:.0f}ms",
-                           f"HTTP {resp.status_code}"))
-            if server_date is None and resp.headers.get("date"):
-                server_date = resp.headers["date"]
+            # Skew is measured against the clock IMMEDIATELY after this
+            # response — never after later (possibly slow) pings.
+            if skew is None and resp.headers.get("date"):
+                try:
+                    skew = abs((datetime.now(timezone.utc)
+                                - parsedate_to_datetime(resp.headers["date"])
+                                ).total_seconds())
+                except (TypeError, ValueError):
+                    pass
+            if resp.status_code < 400:
+                out.append(Check(name, PASS,
+                                 f"{resp.status_code} in {ms:.0f}ms"))
+            else:
+                out.append(Check(name, WARN,
+                                 f"HTTP {resp.status_code} — reachable but "
+                                 "not OK (geoblock/auth/maintenance?)"))
         except Exception as exc:
             out.append(Check(name, FAIL, f"unreachable: {exc}"))
-    if server_date:
-        try:
-            skew = abs((datetime.now(timezone.utc)
-                        - parsedate_to_datetime(server_date)).total_seconds())
-            level = (FAIL if skew > CLOCK_FAIL_S
-                     else WARN if skew > CLOCK_WARN_S else PASS)
-            out.append(Check("net.clock_skew", level,
-                             f"{skew:.1f}s vs venue Date header"
-                             + ("" if level == PASS else
-                                " — fix NTP/chrony before signing orders")))
-        except (TypeError, ValueError):
-            pass
+    if skew is not None:
+        level = (FAIL if skew > CLOCK_FAIL_S
+                 else WARN if skew > CLOCK_WARN_S else PASS)
+        out.append(Check("net.clock_skew", level,
+                         f"{skew:.1f}s vs venue Date header"
+                         + ("" if level == PASS else
+                            " — fix NTP/chrony before signing orders")))
     return out
 
 

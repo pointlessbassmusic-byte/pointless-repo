@@ -42,16 +42,32 @@ def test_param_sanity_catches_bad_knobs():
     assert named["params.kelly"].level == FAIL
     assert named["params.positions"].level == FAIL
     assert worst_level(check_params({})) == PASS  # defaults are sane
+    # a null YAML value is a FAIL row, never a traceback
+    broken = check_params({"bankroll": {"kelly_multiplier": None}})
+    assert broken[0].level == FAIL and "unparseable" in broken[0].detail
+
+
+def test_missing_db_is_reported_not_created(tmp_path):
+    path = tmp_path / "nope" / "s.sqlite"
+    checks = check_storage({"storage": {"sqlite_path": str(path)}})
+    assert checks[0].level == WARN and "does not exist" in checks[0].detail
+    assert not path.exists()  # the doctor must not create it
 
 
 def test_storage_and_ratings(tmp_path):
+    from sportsbot.data.store import Store
+
     cfg = {"storage": {"sqlite_path": str(tmp_path / "s.sqlite"),
                        "ratings_dir": str(tmp_path / "ratings")},
            "sports": {"tennis": {"enabled": True}}}
+    store = Store(cfg["storage"]["sqlite_path"])  # bot has run: DB exists
     named = by_name(check_storage(cfg))
     assert named["storage.schema"].level == PASS
     assert named["storage.kv"].level == PASS
     assert named["storage.kill_switch"].level == PASS
+    row = store.conn.execute(
+        "SELECT COUNT(*) FROM kv WHERE key LIKE 'doctor:%'").fetchone()
+    assert row[0] == 0  # probe cleaned up
     rat = by_name(check_ratings(cfg))
     assert rat["ratings.tennis"].level == WARN  # missing -> cold model
     (tmp_path / "ratings").mkdir()
