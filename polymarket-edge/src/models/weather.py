@@ -146,6 +146,11 @@ class WeatherModel:
         self.sigma_per_day_f = float(cfg.get("sigma_per_day_f", 1.0))
         self.cache_ttl = float(cfg.get("cache_ttl_sec", 1800))
         self.blend_market_weight = float(cfg.get("blend_market_weight", 0.15))
+        # per-city forecast bias in the city's native unit: mean(observed -
+        # forecast) from resolved markets; the report's weather section
+        # suggests values once a city reaches n>=10 settled days
+        self.city_bias = {str(k).lower(): float(v)
+                          for k, v in (cfg.get("city_bias") or {}).items()}
         self.http = retrying_session()
         self._cache: dict[str, tuple[float, dict[str, float]]] = {}
 
@@ -193,6 +198,7 @@ class WeatherModel:
             mu = self._forecasts(q.city).get(q.target.isoformat())
             if mu is None:
                 continue
+            mu += self.city_bias.get(q.city, 0.0)
             days_ahead = max(0, (q.target - today).days)
             sigma_f = self.sigma_base_f + self.sigma_per_day_f * days_ahead
             sigma = sigma_f * (5 / 9) if q.unit == "celsius" else sigma_f

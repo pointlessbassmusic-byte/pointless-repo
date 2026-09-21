@@ -23,6 +23,9 @@ model:
     sigma_per_day_f: 1.0      # (Celsius markets scale sigma by 5/9 internally)
     cache_ttl_sec: 1800
     max_events: 400           # top gamma events scanned for temperature titles
+    # per-city forecast bias (native unit): apply values the report's weather
+    # section suggests once a city reaches n>=10 resolved days, e.g.
+    # city_bias: {miami: 4.2, london: -0.8}
 
 strategy:
   min_edge: 0.04              # fair_prob - ask must exceed this to buy

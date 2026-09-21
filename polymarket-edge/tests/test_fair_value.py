@@ -225,3 +225,44 @@ def test_weather_model_prices_band_market():
     ests = {e.outcome_name: e for e in model.estimate([mkt])}
     assert 0.40 < ests["Yes"].consensus_prob < 0.45   # dead-center 2F band
     assert abs(ests["Yes"].consensus_prob + ests["No"].consensus_prob - 1.0) < 1e-9
+
+
+def test_city_bias_shifts_forecast():
+    import time as _time
+    from src.models.weather import WeatherModel
+
+    today = datetime.now(timezone.utc)
+    mkt = make_market(
+        "Will the highest temperature in Miami be between 90-91°F on "
+        f"{today.strftime('%B')} {today.day}?",
+        ["Yes", "No"], ["t-yes", "t-no"], None)
+    mkt.end_date = today
+    mkt.outcome_prices = [0.5, 0.5]
+
+    def prob(bias_cfg):
+        m = WeatherModel({"sigma_base_f": 1.8, "blend_market_weight": 0.0,
+                          "city_bias": bias_cfg})
+        m._cache["miami"] = (_time.monotonic(), {today.date().isoformat(): 86.0})
+        return {e.outcome_name: e for e in m.estimate([mkt])}["Yes"].consensus_prob
+
+    # +4.5F bias moves the corrected forecast onto the 90-91 band
+    assert prob({"miami": 4.5}) > prob({}) * 3
+
+
+def test_weather_bias_report_from_resolved_estimates(tmp_path):
+    from src.report import weather_bias
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    db.conn.execute(
+        "INSERT INTO estimates (ts, token_id, outcome, matched_game, fair_prob)"
+        " VALUES ('2026-09-17','tokA','Yes',"
+        "'weather:miami 2026-09-17 [88.0,89.0] mu=84.9±2.4',0.1)")
+    db.conn.execute(  # open-ended band: censored even when YES
+        "INSERT INTO estimates (ts, token_id, outcome, matched_game, fair_prob)"
+        " VALUES ('2026-09-17','tokB','Yes',"
+        "'weather:london 2026-09-17 [None,16.0] mu=14.0±1.3',0.8)")
+    db.conn.commit()
+    db.record_settlements({"tokA": 1.0, "tokB": 1.0})
+    # observed = 88.5 midpoint; error vs mu 84.9 = +3.6
+    assert weather_bias(db) == [("miami", 1, 3.6)]

@@ -14,6 +14,7 @@ beats the market baseline.
 from __future__ import annotations
 
 import argparse
+import re
 
 from .clients.gamma import GammaClient
 from .config import load_config
@@ -48,6 +49,38 @@ def resolve_settlements(db: Database, gamma: GammaClient) -> None:
           f"across {len(pending)} unresolved markets")
 
 
+_WEATHER_RE = re.compile(
+    r"^weather:(?P<city>.+?) (?P<date>\d{4}-\d{2}-\d{2}) "
+    r"\[(?P<floor>[-\d.]+|None),(?P<cap>[-\d.]+|None)\] mu=(?P<mu>[-\d.]+)")
+
+
+def weather_bias(db: Database) -> list[tuple[str, int, float]]:
+    """(city, n, mean observed-forecast) from resolved weather estimates.
+
+    Only a YES on a two-sided band pins the observed temperature (its
+    midpoint); open-ended bands and NO outcomes are censored. One sample per
+    city+date. Units are each city's native scale (F or C)."""
+    resolved = db.settled_outcomes()
+    seen: set[tuple[str, str]] = set()
+    errs: dict[str, list[float]] = {}
+    rows = db.conn.execute(
+        "SELECT token_id, outcome, matched_game FROM estimates"
+        " WHERE matched_game LIKE 'weather:%' AND outcome='Yes'").fetchall()
+    for token_id, _, mg in rows:
+        if resolved.get(token_id) != 1.0:
+            continue
+        m = _WEATHER_RE.match(mg or "")
+        if not m or "None" in (m.group("floor"), m.group("cap")):
+            continue
+        key = (m.group("city"), m.group("date"))
+        if key in seen:
+            continue
+        seen.add(key)
+        observed = (float(m.group("floor")) + float(m.group("cap"))) / 2
+        errs.setdefault(m.group("city"), []).append(observed - float(m.group("mu")))
+    return [(c, len(v), round(sum(v) / len(v), 2)) for c, v in sorted(errs.items())]
+
+
 def report(db: Database, days: float | None) -> None:
     conn = db.conn
     where, params = _since_clause(days)
@@ -62,6 +95,14 @@ def report(db: Database, days: float | None) -> None:
         " GROUP BY status ORDER BY 2 DESC", params
     ).fetchall():
         print(f"orders[{status}]: {n}  (${stake:.2f})")
+
+    biases = weather_bias(db)
+    if biases:
+        print("\nper-city weather bias (mean observed - forecast, native unit):")
+        for city, n, b in biases:
+            note = (f"  -> set model.weather.city_bias.{city}: {b}" if n >= 10
+                    else "  (n < 10: watch, don't act yet)")
+            print(f"  {city:<14} n={n:<4} bias={b:+.2f}{note}")
 
     finals = final_asks(conn)
     resolved = {
