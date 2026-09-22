@@ -119,12 +119,18 @@ class TennisModel(SportModel):
         )
 
     # ------------------------------------------------------------------
-    def save(self, path: str) -> None:
+    def save(self, path: str, meta: dict | None = None) -> None:
+        """`meta` records where the ratings came from. It matters: a Kalshi
+        bootstrap has no surface splits and a couple of months of history,
+        while Sackmann has decades, and a reader of the file (or of the
+        dashboard) should not have to guess which one they are holding."""
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         payload = {
             "overall": self.overall.to_dict(),
             "surfaces": {k: e.to_dict() for k, e in self.by_surface.items()},
         }
+        if meta:
+            payload["meta"] = meta
         with open(path, "w") as fh:
             json.dump(payload, fh)
 

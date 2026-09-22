@@ -52,24 +52,51 @@ def fit(sport: str, config: str = CONFIG_OPT,
         start_year: int = typer.Option(2018, help="tennis: first year of history"),
         seasons: int = typer.Option(3, help="baseball: seasons of history"),
         tt_csv: str = typer.Option("", help="table_tennis: results CSV path"),
-        tt_days: int = typer.Option(90, help="table_tennis: days of Polymarket history")):
+        tt_days: int = typer.Option(90, help="table_tennis: days of Polymarket history"),
+        source: str = typer.Option(
+            "auto", help="tennis: sackmann | kalshi | auto (Sackmann, "
+                         "falling back to a Kalshi bootstrap if unreachable)")):
     """Train ratings for one sport and save them to the ratings dir."""
     cfg = _setup(config)
     ratings_dir = cfg.get("storage", {}).get("ratings_dir", "data/ratings")
     os.makedirs(ratings_dir, exist_ok=True)
 
     if sport == "tennis":
-        from sportsbot.data.tennis_data import fetch_history
+        from datetime import datetime, timezone
+
+        from sportsbot.data.tennis_data import fetch_history, results_from_kalshi
         from sportsbot.engine.tennis import TennisModel
 
-        console.print(f"downloading ATP+WTA history {start_year}-present…")
-        matches = fetch_history(start_year=start_year)
-        console.print(f"training on {len(matches)} matches")
+        if source not in ("auto", "sackmann", "kalshi"):
+            raise typer.BadParameter("source must be auto | sackmann | kalshi")
+        matches, used = [], source
+        if source in ("auto", "sackmann"):
+            console.print(f"downloading ATP+WTA history {start_year}-present…")
+            matches = fetch_history(start_year=start_year)
+            used = "sackmann"
+        if not matches and source in ("auto", "kalshi"):
+            if source == "auto":
+                console.print(
+                    "[yellow]Sackmann history unreachable (0 matches) — falling back "
+                    "to a Kalshi bootstrap. These ratings have NO surface splits and "
+                    "only a few months of history; prefer a host that can reach "
+                    "raw.githubusercontent.com.[/yellow]")
+            console.print("bootstrapping from settled Kalshi ATP/WTA markets…")
+            matches = results_from_kalshi()
+            used = "kalshi-bootstrap"
+        if not matches:
+            raise typer.Exit("no tennis history available from any source")
+
+        console.print(f"training on {len(matches)} matches (source: {used})")
         model = TennisModel(
             surface_weight=float(cfg["sports"]["tennis"].get("surface_weight", 0.5)))
         model.fit(matches)
         path = os.path.join(ratings_dir, "tennis.json")
-        model.save(path)
+        model.save(path, meta={
+            "source": used, "n_matches": len(matches),
+            "fitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "surfaces": used == "sackmann",
+        })
         console.print(f"[green]saved {len(model.overall.ratings)} player ratings -> {path}")
     elif sport == "baseball":
         from sportsbot.data.mlb_data import MLBStatsClient
