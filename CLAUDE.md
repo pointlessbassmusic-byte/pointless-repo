@@ -71,6 +71,37 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Table-tennis fast leagues carry documented match-fixing risk — their
   higher `min_edge_override` / lower stake caps are deliberate.
 
+## Weather modeling invariants (repo-wide)
+
+Both weather paths in this repo — `sportsbot/signals/nws.py` +
+`substrate_bridge/` (data only) and the engine suite's forecast arms — price
+daily temperature extremes, and both are exposed to the same two mistakes.
+Reference implementation and regression tests:
+`kalshi-engine/src/substrate/generators/weather.py`,
+`polymarket-edge/src/models/weather.py`.
+
+- Measure lead time and the day's extremum window in **station-local** time,
+  never UTC. Forecast feeds key their daily values by local date, so a UTC
+  `.date()` reads a day behind for US stations for the first third of the UTC
+  day. Open-meteo returns `utc_offset_seconds`; use it (DST-correct, needs no
+  tzdata). NWS's `startTime` is already local.
+- A forecast only beats the book while the outcome is still unrealized. The
+  daily low is set overnight and the high by late afternoon (the arms abstain
+  at 10:00 / 17:00 local). Past that the market prices an observed value and a
+  forecast is strictly worse information — a live dry-run staked 356 contracts
+  against an already-settled low before this rule existed.
+- A bucketed temperature event's own prices are a distribution over whole
+  degrees; its mean is the market's expected temperature, available with no
+  settled history. A forecast several degrees off that mean is a mismatched
+  input (grid cell vs. settlement station), not an edge: stand down past
+  ~1.5 sigma and fit the offset from settled truth only (`city_bias`,
+  `bias_f`). `python -m src.weather_divergence` in polymarket-edge prints the
+  table. Never fit bias to market prices — that just copies the book.
+- Empirically (Kalshi settlements, n=14): sigma ~= 2.4F same-day + 1.0F per
+  lead day, i.e. **wider** than the 1.8 + 0.55 ramp in `signals/nws.py`, and
+  roughly twice what bucket prices imply. Where those disagree, settled
+  outcomes decide, not priors.
+
 ---
 
 ## Additional modules: polymarket-edge / kalshi-engine / arb-scanner
