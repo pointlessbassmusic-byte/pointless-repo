@@ -1,0 +1,20 @@
+# cryptoarb configuration. Secrets NEVER live here — .env only.
+mode: sim                 # sim | real  (real also needs CRYPTOARB_LIVE=1 + an executor)
+bankroll: 100.0
+scan_polymarket: true
+pm_events: 25             # Polymarket events to crawl per cycle
+pm_markets: 30            # max binary markets to book-check per cycle
+
+# YOUR fee tier decides whether any of this is profitable. Defaults below are
+# the WORST (base retail) published rates — override with your real tier.
+fees:
+  taker:
+    coinbase: 0.0060
+    kraken: 0.0040
+    kucoin: 0.0010
+    polymarket: 0.0000    # crypto binaries; SPORTS markets do carry a taker fee
+  maker:
+    coinbase: 0.0040
+    kraken: 0.0025
+    kucoin: 0.0010
+    polymarket: 0.0000

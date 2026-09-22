@@ -44,3 +44,4 @@ polymarket-bot/**/data/
 
 # engine-suite runtime state (polymarket-edge / kalshi-engine / arb-scanner)
 data/
+cryptoarb/data/
