@@ -32,6 +32,19 @@ Checklist concepts adapted from tradermonty/claude-trading-skills
    kalshi-engine the user explicitly chose `use_demo: false`.
 7. **Bankroll confirmation** — the user states, in their own words, the max
    amount they accept losing. Do not proceed on silence.
+8. **Weather signals are temperature calls, not variance bets** — run
+   `python -m src.weather_divergence`. Our sigma runs wider than the one the
+   band prices imply (measured: 1.48x on Kalshi stations, 1.85x on Polymarket
+   cities), and a wider sigma alone makes every narrow centre band look
+   overpriced. So a signal can carry a huge edge while our mean and the
+   market's agree to a tenth of a degree — seen live on Chongqing, both means
+   22.1-22.2C, NO on the exact-degree bucket at the full stake cap. Those are
+   bets that the market is too confident, which nothing here has yet shown.
+   Check the dry-run signals actually driving the PnL in `python -m src.report`
+   against their recorded `mkt=` means: if the winners are the ones where the
+   means agreed, the edge is a variance bet and needs its own settled evidence
+   before it trades real money. Sizing on it beforehand is betting the sigma we
+   already know is the wider of the two.
 
 ## Output
 
