@@ -64,6 +64,44 @@ SPORT_SERIES: dict[str, list[str]] = {
     "table_tennis": ["KXTABLETENNISMATCH", "KXWTABLETENNISMATCH"],
 }
 
+# Kalshi MLB market tickers end in a team code and the event ticker
+# concatenates AWAY+HOME (KXMLBGAME-26SEP242210SDLAD = SD at LAD). The
+# display names are city-only short forms ("Los Angeles D"), which cannot
+# match the full team names the ratings are keyed by, so map the codes.
+KALSHI_MLB_TEAMS: dict[str, str] = {
+    "ATH": "athletics", "ATL": "atlanta braves", "AZ": "arizona diamondbacks",
+    "BAL": "baltimore orioles", "BOS": "boston red sox", "CHC": "chicago cubs",
+    "CIN": "cincinnati reds", "CLE": "cleveland guardians",
+    "COL": "colorado rockies", "CWS": "chicago white sox",
+    "DET": "detroit tigers", "HOU": "houston astros",
+    "KC": "kansas city royals", "LAA": "los angeles angels",
+    "LAD": "los angeles dodgers", "MIA": "miami marlins",
+    "MIL": "milwaukee brewers", "MIN": "minnesota twins",
+    "NYM": "new york mets", "NYY": "new york yankees",
+    "PHI": "philadelphia phillies", "PIT": "pittsburgh pirates",
+    "SD": "san diego padres", "SEA": "seattle mariners",
+    "SF": "san francisco giants", "STL": "st. louis cardinals",
+    "TB": "tampa bay rays", "TEX": "texas rangers",
+    "TOR": "toronto blue jays", "WSH": "washington nationals",
+}
+
+
+def split_mlb_event(event_ticker: str, codes: set[str]) -> tuple[str, str] | None:
+    """(away_code, home_code) from an event ticker whose tail concatenates the
+    two, given the codes its markets actually carry.
+
+    The pair is found by testing the two known codes against the END of the
+    ticker (which also carries a date/time prefix: 26SEP242210SDLAD) rather
+    than guessing a boundary — SDLAD is SD+LAD, but a naive split cannot tell
+    where the first code stops, and getting it backwards silently hands home
+    advantage to the wrong team.
+    """
+    tail = event_ticker.rsplit("-", 1)[-1]
+    matches = [(a, b) for a in codes for b in codes
+               if a != b and tail.endswith(a + b)]
+    return matches[0] if len(matches) == 1 else None
+
+
 SPORT_FOR_KEY = {
     "tennis": Sport.TENNIS,
     "baseball": Sport.BASEBALL,
@@ -239,7 +277,55 @@ class KalshiClient(ExchangeClient):
                 cursor = data.get("cursor")
                 if not cursor or not data.get("markets"):
                     break
-        self._pair_event_siblings(out)
+        # Both paths repair the same defect (no_sub_title mirrors the YES
+        # side, so a market parses as a game against itself). The MLB path
+        # is richer where it applies -- it maps team codes to real names and
+        # recovers the true home team -- but it only knows baseball, so the
+        # racket sports keep the generic sibling pairing.
+        if sport is Sport.BASEBALL:
+            out = self._pair_mlb_opponents(out)
+        else:
+            self._pair_event_siblings(out)
+        return out
+
+    @staticmethod
+    def _pair_mlb_opponents(markets: list[MarketInfo]) -> list[MarketInfo]:
+        """Fill in each MLB market's opponent and true home team.
+
+        Kalshi lists one market per team and sets `no_sub_title` to the SAME
+        team as `yes_sub_title`, so on its own every market looks like a game
+        against itself and the scanner drops it. The opponent has to come from
+        the sibling market in the same event.
+
+        `home` stays the YES side, because `Prediction.prob_yes` is defined as
+        P(home wins) repo-wide; the real home team goes in meta["home_field"]
+        so the model can put home advantage on the right side.
+        """
+        by_event: dict[str, list[MarketInfo]] = {}
+        for m in markets:
+            by_event.setdefault(str(m.meta.get("event_ticker") or ""), []).append(m)
+
+        out: list[MarketInfo] = []
+        for event_ticker, group in by_event.items():
+            codes = {str(m.meta.get("team_code")) for m in group
+                     if m.meta.get("team_code")}
+            if len(group) != 2 or len(codes) != 2:
+                continue  # not a clean two-sided game; skip rather than guess
+            split = split_mlb_event(event_ticker, codes)
+            home_code = split[1] if split else None
+            for m in group:
+                other = next(x for x in group if x is not m)
+                mine = str(m.meta.get("team_code"))
+                theirs = str(other.meta.get("team_code"))
+                home_name = KALSHI_MLB_TEAMS.get(mine)
+                away_name = KALSHI_MLB_TEAMS.get(theirs)
+                if not home_name or not away_name:
+                    continue  # unmapped code: skip, never guess a team
+                meta = dict(m.meta)
+                if home_code is not None:
+                    meta["home_field"] = KALSHI_MLB_TEAMS.get(home_code)
+                out.append(m.model_copy(update={
+                    "home": home_name, "away": away_name, "meta": meta}))
         return out
 
     @staticmethod
@@ -306,6 +392,8 @@ class KalshiClient(ExchangeClient):
             # no_sub_title MIRRORS it (verified live), so the true opponent
             # is recovered by _pair_event_siblings after discovery.
             home=m.get("yes_sub_title") or m.get("subtitle") or None,
+            # Kalshi repeats the same team in no_sub_title on MLB markets;
+            # _pair_mlb_opponents replaces this with the real opponent.
             away=m.get("no_sub_title") or None,
             start_time=start_time,
             close_time=close_time,
@@ -315,6 +403,8 @@ class KalshiClient(ExchangeClient):
             meta={
                 "series": series,
                 "event_ticker": m.get("event_ticker"),
+                # trailing segment of the ticker: the team this contract pays on
+                "team_code": str(m.get("ticker", "")).rsplit("-", 1)[-1],
                 "yes_bid": self._dollars(m, "yes_bid_dollars"),
                 "yes_ask": self._dollars(m, "yes_ask_dollars"),
                 "last_price": self._dollars(m, "last_price_dollars"),

@@ -65,10 +65,24 @@ class Scanner:
             if home is None or away is None or home == away:
                 continue
             context = dict((extra_context or {}).get(m.market_id, {}))
+
+            # `MarketInfo.home` is the side the YES contract pays on, which is
+            # not always the team with home-field advantage: Kalshi lists one
+            # market per team, so half of them have the visitor as the YES
+            # side. Model the real matchup, then restate the answer for the
+            # YES side so `prob_yes = P(MarketInfo.home wins)` still holds.
+            home_field = (m.meta or {}).get("home_field")
+            yes_is_home = True
+            if home_field:
+                matched_field = match_entity(str(home_field), candidates,
+                                             self.match_threshold)
+                if matched_field is not None and matched_field == away:
+                    yes_is_home = False
+
             event = EventInput(
                 sport=m.sport,
-                home=home,
-                away=away,
+                home=home if yes_is_home else away,
+                away=away if yes_is_home else home,
                 start_time=m.start_time,
                 best_of=int(context.get("best_of", 3 if m.sport == Sport.TENNIS else 5)),
                 context=context,
@@ -78,6 +92,10 @@ class Scanner:
             except Exception:
                 log.exception("prediction failed for %s", m.market_id)
                 continue
+            if not yes_is_home:      # restate for the YES side
+                pred.prob_yes = 1.0 - pred.prob_yes
+                if pred.prob_raw is not None:
+                    pred.prob_raw = 1.0 - pred.prob_raw
             pred.market_id = m.market_id
             out.append(ScannedMarket(market=m, prediction=pred,
                                      matched_home=home, matched_away=away))
