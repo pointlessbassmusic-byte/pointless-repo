@@ -30,6 +30,20 @@ class ScannedMarket:
     matched_away: str
 
 
+@dataclass
+class ScanDrop:
+    """A market the scanner refused to predict, and why.
+
+    Without this the funnel goes dark exactly where it is widest: a slate
+    can lose most of its markets here (an unfit model drops every market in
+    its sport) and the decision feed, which only ever saw predicted
+    markets, would show nothing at all -- leaving "the bot placed no bets"
+    indistinguishable from "the bot never looked"."""
+
+    market: MarketInfo
+    reason: str
+
+
 class Scanner:
     def __init__(self, models: dict[Sport, SportModel],
                  match_threshold: float = 0.85) -> None:
@@ -49,20 +63,48 @@ class Scanner:
              extra_context: Optional[dict] = None) -> list[ScannedMarket]:
         """`extra_context` maps market_id -> context dict (e.g. probable
         pitchers keyed in by the runner from MLB Stats API)."""
+        return self.scan_verbose(markets, extra_context)[0]
+
+    def scan_verbose(
+        self, markets: list[MarketInfo], extra_context: Optional[dict] = None
+    ) -> tuple[list[ScannedMarket], list[ScanDrop]]:
+        """`scan`, plus the markets it dropped and why -- the other half of
+        the funnel, for the decision feed."""
         out: list[ScannedMarket] = []
+        drops: list[ScanDrop] = []
+        # One warning per unfit model, not one per market: a full tennis
+        # slate is ~200 markets and logged ~200 identical lines, burying
+        # everything else in the cycle's output.
+        warned_unfit: set[str] = set()
         for m in markets:
             if m.sport is None or m.sport not in self.models:
+                drops.append(ScanDrop(m, "no model loaded for this sport"))
                 continue
             if not m.home or not m.away:
+                drops.append(ScanDrop(m, "market names no participants"))
                 continue
             model = self.models[m.sport]
             candidates = self._rated_entities(model)
             if not candidates:
-                log.warning("model %s has no rated entities; skipping scan", model.name)
+                if model.name not in warned_unfit:
+                    warned_unfit.add(model.name)
+                    log.warning("model %s has no rated entities; skipping its "
+                                "markets this cycle (run `sportsbot fit`)", model.name)
+                drops.append(ScanDrop(
+                    m, f"model {model.name} has no rated entities "
+                       f"— run `sportsbot fit`"))
                 continue
             home = match_entity(m.home, candidates, self.match_threshold)
             away = match_entity(m.away, candidates, self.match_threshold)
-            if home is None or away is None or home == away:
+            if home is None or away is None:
+                unmatched = m.home if home is None else m.away
+                drops.append(ScanDrop(
+                    m, f"{unmatched!r} not matched to any rated entity "
+                       f"(unmatched = skip, by design)"))
+                continue
+            if home == away:
+                drops.append(ScanDrop(
+                    m, f"both sides matched the same rated entity ({home!r})"))
                 continue
             context = dict((extra_context or {}).get(m.market_id, {}))
 
@@ -91,6 +133,7 @@ class Scanner:
                 pred = model.predict(event)
             except Exception:
                 log.exception("prediction failed for %s", m.market_id)
+                drops.append(ScanDrop(m, "model raised while predicting"))
                 continue
             if not yes_is_home:      # restate for the YES side
                 pred.prob_yes = 1.0 - pred.prob_yes
@@ -99,4 +142,4 @@ class Scanner:
             pred.market_id = m.market_id
             out.append(ScannedMarket(market=m, prediction=pred,
                                      matched_home=home, matched_away=away))
-        return out
+        return out, drops

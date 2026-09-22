@@ -475,10 +475,43 @@ class Runner:
         except Exception:
             log.exception("decision record failed")
 
+    def _record_scan_drops(self, drops: list) -> None:
+        """Put the scanner's funnel loss in the decision feed, AGGREGATED.
+
+        One row per (sport, reason), not per market. A slate where a model
+        is unfit drops every market in that sport -- writing them
+        individually would be a few hundred identical rows per cycle, and
+        since the dashboard renders the most recent decisions, they would
+        evict every real bet and skip from the feed within one cycle. The
+        count carries the same information without destroying the view.
+        """
+        if not drops:
+            return
+        grouped: dict[tuple[str, str], int] = {}
+        for d in drops:
+            sport = d.market.sport.value if d.market.sport else "unknown"
+            grouped[(sport, d.reason)] = grouped.get((sport, d.reason), 0) + 1
+        for (sport, reason), n in sorted(grouped.items(), key=lambda kv: -kv[1]):
+            try:
+                self.store.record_decision(
+                    account=self.account,
+                    # Not a venue ticker: this row stands for a group of
+                    # markets, so it is labelled as one rather than
+                    # impersonating a market that could be looked up.
+                    market_id=f"({n} {sport} markets)",
+                    sport=sport,
+                    title=f"{n} {sport} market{'s' if n != 1 else ''} not scanned",
+                    action="skip",
+                    reason=f"dropped before pricing: {reason}",
+                )
+            except Exception:
+                log.exception("scan-drop record failed")
+
     def cycle(self) -> dict:
         """One scan cycle. Returns a summary dict."""
-        summary = {"markets": 0, "scanned": 0, "intents": 0, "orders": 0,
-                   "arbs": 0, "settled": 0, "exits": 0, "blocked": None}
+        summary = {"markets": 0, "scanned": 0, "dropped": 0, "intents": 0,
+                   "orders": 0, "arbs": 0, "settled": 0, "exits": 0,
+                   "blocked": None}
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
         ok, reason = self.risk.check_global()
@@ -517,8 +550,10 @@ class Runner:
                 if best and similarity(m.home, best[0][0]) > 0.85:
                     extra_context[m.market_id] = best[1]
 
-        scanned = self.scanner.scan(markets, extra_context)
+        scanned, drops = self.scanner.scan_verbose(markets, extra_context)
         summary["scanned"] = len(scanned)
+        summary["dropped"] = len(drops)
+        self._record_scan_drops(drops)
 
         exposure = self.store.exposure_by()
         quoted: dict[str, tuple] = {}
