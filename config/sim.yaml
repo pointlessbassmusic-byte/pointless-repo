@@ -10,7 +10,14 @@
 # Secrets NEVER go here — they come from environment variables (.env).
 
 mode: paper            # paper | live  (live also requires SPORTSBOT_LIVE=1 env var)
-exchange: polymarket   # polymarket | kalshi | paper
+# Kalshi, not Polymarket, and this is a measurement not a preference:
+# sampled 2026-09-22, Polymarket's books for these sports are untradable —
+# table tennis median spread 0.88 (0 of 282 markets ever reached 0.03, even
+# under 2h to start) and the only MLB slate listed was 131h out at 0.94.
+# Kalshi the same hour: MLB median spread 0.010, tennis 0.020. It is also the
+# US-legal venue, and Polymarket's main CLOB geoblocks US order placement
+# anyway. See docs/DASHBOARD_2026-09-22.md.
+exchange: kalshi       # polymarket | kalshi | paper
 
 accounts:                  # dashboard books (`sportsbot board`)
   sim:
@@ -67,7 +74,7 @@ risk:
 
 scan:
   interval_seconds: 300
-  sports: [tennis, baseball, table_tennis]
+  sports: [baseball, tennis]   # see table_tennis note below
 
 sports:
   tennis:
@@ -82,7 +89,11 @@ sports:
     sp_enabled: true            # starting-pitcher adjustment
     prob_shrink: 0.8            # shrink probs toward 0.5 (walk-forward tuned)
   table_tennis:
-    enabled: true
+    # OFF for the sim: Kalshi lists no table tennis at all, and Polymarket's
+    # table-tennis books never tighten enough to trade (above). The model is
+    # fine; there is simply no market to trade it on. Re-enable if a venue
+    # starts quoting these properly.
+    enabled: false
     best_of_default: 5
     min_edge_override: 0.05     # softer markets but fixing risk: demand more edge
     max_stake_override: 20.0

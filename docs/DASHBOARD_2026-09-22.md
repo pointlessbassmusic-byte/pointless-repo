@@ -51,28 +51,103 @@ market-calibration record in `substrate/reports/`. The allocation therefore
 starts from validation evidence and is designed to move as CLV accrues; the
 dashboard exists so that movement is visible rather than asserted.
 
+## The venue finding: Polymarket has nothing tradable for these sports
+
+The sim's first cycles placed zero bets on 707 Polymarket markets. The
+decision feed made the reason measurable rather than a guess, and the answer
+turned out to be about the venue, not the thresholds.
+
+Measured 2026-09-22, same hour, both venues:
+
+| venue | sport | markets | median spread | ever <= 0.03 |
+|---|---|---|---|---|
+| Polymarket | table tennis | 350 | **0.88** | 0 of 282 |
+| Polymarket | baseball | 15 | **0.94** | 0 |
+| Kalshi | baseball | 86 | **0.010** | 23 of 25 sampled |
+| Kalshi | tennis | 264 | **0.020** | 21 of 25 sampled |
+
+The Polymarket books are not merely wide, they are empty shells: the best bid
+and ask are a lone market maker at 0.03 / 0.97, with the next levels at 0.02 /
+0.98. That read was verified against the raw order book rather than inferred
+from a spread number — the bot was reading the venue correctly.
+
+Two hypotheses died on the data. Liquidity does **not** arrive near match
+time: table-tennis markets under 2h from start had a median spread of 0.94,
+and in-play markets had no book at all. And the uncertainty filter was not
+the blocker either — roughly 55% of the slate cleared it, and the inactivity
+penalty never fired (maximum idle was 5 days against a 30-day threshold).
+Polymarket's only listed MLB slate was the Sep-27 season finale, 131 hours
+out; Kalshi listed that day's games.
+
+So the sim runs on **Kalshi**: it is where the markets are, and it is the
+US-legal venue for real money anyway (Polymarket's main CLOB geoblocks US
+order placement, which this project does not attempt to evade).
+
+Table tennis is switched off for the sim as a consequence. Kalshi lists no
+table tennis, and Polymarket's table-tennis books cannot be traded at any
+threshold. The model is fine; there is no market to trade it on.
+
+## Kalshi MLB needed two fixes before it could scan
+
+Pointing the sim at Kalshi scanned **zero** of 86 markets. Two real defects:
+
+1. Kalshi lists one market per team and sets `no_sub_title` to the *same*
+   team as `yes_sub_title`, so every market looked like a game against
+   itself and the scanner dropped it (it skips `home == away`). The opponent
+   has to come from the sibling market in the same event.
+2. The display names are city-only short forms — "Los Angeles D", "Chicago
+   WS" — which cannot match the full team names the ratings are keyed by.
+   The ticker's team code maps cleanly instead.
+
+There is a subtlety worth stating, because getting it backwards would be
+invisible and wrong: `MarketInfo.home` means "the side the YES contract pays
+on", but half of Kalshi's markets have the **visitor** as the YES side. The
+scanner now models the real matchup — home advantage on the team with home
+field, taken from the event ticker's away+home ordering — and then restates
+the answer for the YES side, so `prob_yes = P(MarketInfo.home wins)` still
+holds repo-wide. A test pins both halves: with equal Elo the home team is
+favoured, the visitor is not, and the two sides sum to one.
+
+After the fix: 86 of 86 markets scan.
+
 ## What the decision feed showed on the first live cycles
 
-707 markets discovered, 298 scanned, **zero bets** — and the feed says why:
+On Polymarket, 707 markets discovered, 298 scanned, **zero bets**: 154 passed
+on spread, 134 on model uncertainty, 10 on no book. Not one reached the edge
+test — which is what sent the investigation to the venue rather than the
+thresholds.
+
+On Kalshi the picture is completely different. Of 86 MLB markets scanned, 27
+reached the edge test and were declined on their merits:
 
 | passes | reason |
 |---|---|
-| 154 | spread wider than the 0.030 limit — fills would give back the edge |
-| 134 | model not confident enough to price (uncertainty over 0.20) |
-| 10 | no two-sided book |
+| 42 | no two-sided book (games further out) |
+| 27 | edge under the 0.030 bar |
+| 17 | spread wider than the 0.030 limit |
 
-Not one market reached the edge test. The binding constraints right now are
-spread and model uncertainty, which is worth knowing before anyone reaches for
-the edge threshold: loosening `min_edge` would change nothing here. This is
-also why the feed records passes at all — on a near-efficient slate, a feed
-that only showed bets would show an empty page and tell you nothing.
+The closest calls were edges of +0.0035, +0.0046, +0.0121 and +0.0152 against
+a 3-point bar — the bot pricing real books and declining because MLB
+moneylines are near-efficient, exactly as the README's honest expectations
+say. That is the system working, not idling. It will bet when an edge clears
+3 points.
+
+This is also why the feed records passes at all: on a near-efficient slate, a
+feed that only showed bets would show an empty page and tell you nothing.
 
 ## Running it
 
 ```bash
 sportsbot run -c config/sim.yaml     # the $100 paper book on live markets
-sportsbot board --loop 60            # rebuild the page every minute
+sportsbot board -c config/sim.yaml --loop 60   # rebuild the page every minute
 ```
+
+**The highest-value next action is `sportsbot fit tennis`.** Kalshi lists 264
+tennis markets at a 0.020 median spread and the tennis model is the
+best-developed in the repo — but it has zero rated players on this host,
+because the web sandbox cannot reach the Sackmann CSVs. Run the fit on the
+laptop or the VPS and the tennis sleeve turns on against the deepest liquid
+slate available.
 
 `config/sim.yaml` is a complete standalone config whose dollar knobs are scaled
 to $100 — the $1,000 defaults would put a $50 max stake (half the account) in
