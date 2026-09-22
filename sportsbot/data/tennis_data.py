@@ -14,9 +14,10 @@ from __future__ import annotations
 import csv
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Sequence
 
 import httpx
 
@@ -158,3 +159,95 @@ def iter_by_tour(matches: list[MatchResult], tour_levels: str = "") -> Iterator[
     for m in matches:
         if not tour_levels or m.level in tour_levels:
             yield m
+
+
+# ---------------------------------------------------------------- Kalshi
+# Sackmann is the authoritative history and stays the default. This is the
+# fallback for hosts that cannot reach it — including Claude Code web
+# sessions, whose GitHub scoping 404s third-party raw files. Kalshi settles
+# one market per player, so a settled ATP/WTA event names both players and
+# says which one won: enough for an overall Elo, though not for surface
+# ratings, and with no game scores the margin-of-victory signal is neutral.
+KALSHI_TENNIS_SERIES = ("KXATPMATCH", "KXWTAMATCH")
+_KALSHI_DATE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})")
+_MONTHS = {m: i for i, m in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
+
+
+def _kalshi_event_date(event_ticker: str) -> Optional[datetime]:
+    """Date out of a ticker like KXATPMATCH-26SEP22SVRSEK (YY MON DD)."""
+    m = _KALSHI_DATE.search(event_ticker)
+    if not m:
+        return None
+    yy, mon, dd = m.groups()
+    month = _MONTHS.get(mon)
+    if month is None:
+        return None
+    try:
+        return datetime(2000 + int(yy), month, int(dd), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def results_from_kalshi(series: Sequence[str] = KALSHI_TENNIS_SERIES,
+                        max_pages: int = 25,
+                        client=None) -> list[MatchResult]:
+    """Bootstrap tennis results from Kalshi's settled match markets.
+
+    Ratings built from this are materially weaker than Sackmann's: no surface
+    splits, no game scores, and only as far back as Kalshi has listed the
+    tours. They are exactly the population we trade, though, which is the
+    same trade-off `tabletennis_data.results_from_polymarket` makes.
+    """
+    from sportsbot.exchanges.kalshi import API_ROOT, KalshiClient
+
+    client = client or KalshiClient(env="prod")
+    out: list[MatchResult] = []
+    for ser in series:
+        by_event: dict[str, list[dict]] = {}
+        cursor, pages = None, 0
+        while pages < max_pages:
+            params: dict = {"series_ticker": ser, "status": "settled",
+                            "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = client._request("GET", f"{API_ROOT}/markets", params=params)
+            except Exception as exc:  # noqa: BLE001 — a partial history still fits
+                log.warning("kalshi tennis history stopped early for %s: %s", ser, exc)
+                break
+            markets = data.get("markets", [])
+            for m in markets:
+                ev = m.get("event_ticker")
+                if ev:
+                    by_event.setdefault(ev, []).append(m)
+            cursor = data.get("cursor")
+            pages += 1
+            if not cursor or not markets:
+                break
+
+        for event_ticker, group in by_event.items():
+            winners = [m for m in group if str(m.get("result")).lower() == "yes"]
+            losers = [m for m in group if str(m.get("result")).lower() == "no"]
+            # Exactly one winner and one loser, or we cannot say who beat whom.
+            if len(group) != 2 or len(winners) != 1 or len(losers) != 1:
+                continue
+            w = winners[0].get("yes_sub_title") or ""
+            loser = losers[0].get("yes_sub_title") or ""
+            if not w or not loser or w == loser:
+                continue
+            when = _kalshi_event_date(event_ticker)
+            if when is None:
+                continue
+            out.append(MatchResult(
+                date=when,
+                winner=normalize_player(w),
+                loser=normalize_player(loser),
+                surface="",          # unknown: the model falls back to overall
+                best_of=3,
+                level="",
+                tourney=ser,
+            ))
+    out.sort(key=lambda m: m.date)
+    return out
