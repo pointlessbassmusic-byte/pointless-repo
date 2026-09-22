@@ -64,6 +64,34 @@ CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    account TEXT NOT NULL,
+    market_id TEXT NOT NULL,
+    sport TEXT,
+    title TEXT,
+    action TEXT NOT NULL,
+    side TEXT,
+    model_prob REAL,
+    market_prob REAL,
+    price REAL,
+    edge REAL,
+    stake REAL,
+    reason TEXT
+);
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    account TEXT NOT NULL,
+    cash REAL,
+    exposure REAL,
+    equity REAL,
+    realized_pnl REAL,
+    open_positions INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(account, ts);
+CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity_snapshots(account, ts);
 CREATE INDEX IF NOT EXISTS idx_bets_market ON bets(market_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_market ON market_snapshots(market_id, ts);
 """
@@ -137,6 +165,61 @@ class Store:
                 (pnl, closing_price, bet_id),
             )
             self.conn.commit()
+
+    def record_decision(self, account: str, market_id: str, action: str,
+                        sport: str | None = None, title: str | None = None,
+                        side: str | None = None, model_prob: float | None = None,
+                        market_prob: float | None = None, price: float | None = None,
+                        edge: float | None = None, stake: float | None = None,
+                        reason: str | None = None) -> None:
+        """One line of the bot's reasoning: what it looked at and what it did.
+
+        `action` is 'bet', 'skip' or 'exit'. Skips carry the reason they were
+        skipped — the decision feed is only honest if the passes are in it too,
+        since on a near-efficient slate almost every decision is a pass.
+        """
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO decisions (ts, account, market_id, sport, title, action,"
+                " side, model_prob, market_prob, price, edge, stake, reason)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (_now(), account, market_id, sport, title, action, side,
+                 model_prob, market_prob, price, edge, stake, reason))
+            self.conn.commit()
+
+    def prune_decisions(self, keep: int = 5000) -> int:
+        """Keep the feed bounded — a 5-minute loop over a full slate writes
+        thousands of passes a day and none of them are worth keeping forever."""
+        with self._lock:
+            cur = self.conn.execute(
+                "DELETE FROM decisions WHERE id NOT IN"
+                " (SELECT id FROM decisions ORDER BY id DESC LIMIT ?)", (keep,))
+            self.conn.commit()
+            return cur.rowcount
+
+    def record_equity(self, account: str, cash: float, exposure: float,
+                      equity: float, realized_pnl: float,
+                      open_positions: int) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO equity_snapshots (ts, account, cash, exposure, equity,"
+                " realized_pnl, open_positions) VALUES (?,?,?,?,?,?,?)",
+                (_now(), account, cash, exposure, equity, realized_pnl,
+                 open_positions))
+            self.conn.commit()
+
+    def recent_decisions(self, account: str, limit: int = 60) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM decisions WHERE account=? ORDER BY id DESC LIMIT ?",
+            (account, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def equity_series(self, account: str, limit: int = 1000) -> list[dict]:
+        """Oldest-first, so it plots as a curve without the caller reversing it."""
+        rows = self.conn.execute(
+            "SELECT * FROM equity_snapshots WHERE account=? ORDER BY id DESC LIMIT ?",
+            (account, limit)).fetchall()
+        return [dict(r) for r in reversed(rows)]
 
     def record_order(self, client_id: str, order_id: str, market_id: str, side: str,
                      price: float, size: float, filled: float, status: str,

@@ -1,0 +1,23 @@
+[Unit]
+Description=sportsbot trading dashboard (sim/real view; rebuilds the HTML, places no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot board --out /opt/sportsbot/data/board.html --loop 60
+Restart=on-failure
+RestartSec=30
+MemoryMax=300M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

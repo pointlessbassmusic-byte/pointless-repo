@@ -1,0 +1,25 @@
+[Unit]
+Description=sportsbot $100 sim book (paper mode; scans live markets, simulated fills)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+# config/sim.yaml is paper-mode and its dollar knobs are scaled to $100.
+# Live trading would additionally need mode: live AND SPORTSBOT_LIVE=1.
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot run -c /opt/sportsbot/config/sim.yaml
+Restart=on-failure
+RestartSec=60
+MemoryMax=1500M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

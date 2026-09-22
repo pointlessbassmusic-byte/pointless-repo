@@ -55,23 +55,46 @@ def evaluate_market(
     fee_fn: Callable[[float, float], float],
     exposure: dict,
 ) -> Optional[BetIntent]:
-    """Return a BetIntent when one side clears every filter, else None.
+    """Return a BetIntent when one side clears every filter, else None."""
+    return evaluate_market_verbose(market, quote, prediction, staking, cfg,
+                                   fee_fn, exposure)[0]
+
+
+def evaluate_market_verbose(
+    market: MarketInfo,
+    quote: MarketQuote,
+    prediction: Prediction,
+    staking: StakingConfig,
+    cfg: StrategyConfig,
+    fee_fn: Callable[[float, float], float],
+    exposure: dict,
+) -> tuple[Optional[BetIntent], str]:
+    """Same decision as `evaluate_market`, plus the reason it came out that way.
+
+    On a near-efficient slate almost every decision is a pass, so a decision
+    feed that only shows bets shows nothing. The second element is that
+    missing half: which filter rejected the market, with the numbers.
 
     `prediction.prob_yes` = P(market YES side / outcomes[0] wins).
     `fee_fn(price, shares)` -> taker fee dollars (0 for pure maker venues).
     `exposure` = {"total": $, "by_sport": {}, "by_market": {}, "open_positions": n}.
     """
     if prediction.uncertainty > cfg.max_uncertainty:
-        return None
+        return None, (f"model uncertainty {prediction.uncertainty:.3f} over "
+                      f"{cfg.max_uncertainty:.2f} — not confident enough to price")
     if quote.bid is None or quote.ask is None:
-        return None
+        return None, "no two-sided book"
     spread = quote.ask - quote.bid
-    if spread <= 0 or spread > cfg.max_spread:
-        return None
+    if spread <= 0:
+        return None, "crossed or empty book"
+    if spread > cfg.max_spread:
+        return None, (f"spread {spread:.3f} wider than the {cfg.max_spread:.3f} "
+                      f"limit — fills would give back the edge")
 
     market_mid = (quote.bid + quote.ask) / 2.0
     if not (cfg.min_entry_price <= market_mid <= cfg.max_entry_price):
-        return None
+        return None, (f"mid {market_mid:.3f} outside the tradable band "
+                      f"[{cfg.min_entry_price:.2f}, {cfg.max_entry_price:.2f}]")
     q = blend_with_market(prediction.prob_yes, market_mid, cfg.model_weight)
 
     sport_key = market.sport.value if market.sport else "unknown"
@@ -106,8 +129,16 @@ def evaluate_market(
     candidates.append((Side.NO, 1.0 - q, entry_no, fill_cap_no, maker_no, no_levels))
 
     best: Optional[BetIntent] = None
+    near: tuple[float, str] | None = None   # closest miss, for the decision feed
+
+    def miss(edge: float, why: str) -> None:
+        nonlocal near
+        if near is None or edge > near[0]:
+            near = (edge, why)
+
     for side, prob, entry, fill_cap, is_maker, levels in candidates:
         if not (0.0 < entry < 1.0) or fill_cap <= 0:
+            miss(-1.0, "no depth on that side")
             continue
         fee_per_share = 0.0 if is_maker else fee_fn(entry, 1.0)
         eff_edge = prob - entry - fee_per_share - cfg.slippage_buffer
@@ -126,6 +157,9 @@ def evaluate_market(
             open_positions=exposure.get("open_positions", 0),
         )
         if not decision.approved:
+            miss(eff_edge, (f"{side.value} edge {eff_edge:+.4f} vs the "
+                            f"{min_edge:.3f} bar: "
+                            + "; ".join(decision.reasons or ["no stake"])))
             continue
 
         size = min(decision.size, fill_cap)
@@ -134,8 +168,11 @@ def evaluate_market(
             avg_price, fillable = walk_book(levels, entry, size)
             size = min(size, fillable)
             if size <= 0 or prob - avg_price - fee_fn(avg_price, 1.0) - cfg.slippage_buffer < min_edge:
+                miss(eff_edge, f"{side.value} edge gone after walking the book")
                 continue
         if size * entry < staking.min_stake or size < market.min_order_size:
+            miss(eff_edge, (f"{side.value} size {size:.1f} @ {entry:.3f} under the "
+                            f"${staking.min_stake:.0f} minimum stake"))
             continue
 
         intent = BetIntent(
@@ -152,4 +189,6 @@ def evaluate_market(
         )
         if best is None or intent.edge > best.edge:
             best = intent
-    return best
+    if best is not None:
+        return best, best.reason
+    return None, (near[1] if near else "no tradable side")
