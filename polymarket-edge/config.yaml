@@ -25,6 +25,10 @@ model:
     realized_hour_max: 17     # city-local hour after which the day's high is
                               # realized: the book then knows it and we don't,
                               # so the model abstains on that day
+    max_divergence_sigma: 1.5 # abstain when the forecast sits this many sigma
+                              # from the mean implied by the city's own bucket
+                              # prices: a multi-degree gap means a mismatched
+                              # settlement source, not an edge
     max_events: 400           # top gamma events scanned for temperature titles
     # per-city forecast bias (native unit): apply values the report's weather
     # section suggests once a city reaches n>=10 resolved days, e.g.

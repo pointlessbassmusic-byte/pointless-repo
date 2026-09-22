@@ -159,7 +159,8 @@ the imported `polymarket-bot/` VPS-bot history:
 Per module: `python -m pytest tests -q`, `python -m src.main --once --dry-run`,
 `python -m src.report`; kalshi-engine adds `python -m src.backtest` (offline
 replay) and `python -m src.weather_calibrate` (daily sigma/bias fit, systemd
-timer). Server bootstrap: `deploy/engines_setup.sh` then `deploy/deploy.sh`
+timer), polymarket-edge adds `python -m src.weather_divergence` (forecast vs
+the temperature the bucket prices imply, city by city). Server bootstrap: `deploy/engines_setup.sh` then `deploy/deploy.sh`
 (targets `/opt/pointless-repo`, separate from sportsbot). Docs:
 `docs/MASTER_PLAN.md`; skills: `pre-live-gate`, `engine-health`.
 

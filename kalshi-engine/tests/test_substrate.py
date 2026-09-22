@@ -455,3 +455,56 @@ def test_weather_lead_time_counts_station_local_days():
 
     f = gen.forecast(_weather_market("KXHIGHNY", target), Context())
     assert f is not None and "\u00b12.4" in f.rationale  # 1.8 + 0.6, not the bare base
+
+
+def _band(event, floor, cap, bid, ask):
+    m = make_market(0.5, ticker=f"{event}-B{floor}")
+    m.event_ticker = event
+    m.floor_strike, m.cap_strike = floor, cap
+    m.yes_bid, m.yes_ask = bid, ask
+    return m
+
+
+def test_market_implied_mean_reads_the_bucket_distribution():
+    from src.substrate.generators.weather import market_implied_mean
+
+    # a station-day whose bands price a distribution centred on 78
+    event = "KXHIGHNY-26SEP24"
+    bands = [_band(event, 75.0, 76.0, 0.03, 0.05),   # mids sum to ~1.00
+             _band(event, 77.0, 78.0, 0.40, 0.42),
+             _band(event, 79.0, 80.0, 0.49, 0.51),
+             _band(event, 81.0, 82.0, 0.03, 0.05)]
+    mu = market_implied_mean(bands, event)
+    assert mu is not None and abs(mu - 78.6) < 0.3
+
+    # bands from another event are not part of this distribution
+    assert market_implied_mean(bands, "KXHIGHCHI-26SEP24") is None
+    # a partial set (prices nowhere near summing to 1) says too little
+    assert market_implied_mean(bands[:2], event) is None
+
+
+def test_weather_abstains_when_forecast_contradicts_the_whole_bucket_set():
+    """Live, Miami's forecast ran 5.6F below the book's implied mean two days
+    running while the median city sat within half a degree — a settlement-source
+    mismatch, not an edge, and it drew real stake onto the wrong side."""
+    from src.substrate.generators.weather import WeatherHigh
+
+    cfg = {"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6,
+           "max_divergence_sigma": 1.5}
+    gen = WeatherHigh(cfg)
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 9, forecast_f=77.5, day_delta=1)
+    event = f"KXHIGHNY-{target.strftime('%y%b%d').upper()}"
+    subject = _weather_market("KXHIGHNY", target)
+
+    # market centred where we are: traded
+    near = [_band(event, 75.0, 76.0, 0.03, 0.05), _band(event, 77.0, 78.0, 0.64, 0.66),
+            _band(event, 79.0, 80.0, 0.25, 0.27), _band(event, 81.0, 82.0, 0.03, 0.05)]
+    assert gen.forecast(subject, Context(markets=near)) is not None
+
+    # market centred 8F away: sigma is 2.4, so the gap is >1.5 sigma — abstain
+    far = [_band(event, 83.0, 84.0, 0.03, 0.05), _band(event, 85.0, 86.0, 0.64, 0.66),
+           _band(event, 87.0, 88.0, 0.25, 0.27), _band(event, 89.0, 90.0, 0.03, 0.05)]
+    assert gen.forecast(subject, Context(markets=far)) is None
+
+    # with no bucket set to compare against, the forecast still stands on its own
+    assert gen.forecast(subject, Context()) is not None

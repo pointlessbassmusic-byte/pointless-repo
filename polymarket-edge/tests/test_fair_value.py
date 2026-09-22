@@ -306,3 +306,54 @@ def test_weather_abstains_once_the_days_high_is_realized():
 
     model, local_date = _model_at_local_hour(9, day_delta=-1)      # yesterday
     assert model.estimate([_weather_market_for(local_date)]) == []
+
+
+def _bucket(city, local_date, lo, hi, yes_price, unit="F"):
+    if lo == hi:
+        band = f"{lo}°{unit}"
+    else:
+        band = f"between {lo}-{hi}°{unit}"
+    mkt = make_market(
+        f"Will the highest temperature in {city} be {band} on "
+        f"{local_date.strftime('%B')} {local_date.day}?",
+        ["Yes", "No"], [f"t-{city}-{lo}-yes", f"t-{city}-{lo}-no"], None)
+    mkt.end_date = datetime(local_date.year, local_date.month, local_date.day,
+                            tzinfo=timezone.utc)
+    mkt.outcome_prices = [yes_price, 1 - yes_price]
+    return mkt
+
+
+def test_market_implied_means_reads_the_bucket_distribution():
+    from src.models.weather import market_implied_means
+
+    d = datetime.now(timezone.utc).date() + timedelta(days=1)
+    buckets = [_bucket("Miami", d, 84, 85, 0.04), _bucket("Miami", d, 86, 87, 0.41),
+               _bucket("Miami", d, 88, 89, 0.50), _bucket("Miami", d, 90, 91, 0.05)]
+    means = market_implied_means(buckets, lambda m: m.end_date.year)
+    assert abs(means[("miami", d)] - 87.6) < 0.3
+
+    # a partial bucket set says too little to compare a forecast against
+    assert market_implied_means(buckets[:2], lambda m: m.end_date.year) == {}
+
+
+def test_weather_abstains_when_forecast_contradicts_the_whole_bucket_set():
+    """Miami's forecast ran 3-5F below the book's implied mean on consecutive
+    days while the median city sat within half a degree: a settlement-source
+    mismatch, not an edge. Until settled truth fits it out, stand down."""
+    model, local_date = _model_at_local_hour(9, day_delta=1, forecast=88.5)
+    subject = _bucket("Miami", local_date, 88, 89, 0.50)
+
+    # the market's distribution sits where our forecast does: tradeable
+    near = [subject, _bucket("Miami", local_date, 84, 85, 0.04),
+            _bucket("Miami", local_date, 86, 87, 0.41),
+            _bucket("Miami", local_date, 90, 91, 0.05)]
+    assert model.estimate(near)
+
+    # centred 6F away, far beyond sigma: no view
+    far = [subject, _bucket("Miami", local_date, 92, 93, 0.04),
+           _bucket("Miami", local_date, 94, 95, 0.41),
+           _bucket("Miami", local_date, 96, 97, 0.50)]
+    assert model.estimate(far) == []
+
+    # with no bucket set to compare against, the forecast stands on its own
+    assert model.estimate([subject])

@@ -60,6 +60,10 @@ substrate:
       # strictly worse information — the arm abstains instead of fighting it
       realized_hour_min: 10   # daily lows are set overnight
       realized_hour_max: 17   # daily highs by late afternoon
+      # abstain when the forecast sits this many sigma from the mean implied by
+      # the event's own strike bands: past a couple of degrees the likely cause
+      # is a station/source mismatch, not an edge (fit it out with bias_f)
+      max_divergence_sigma: 1.5
       # stations default to the verified series list in generators/weather.py;
       # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..,
       #   variable: max|min, bias_f: 0.0}}. bias_f = mean(observed - forecast):

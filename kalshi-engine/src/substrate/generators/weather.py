@@ -105,6 +105,47 @@ def _event_date(ticker: str) -> date | None:
         return None
 
 
+def bucket_center(floor: float | None, cap: float | None) -> float | None:
+    """The temperature a strike band is centred on, in band_probability's terms."""
+    if floor is not None and cap is not None:
+        return (floor + cap) / 2
+    if cap is not None:      # "cap-1 or below" => T < cap
+        return cap - 1.0
+    if floor is not None:    # "floor+1 or above" => T > floor
+        return floor + 1.0
+    return None
+
+
+def market_implied_mean(markets: list[Market], event_ticker: str,
+                        min_buckets: int = 4,
+                        min_total_prob: float = 0.8) -> float | None:
+    """Mean temperature implied by an event's own strike-band prices.
+
+    A station-day's bands are mutually exclusive and exhaustive, so their YES
+    prices form a distribution over whole degrees whose mean is the market's
+    expected temperature. A partial set (prices summing well below 1) says too
+    little to compare against, so it returns None rather than a skewed mean.
+    """
+    buckets: list[tuple[float, float]] = []
+    for m in markets:
+        if m.event_ticker != event_ticker:
+            continue
+        center = bucket_center(m.floor_strike, m.cap_strike)
+        if center is None:
+            continue
+        if m.yes_bid > 0 and m.yes_ask > 0:
+            price = (m.yes_bid + m.yes_ask) / 2
+        elif m.yes_ask > 0:      # no bid on a deep tail band: the ask bounds it
+            price = m.yes_ask / 2
+        else:
+            continue
+        buckets.append((center, price))
+    total = sum(p for _, p in buckets)
+    if len(buckets) < min_buckets or total < min_total_prob:
+        return None
+    return sum(c * p for c, p in buckets) / total
+
+
 def _normal_cdf(x: float, mu: float, sigma: float) -> float:
     return 0.5 * (1 + math.erf((x - mu) / (sigma * math.sqrt(2))))
 
@@ -135,6 +176,9 @@ class WeatherHigh(SignalGenerator):
         # realized and the market's price beats our forecast
         self.realized_hour_min = int(cfg.get("realized_hour_min", 10))
         self.realized_hour_max = int(cfg.get("realized_hour_max", 17))
+        # how far our forecast may sit from the market-implied mean, in sigmas,
+        # before we read the gap as a broken input rather than an edge
+        self.max_divergence_sigma = float(cfg.get("max_divergence_sigma", 1.5))
         self.http = retrying_session()
         # prefix -> (fetched_monotonic, {iso_date: forecast_f}, utc_offset_sec)
         self._cache: dict[str, tuple[float, dict[str, float], int]] = {}
@@ -208,13 +252,27 @@ class WeatherHigh(SignalGenerator):
         if lead_days == 0 and local_now.hour >= cutoff:
             return None
         sigma = self.sigma_base + self.sigma_per_day * lead_days
+        # A multi-degree gap against the market's own distribution is not an
+        # edge we found, it is a sign our input describes something else — a
+        # grid cell away from the settlement station, or a source that reports
+        # the extremum differently. Fitting that out needs settled truth
+        # (weather_calibrate's bias_f), so until then, stand down.
+        mkt_mu = market_implied_mean(ctx.markets, market.event_ticker or "")
+        if mkt_mu is not None and abs(mu - mkt_mu) > self.max_divergence_sigma * sigma:
+            log.debug("weather: skipping %s %s — forecast %.1fF vs market %.1fF "
+                      "(%.1f sigma)", prefix, target, mu, mkt_mu,
+                      abs(mu - mkt_mu) / sigma)
+            return None
+
         p = band_probability(mu, sigma, market.floor_strike, market.cap_strike)
         if p is None:
             return None
+        divergence = f"; market implies {mkt_mu:.1f}F" if mkt_mu is not None else ""
         return Forecast(
             generator=self.name,
             prob_yes=p,
             confidence=self.confidence,
             rationale=(f"forecast high {mu:.1f}F ±{sigma:.1f} for {target}; "
-                       f"band [{market.floor_strike},{market.cap_strike}] -> {p:.2f}"),
+                       f"band [{market.floor_strike},{market.cap_strike}] -> {p:.2f}"
+                       f"{divergence}"),
         )

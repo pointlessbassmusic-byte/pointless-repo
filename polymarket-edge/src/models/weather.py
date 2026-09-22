@@ -124,6 +124,46 @@ def parse_question(question: str, year: int) -> ParsedQuestion | None:
     return ParsedQuestion(city=city, target=target, floor=floor, cap=cap, unit=unit)
 
 
+def bucket_center(floor: float | None, cap: float | None) -> float | None:
+    """The temperature a bucket is centred on, in band_probability's convention."""
+    if floor is not None and cap is not None:
+        return (floor + cap) / 2
+    if cap is not None:      # "cap-1 or below" => T < cap
+        return cap - 1.0
+    if floor is not None:    # "floor+1 or above" => T > floor
+        return floor + 1.0
+    return None
+
+
+def market_implied_means(markets: list[SportsMarket], year_of,
+                         min_buckets: int = 4,
+                         min_total_prob: float = 0.8) -> dict[tuple, float]:
+    """Mean temperature implied by each event's own bucket prices.
+
+    A city-day's buckets are mutually exclusive and exhaustive, so their YES
+    prices are a probability distribution over whole degrees whose mean is the
+    market's expected value. Events with a partial bucket set (prices summing
+    well below 1) say too little to be worth comparing against.
+    """
+    dists: dict[tuple, list[tuple[float, float]]] = {}
+    for mkt in markets:
+        q = parse_question(mkt.question, year_of(mkt))
+        if q is None or not mkt.outcome_prices:
+            continue
+        center = bucket_center(q.floor, q.cap)
+        price = mkt.outcome_prices[0]
+        if center is None or price is None or not 0 <= price <= 1:
+            continue
+        dists.setdefault((q.city, q.target), []).append((center, price))
+    means = {}
+    for key, buckets in dists.items():
+        total = sum(p for _, p in buckets)
+        if len(buckets) < min_buckets or total < min_total_prob:
+            continue
+        means[key] = sum(c * p for c, p in buckets) / total
+    return means
+
+
 def _normal_cdf(x: float, mu: float, sigma: float) -> float:
     return 0.5 * (1 + math.erf((x - mu) / (sigma * math.sqrt(2))))
 
@@ -155,6 +195,9 @@ class WeatherModel:
         # past it the book prices the observed temperature and our forecast is
         # strictly worse information, so the model stands down
         self.realized_hour_max = int(cfg.get("realized_hour_max", 17))
+        # how far our forecast may sit from the market-implied mean, in sigmas,
+        # before we read the gap as a broken input rather than an edge
+        self.max_divergence_sigma = float(cfg.get("max_divergence_sigma", 1.5))
         self.http = retrying_session()
         # city -> (fetched_monotonic, {iso_date: forecast_high}, utc_offset_sec)
         self._cache: dict[str, tuple[float, dict[str, float], int]] = {}
@@ -202,8 +245,14 @@ class WeatherModel:
     def estimate(self, markets: list[SportsMarket]) -> list[FairEstimate]:
         estimates: list[FairEstimate] = []
         today = datetime.now(timezone.utc).date()
+
+        def year_of(mkt: SportsMarket) -> int:
+            return mkt.end_date.year if mkt.end_date else today.year
+
+        implied = market_implied_means(markets, year_of)
+        skipped_divergent = 0
         for mkt in markets:
-            year = mkt.end_date.year if mkt.end_date else today.year
+            year = year_of(mkt)
             q = parse_question(mkt.question, year)
             if q is None or q.city not in CITIES:
                 continue
@@ -220,6 +269,21 @@ class WeatherModel:
                 continue
             sigma_f = self.sigma_base_f + self.sigma_per_day_f * lead_days
             sigma = sigma_f * (5 / 9) if q.unit == "celsius" else sigma_f
+            # A gap of several degrees against the market's own distribution is
+            # not an edge we found, it is a sign our input describes something
+            # else — a grid cell away from the settlement station, or a source
+            # that reports the high differently. Measured live: Miami ran 5.6F
+            # below the book's implied mean two days running while the median
+            # city sat within half a degree. Fitting that out needs settled
+            # truth (the report's city_bias section), so until then, stand down.
+            mkt_mu = implied.get((q.city, q.target))
+            if mkt_mu is not None and abs(mu - mkt_mu) > self.max_divergence_sigma * sigma:
+                log.debug("weather: skipping %s %s — forecast %.1f vs market %.1f "
+                          "(%.1f sigma)", q.city, q.target, mu, mkt_mu,
+                          abs(mu - mkt_mu) / sigma)
+                skipped_divergent += 1
+                continue
+
             p = band_probability(mu, sigma, q.floor, q.cap)
             if p is None:
                 continue
@@ -236,8 +300,10 @@ class WeatherModel:
                     market=mkt, outcome_index=idx, outcome_name=outcome,
                     fair_prob=fair, consensus_prob=prob,
                     matched_game=f"weather:{q.city} {q.target} "
-                                 f"[{q.floor},{q.cap}] mu={mu:.1f}±{sigma:.1f}",
+                                 f"[{q.floor},{q.cap}] mu={mu:.1f}±{sigma:.1f}"
+                                 + (f" mkt={mkt_mu:.1f}" if mkt_mu is not None else ""),
                     n_books=0,
                 ))
-        log.info("weather model: %d estimates", len(estimates))
+        log.info("weather model: %d estimates (%d markets skipped: forecast too far "
+                 "from the market's own distribution)", len(estimates), skipped_divergent)
         return estimates

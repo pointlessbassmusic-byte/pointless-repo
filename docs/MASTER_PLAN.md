@@ -115,4 +115,23 @@ Pipeline per cycle:
 - [x] Migrated the live order path off `py-clob-client` (archived) to the official
       `polymarket-client` SDK — same SDK and usage pattern as sportsbot's exchange
       client; lazily imported, adapter unit-tested with a fake client.
+- [x] Weather arm stands down where it has no informational edge, after a live dry-run
+      staked 356 contracts against an already-settled San Antonio low:
+      * lead time and the day's extremum window are now measured in station-local
+        time (from open-meteo's `utc_offset_seconds`), so the arm abstains once the
+        low is set overnight (10:00) or the high by late afternoon (17:00) — past
+        those hours the book prices an observed value and we hold a forecast;
+      * a forecast more than `max_divergence_sigma` (1.5) from the mean implied by
+        the event's own bucket prices is treated as a mismatched input rather than
+        an edge, which is what Miami (-4.4F against the book, two days running) and
+        Singapore (-3.1C) look like;
+      * `python -m src.weather_divergence` (polymarket-edge) shows the whole
+        forecast-vs-market table, so a city can be vetted before it has settled
+        history, and every estimate now records the market-implied mean for the
+        report to score against.
+- [ ] Open question the divergence table raised: our sigma (2.4F same-day, fit on n=14
+      Kalshi settlements) is roughly twice the sigma the bucket prices imply, so the
+      model systematically fades narrow centre buckets — a variance bet, not a mean
+      bet. Needs settled-outcome evidence (`python -m src.report`) before it is
+      treated as edge; the recorded `mkt=` means make that measurable.
 - [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on

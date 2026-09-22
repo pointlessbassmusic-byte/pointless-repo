@@ -98,6 +98,7 @@ edited.
 python -m pytest tests -q          # every module
 python -m src.main --once --dry-run  # one scan cycle (arb-scanner: --once)
 python -m src.report               # calibration vs real settlements (bot/engine)
+python -m src.weather_divergence   # polymarket-edge: forecast vs market-implied temps
 python -m src.backtest             # kalshi-engine: replay history offline
 ```
 
