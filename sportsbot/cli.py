@@ -320,6 +320,51 @@ def weather_score(config: str = CONFIG_OPT,
         console.print(t)
 
 
+@app.command("board")
+def board(config: str = CONFIG_OPT,
+          out: str = typer.Option("data/board.html", help="output HTML file"),
+          refresh: int = typer.Option(60, help="page auto-refresh seconds; 0 = off"),
+          loop: int = typer.Option(0, help="rebuild every N seconds; 0 = once")):
+    """Trading dashboard: sim vs real book, equity, decisions, allocation, gate.
+
+    A view, not a control — it cannot start live trading (that still needs
+    `mode: live` plus SPORTSBOT_LIVE=1 on the host). Offline; no orders."""
+    import time as _time
+
+    from sportsbot.dashboard import build
+    from sportsbot.data.store import Store
+
+    cfg = _setup(config)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    while True:
+        console.print(build(cfg, store, out, refresh=refresh))
+        if loop <= 0:
+            break
+        _time.sleep(max(5, loop))
+
+
+@app.command("verify-fees")
+def verify_fees(config: str = CONFIG_OPT,
+                note: str = typer.Option(..., help="what you traded and the fee you saw")):
+    """Record that you verified venue fees with one tiny manual trade — the
+    go-live criterion that cannot be measured from the database."""
+    import time as _time
+
+    from datetime import datetime, timezone
+
+    from sportsbot.bot.gate import FEES_VERIFIED_KEY
+    from sportsbot.data.store import Store
+
+    cfg = _setup(config)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+
+    store.set_kv(FEES_VERIFIED_KEY, {
+        "verified": True, "note": note,
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "epoch": _time.time()})
+    console.print(f"[green]fees verified[/green]: {note}")
+
+
 def _write_ops_json(cfg: dict, store, path: str) -> None:
     """Bot-operations summary (mirrors `sportsbot status`) for the dashboard's
     ops panel."""

@@ -1,5 +1,12 @@
-# sportsbot default configuration.
-# Copy to config/local.yaml for machine-specific overrides (gitignored).
+# The $100 sim book: a COMPLETE standalone config (pass it with
+# `sportsbot run -c config/sim.yaml`), not an overlay on default.yaml.
+#
+# Every dollar knob below is scaled to a $100 bankroll. The defaults are sized
+# for $1,000: a $50 max stake would be half this account in one market, and a
+# $5 minimum stake would make Kelly-correct positions unplaceable. The risk
+# limits are scaled to match, so the drawdown kill switch still means the same
+# thing in percentage terms.
+#
 # Secrets NEVER go here — they come from environment variables (.env).
 
 mode: paper            # paper | live  (live also requires SPORTSBOT_LIVE=1 env var)
@@ -12,15 +19,15 @@ accounts:                  # dashboard books (`sportsbot board`)
     starting_balance: 0.0    # set this to what you have ACTUALLY funded
 
 bankroll:
-  amount: 1000.0            # working bankroll in USDC/USD
+  amount: 100.0             # working bankroll in USDC/USD
   kelly_multiplier: 0.25    # quarter Kelly
   min_edge: 0.03            # minimum absolute edge after fees+slippage
-  min_stake: 5.0
-  max_stake_per_market: 50.0
-  max_fraction_per_market: 0.05
+  min_stake: 1.0
+  max_stake_per_market: 8.0
+  max_fraction_per_market: 0.08
   max_fraction_per_sport: 0.20
   max_total_exposure: 0.50
-  max_open_positions: 20
+  max_open_positions: 12
 
 blend:
   model_weight: 0.30        # prob = w*model + (1-w)*market mid; market is the prior
@@ -50,9 +57,9 @@ adaptive:                        # profit optimization: tighten-only, anti-marti
   stake_cut: 0.5                 # stake-cap multiplier for a negative-CLV sport
 
 risk:
-  daily_loss_limit: 100.0        # stop for the day past this realized loss
+  daily_loss_limit: 10.0         # stop for the day past this realized loss
   max_daily_new_risk: 0.25       # new stakes per day <= this fraction of bankroll
-  max_drawdown: 250.0            # kill switch: stop entirely, require manual reset
+  max_drawdown: 25.0             # kill switch: stop entirely, require manual reset
   stale_quote_seconds: 120       # skip markets with quotes older than this
   min_minutes_before_start: 10   # don't enter pre-match bets after this cutoff
   calibration_min_bets: 50       # start monitoring after N settled bets

@@ -30,7 +30,8 @@ from sportsbot.bot.positions import (
 )
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
-from sportsbot.bot.strategy import StrategyConfig, evaluate_market
+from sportsbot.bot.ledger import snapshot_equity
+from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
 from sportsbot.core.staking import StakingConfig
 from sportsbot.core.types import Side, Sport
 from sportsbot.data.store import Store
@@ -145,7 +146,18 @@ class Runner:
             log.warning("config mode=live but SPORTSBOT_LIVE!=1 — forcing paper mode")
             self.mode = "paper"
 
+        # The dashboard account this process writes to. `self.mode` is already
+        # the EFFECTIVE mode — a live config without SPORTSBOT_LIVE=1 has been
+        # forced to paper above, so its rows land in the sim book, which is
+        # where they belong.
+        self.account = "real" if self.mode == "live" else "sim"
         bank = cfg.get("bankroll", {})
+        # The equity curve must be anchored to the SAME starting balance the
+        # dashboard renders against, or the stored curve and the Equity tile
+        # disagree by whatever the two settings differ by.
+        from sportsbot.dashboard import starting_balance
+
+        self.starting_balance = starting_balance(cfg, self.account)
         self.staking = StakingConfig(
             bankroll=float(bank.get("amount", 1000.0)),
             kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
@@ -351,7 +363,7 @@ class Runner:
         closer = getattr(self.exchange, "close_position", None)
         exits = 0
         for (market_id, side), agg in aggregate_open_bets(
-                self.store.open_bets()).items():
+                self.store.open_bets_for(self.mode)).items():
             pair = quoted.get(market_id)
             if pair is None:
                 continue  # not discoverable this cycle (e.g. in play): hold
@@ -396,10 +408,50 @@ class Runner:
                                      closing_price=result["avg_price"])
             self.store.set_kv(bank_key, None)
             exits += 1
+            self._record_exit(agg, decision,
+                              _market.sport.value
+                              if _market is not None and _market.sport else None)
             log.info("closed %s/%s: %s -> proceeds $%.2f on stake $%.2f",
                      market_id, side, decision.reason,
                      total_proceeds, agg["stake"])
         return exits
+
+    def _record_exit(self, agg: dict, decision, sport: str | None) -> None:
+        """A close is a decision too: without it the feed shows how a position
+        was opened and never how it ended."""
+        try:
+            self.store.record_decision(
+                account=self.account, market_id=agg["market_id"],
+                sport=sport, title=agg["market_id"], action="exit",
+                side=agg.get("side"), model_prob=agg.get("model_prob"),
+                price=getattr(decision, "exit_price", None),
+                stake=agg.get("stake"),
+                reason=getattr(decision, "reason", None))
+        except Exception:
+            log.exception("exit decision record failed")
+
+    def _record_decision(self, sm, action: str, mid: float | None,
+                         intent=None, reason: str | None = None) -> None:
+        """Persist one line of the decision feed. Never raises — the feed is
+        telemetry and must not be able to stop the loop."""
+        try:
+            self.store.record_decision(
+                account=self.account,
+                market_id=sm.market.market_id,
+                sport=sm.market.sport.value if sm.market.sport else None,
+                title=sm.market.slug or sm.market.market_id,
+                action=action,
+                side=intent.side.value if intent is not None else None,
+                model_prob=sm.prediction.prob_yes,
+                market_prob=mid,
+                price=intent.price if intent is not None else None,
+                edge=intent.edge if intent is not None else None,
+                stake=(round(intent.price * intent.size, 2)
+                       if intent is not None else None),
+                reason=reason,
+            )
+        except Exception:
+            log.exception("decision record failed")
 
     def cycle(self) -> dict:
         """One scan cycle. Returns a summary dict."""
@@ -472,28 +524,44 @@ class Runner:
                          arb.description, arb.profit_per_pair, arb.max_pairs)
                 self.store.set_kv(f"arb:{sm.market.market_id}", arb.__dict__)
 
-            intent = evaluate_market(
+            intent, why = evaluate_market_verbose(
                 sm.market, quote, sm.prediction, staking_cfg,
                 strategy_cfg, self.fee_fn, exposure,
             )
+            mid = ((quote.bid + quote.ask) / 2.0
+                   if quote.bid is not None and quote.ask is not None else None)
             if intent is None:
+                self._record_decision(sm, "skip", mid, reason=why)
                 continue
             summary["intents"] += 1
             ok, reason = self.risk.check_intent(intent, quote)
             if not ok:
                 log.info("intent vetoed (%s): %s", reason, intent.market.slug)
+                self._record_decision(sm, "skip", mid, intent=intent,
+                                      reason=f"risk veto: {reason}")
                 continue
             order = self.executor.submit(intent, quote=quote)
             if order.status.value not in ("rejected",):
                 summary["orders"] += 1
+                self._record_decision(sm, "bet", mid, intent=intent, reason=why)
                 # keep exposure fresh within the cycle
                 exposure = self.store.exposure_by()
+            else:
+                self._record_decision(sm, "skip", mid, intent=intent,
+                                      reason="order rejected by venue")
 
         summary["exits"] = self._manage_positions(quoted, strategy_cfg)
 
         canceled = self.executor.expire_stale_orders()
         if canceled:
             log.info("expired %d stale orders", canceled)
+
+        try:
+            eq = snapshot_equity(self.store, self.account, self.starting_balance)
+            summary["equity"] = eq["equity"]
+            self.store.prune_decisions()
+        except Exception:  # telemetry must never take the trading loop down
+            log.exception("equity snapshot failed")
         return summary
 
     def run_forever(self) -> None:
