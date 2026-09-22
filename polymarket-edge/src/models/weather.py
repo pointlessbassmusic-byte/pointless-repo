@@ -135,15 +135,20 @@ def bucket_center(floor: float | None, cap: float | None) -> float | None:
     return None
 
 
-def market_implied_means(markets: list[SportsMarket], year_of,
-                         min_buckets: int = 4,
-                         min_total_prob: float = 0.8) -> dict[tuple, float]:
-    """Mean temperature implied by each event's own bucket prices.
+def market_implied_moments(markets: list[SportsMarket], year_of,
+                           min_buckets: int = 4,
+                           min_total_prob: float = 0.8) -> dict[tuple, tuple[float, float]]:
+    """(mean, stddev) temperature implied by each event's own bucket prices.
 
     A city-day's buckets are mutually exclusive and exhaustive, so their YES
-    prices are a probability distribution over whole degrees whose mean is the
-    market's expected value. Events with a partial bucket set (prices summing
-    well below 1) say too little to be worth comparing against.
+    prices are a probability distribution over whole degrees. Events with a
+    partial bucket set (prices summing well below 1) say too little to be worth
+    comparing against.
+
+    The stddev is a floor, not an estimate: the open-ended end buckets ("or
+    below", "or above") get the centre of the nearest whole degree, so whatever
+    mass sits far out in the tails is pulled in. Read it as "the market is at
+    least this confident".
     """
     dists: dict[tuple, list[tuple[float, float]]] = {}
     for mkt in markets:
@@ -155,13 +160,23 @@ def market_implied_means(markets: list[SportsMarket], year_of,
         if center is None or price is None or not 0 <= price <= 1:
             continue
         dists.setdefault((q.city, q.target), []).append((center, price))
-    means = {}
+    moments = {}
     for key, buckets in dists.items():
         total = sum(p for _, p in buckets)
         if len(buckets) < min_buckets or total < min_total_prob:
             continue
-        means[key] = sum(c * p for c, p in buckets) / total
-    return means
+        mean = sum(c * p for c, p in buckets) / total
+        var = sum(p * (c - mean) ** 2 for c, p in buckets) / total
+        moments[key] = (mean, math.sqrt(var))
+    return moments
+
+
+def market_implied_means(markets: list[SportsMarket], year_of,
+                         min_buckets: int = 4,
+                         min_total_prob: float = 0.8) -> dict[tuple, float]:
+    """Just the means from market_implied_moments."""
+    return {k: mean for k, (mean, _) in market_implied_moments(
+        markets, year_of, min_buckets, min_total_prob).items()}
 
 
 def _normal_cdf(x: float, mu: float, sigma: float) -> float:
@@ -235,6 +250,11 @@ class WeatherModel:
                 self._cache.setdefault(name, (now, {}, 0))
         return self._cache.get(city, (now, {}, 0))[1]
 
+    def sigma_for(self, lead_days: int, unit: str) -> float:
+        """Forecast-error stddev at this lead, in the market's own unit."""
+        sigma_f = self.sigma_base_f + self.sigma_per_day_f * max(0, lead_days)
+        return sigma_f * (5 / 9) if unit == "celsius" else sigma_f
+
     def _local_now(self, city: str) -> datetime:
         """City-local wall clock from open-meteo's utc_offset_seconds (DST
         correct, no tzdata needed). Lead time must be counted in local days:
@@ -267,8 +287,7 @@ class WeatherModel:
             if lead_days < 0 or (lead_days == 0
                                  and local_now.hour >= self.realized_hour_max):
                 continue
-            sigma_f = self.sigma_base_f + self.sigma_per_day_f * lead_days
-            sigma = sigma_f * (5 / 9) if q.unit == "celsius" else sigma_f
+            sigma = self.sigma_for(lead_days, q.unit)
             # A gap of several degrees against the market's own distribution is
             # not an edge we found, it is a sign our input describes something
             # else — a grid cell away from the settlement station, or a source

@@ -102,7 +102,10 @@ Reference implementation and regression tests:
   roughly twice what bucket prices imply. Where those disagree, settled
   outcomes decide, not priors — and `sportsbot weather-score` has the larger
   sample (168 settled rows: coin 0.2500 -> climatology 0.1828 -> market
-  0.0751), so refit against it rather than against either prior.
+  0.0751), so refit against it rather than against either prior. Measured, our
+  sigma is a median 1.85x the sigma bucket prices imply, so narrow centre
+  buckets always look overpriced to us: treat a NO on one as a variance bet
+  needing settled evidence, not a temperature call.
 - Lead time in `substrate_bridge/kalshi_weather.py` still counts from the
   target date's **UTC** midnight (two call sites), which runs 4-8h short for
   US stations. Small next to that module's 0.55/day ramp and it only feeds

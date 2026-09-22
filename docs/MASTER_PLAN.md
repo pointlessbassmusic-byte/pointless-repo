@@ -154,8 +154,12 @@ Pipeline per cycle:
         forecast-vs-market table, so a city can be vetted before it has settled
         history, and every estimate now records the market-implied mean for the
         report to score against.
-- [ ] Open question the divergence table raised: our sigma (2.4F same-day, fit on n=14
-      Kalshi settlements) is roughly twice the sigma the bucket prices imply, so the
-      model systematically fades narrow centre buckets — a variance bet, not a mean
-      bet. Needs settled-outcome evidence (`python -m src.report`) before it is
-      treated as edge; the recorded `mkt=` means make that measurable.
+- [ ] Open question the divergence table raised, now measured: across 34 city-days our
+      sigma runs a median **1.85x** the sigma the bucket prices imply (range 0.47-5.57),
+      and the market's figure is itself a floor because the open-ended end buckets pull
+      the tails in. So the model fades narrow centre buckets systematically — a bet on
+      variance, not on temperature, which is what every NO signal in the last cycles
+      has been. `weather_divergence` now prints both sigmas and the ratio. Deciding it
+      needs settled outcomes, not priors: score the recorded `mkt=` means
+      (`python -m src.report`), and cross-check against `sportsbot weather-score`'s
+      168-row sample, before either widening the market's view or narrowing ours.

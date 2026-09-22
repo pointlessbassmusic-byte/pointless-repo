@@ -357,3 +357,38 @@ def test_weather_abstains_when_forecast_contradicts_the_whole_bucket_set():
 
     # with no bucket set to compare against, the forecast stands on its own
     assert model.estimate([subject])
+
+
+def test_market_implied_moments_reports_spread_as_well_as_mean():
+    from src.models.weather import market_implied_moments
+
+    d = datetime.now(timezone.utc).date() + timedelta(days=1)
+    year_of = lambda m: m.end_date.year  # noqa: E731
+
+    tight = [_bucket("Miami", d, 86, 87, 0.02), _bucket("Miami", d, 88, 89, 0.94),
+             _bucket("Miami", d, 90, 91, 0.02), _bucket("Miami", d, 92, 93, 0.02)]
+    wide = [_bucket("Miami", d, 84, 85, 0.25), _bucket("Miami", d, 86, 87, 0.25),
+            _bucket("Miami", d, 88, 89, 0.25), _bucket("Miami", d, 90, 91, 0.25)]
+    _, tight_sd = market_implied_moments(tight, year_of)[("miami", d)]
+    _, wide_sd = market_implied_moments(wide, year_of)[("miami", d)]
+    assert tight_sd < 1.0 < wide_sd
+
+    # the same partial-set rule as the means view
+    assert market_implied_moments(tight[:2], year_of) == {}
+
+
+def test_divergence_rows_carry_both_sides_sigma():
+    """The CLI unpacks these rows positionally, so the shape is a contract."""
+    from src.weather_divergence import divergences
+
+    model, local_date = _model_at_local_hour(9, day_delta=1, forecast=88.5)
+    buckets = [_bucket("Miami", local_date, 84, 85, 0.04),
+               _bucket("Miami", local_date, 86, 87, 0.41),
+               _bucket("Miami", local_date, 88, 89, 0.50),
+               _bucket("Miami", local_date, 90, 91, 0.05)]
+    rows = divergences(model, buckets)
+    assert len(rows) == 1
+    target, city, mu, mkt_mu, diff, sigma, mkt_sd, unit = rows[0]
+    assert (target, city, unit) == (local_date, "miami", "F")
+    assert abs(mu - 88.5) < 1e-9 and abs(diff - (mu - mkt_mu)) < 1e-9
+    assert sigma == model.sigma_for(1, "fahrenheit") and 0 < mkt_sd < sigma
