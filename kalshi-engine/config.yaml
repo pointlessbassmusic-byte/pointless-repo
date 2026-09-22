@@ -55,6 +55,11 @@ substrate:
       sigma_base_f: 2.4      # forecast error stddev for same-day, in F
       sigma_per_day_f: 1.0   # extra stddev per day of lead time
       cache_ttl_sec: 1800    # one forecast fetch per station per TTL
+      # stand-down hours (station-local): past these the day's extremum is
+      # realized, the book prices the observed value and our forecast is
+      # strictly worse information — the arm abstains instead of fighting it
+      realized_hour_min: 10   # daily lows are set overnight
+      realized_hour_max: 17   # daily highs by late afternoon
       # stations default to the verified series list in generators/weather.py;
       # override here as {KXHIGHNY: {latitude: .., longitude: .., timezone: ..,
       #   variable: max|min, bias_f: 0.0}}. bias_f = mean(observed - forecast):

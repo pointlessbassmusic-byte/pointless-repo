@@ -10,6 +10,11 @@ into a probability:
     "81° or above" (floor=80)         ->  P(T > 80.5)
 
 One forecast fetch per station per cache TTL covers every market and date.
+
+The generator stands down once a day's extremum window has closed in
+station-local time: the low is set overnight and the high by late afternoon,
+so from then on the market knows the realized value and we only hold a
+forecast. Lead time is measured in station-local days for the same reason.
 """
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ import logging
 import math
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..base import Context, Forecast, SignalGenerator
 from ...client import Market
@@ -126,9 +131,13 @@ class WeatherHigh(SignalGenerator):
         self.sigma_base = float(cfg.get("sigma_base_f", 1.8))
         self.sigma_per_day = float(cfg.get("sigma_per_day_f", 0.6))
         self.cache_ttl = float(cfg.get("cache_ttl_sec", 1800))
+        # station-local hour after which the day's extremum is effectively
+        # realized and the market's price beats our forecast
+        self.realized_hour_min = int(cfg.get("realized_hour_min", 10))
+        self.realized_hour_max = int(cfg.get("realized_hour_max", 17))
         self.http = retrying_session()
-        # series prefix -> (fetched_monotonic, {iso_date: forecast_high_f})
-        self._cache: dict[str, tuple[float, dict[str, float]]] = {}
+        # prefix -> (fetched_monotonic, {iso_date: forecast_f}, utc_offset_sec)
+        self._cache: dict[str, tuple[float, dict[str, float], int]] = {}
 
     def _forecasts(self, prefix: str, station: dict) -> dict[str, float]:
         cached = self._cache.get(prefix)
@@ -156,12 +165,20 @@ class WeatherHigh(SignalGenerator):
                 daily = loc.get("daily", {})
                 self._cache[name] = (now, {
                     d: t for d, t in zip(daily.get("time", []), daily.get(var, []))
-                    if t is not None})
+                    if t is not None}, int(loc.get("utc_offset_seconds") or 0))
         except Exception:  # noqa: BLE001 — a dead weather feed must not sink the cycle
             log.warning("weather batch fetch failed (%s)", var, exc_info=True)
             for name, _ in group:  # cache the failure briefly: no per-market retries
-                self._cache.setdefault(name, (now, {}))
-        return self._cache.get(prefix, (now, {}))[1]
+                self._cache.setdefault(name, (now, {}, 0))
+        return self._cache.get(prefix, (now, {}, 0))[1]
+
+    def _local_now(self, prefix: str) -> datetime:
+        """Station-local wall clock, from open-meteo's utc_offset_seconds (DST
+        correct, no tzdata needed). Both the lead time and the realized-window
+        check need local dates: at 01:00 UTC a US station is still on yesterday,
+        which otherwise reads a same-day market as a past-day one."""
+        cached = self._cache.get(prefix)
+        return datetime.now(timezone.utc) + timedelta(seconds=cached[2] if cached else 0)
 
     def forecast(self, market: Market, ctx: Context) -> Forecast | None:
         prefix = market.ticker.split("-", 1)[0]
@@ -178,8 +195,19 @@ class WeatherHigh(SignalGenerator):
         # by weather_calibrate from Kalshi-settled truth. Grid-cell forecasts can
         # run systematically hot/cold vs the exact settlement station.
         mu += float(station.get("bias_f", 0.0))
-        days_ahead = max(0, (target - datetime.now(timezone.utc).date()).days)
-        sigma = self.sigma_base + self.sigma_per_day * days_ahead
+        # A day whose extremum has already been realized belongs to the market:
+        # it sees the observed value, we only have a forecast. (Seen live: a
+        # KXLOWTSATX day the book priced 0.89 YES scored 0.05 on this arm, and
+        # the engine sank its largest stake of the cycle into the NO side.)
+        local_now = self._local_now(prefix)
+        lead_days = (target - local_now.date()).days
+        if lead_days < 0:
+            return None
+        cutoff = (self.realized_hour_min if station.get("variable") == "min"
+                  else self.realized_hour_max)
+        if lead_days == 0 and local_now.hour >= cutoff:
+            return None
+        sigma = self.sigma_base + self.sigma_per_day * lead_days
         p = band_probability(mu, sigma, market.floor_strike, market.cap_strike)
         if p is None:
             return None

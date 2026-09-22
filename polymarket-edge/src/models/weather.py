@@ -25,9 +25,9 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from ..clients.gamma import GammaClient, SportsMarket
+from ..clients.gamma import SportsMarket
 from ..http_util import retrying_session
 from .fair_value import FairEstimate
 
@@ -151,8 +151,13 @@ class WeatherModel:
         # suggests values once a city reaches n>=10 settled days
         self.city_bias = {str(k).lower(): float(v)
                           for k, v in (cfg.get("city_bias") or {}).items()}
+        # station-local hour after which the day's high is effectively realized:
+        # past it the book prices the observed temperature and our forecast is
+        # strictly worse information, so the model stands down
+        self.realized_hour_max = int(cfg.get("realized_hour_max", 17))
         self.http = retrying_session()
-        self._cache: dict[str, tuple[float, dict[str, float]]] = {}
+        # city -> (fetched_monotonic, {iso_date: forecast_high}, utc_offset_sec)
+        self._cache: dict[str, tuple[float, dict[str, float], int]] = {}
 
     def _forecasts(self, city: str) -> dict[str, float]:
         cached = self._cache.get(city)
@@ -180,12 +185,19 @@ class WeatherModel:
                 self._cache[name] = (now, {
                     d: t for d, t in zip(daily.get("time", []),
                                          daily.get("temperature_2m_max", []))
-                    if t is not None})
+                    if t is not None}, int(loc.get("utc_offset_seconds") or 0))
         except Exception:  # noqa: BLE001 — a dead feed must not sink the cycle
             log.warning("weather batch fetch failed (%s unit)", unit, exc_info=True)
             for name, _ in group:  # cache the failure briefly: no per-market retries
-                self._cache.setdefault(name, (now, {}))
-        return self._cache.get(city, (now, {}))[1]
+                self._cache.setdefault(name, (now, {}, 0))
+        return self._cache.get(city, (now, {}, 0))[1]
+
+    def _local_now(self, city: str) -> datetime:
+        """City-local wall clock from open-meteo's utc_offset_seconds (DST
+        correct, no tzdata needed). Lead time must be counted in local days:
+        at 01:00 UTC a US city is still on yesterday's date."""
+        cached = self._cache.get(city)
+        return datetime.now(timezone.utc) + timedelta(seconds=cached[2] if cached else 0)
 
     def estimate(self, markets: list[SportsMarket]) -> list[FairEstimate]:
         estimates: list[FairEstimate] = []
@@ -199,8 +211,14 @@ class WeatherModel:
             if mu is None:
                 continue
             mu += self.city_bias.get(q.city, 0.0)
-            days_ahead = max(0, (q.target - today).days)
-            sigma_f = self.sigma_base_f + self.sigma_per_day_f * days_ahead
+            # a day whose high is already realized belongs to the market: it can
+            # see the observed temperature, we only hold a forecast
+            local_now = self._local_now(q.city)
+            lead_days = (q.target - local_now.date()).days
+            if lead_days < 0 or (lead_days == 0
+                                 and local_now.hour >= self.realized_hour_max):
+                continue
+            sigma_f = self.sigma_base_f + self.sigma_per_day_f * lead_days
             sigma = sigma_f * (5 / 9) if q.unit == "celsius" else sigma_f
             p = band_probability(mu, sigma, q.floor, q.cap)
             if p is None:
