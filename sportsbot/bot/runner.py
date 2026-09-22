@@ -202,11 +202,33 @@ class Runner:
             slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
         )
         self.adaptive = cfg.get("adaptive", {})
+        self.venue = cfg.get("exchange", "polymarket")
         self.scanner = Scanner(self.models)
         self.executor = Executor(
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
         )
+
+    # ------------------------------------------------------------------
+    def decision_fee_fn(self, market_id: str):
+        """Fee function for EDGE/SIZING/EXIT math on one market.
+
+        `self.fee_fn` is the venue's actual charge (Kalshi ceils the whole
+        order to the cent), which is right for accounting but wrong as a
+        marginal rate: calling it with shares=1.0 quantises the per-share
+        fee to a whole cent and overstates cost by up to ~2x inside the
+        entry band. Decision paths get the linear marginal instead, with
+        the market's own series multiplier (KXMLBGAME pays half).
+        """
+        if self.venue != "kalshi":
+            return self.fee_fn
+        from sportsbot.exchanges.kalshi import (
+            kalshi_fee_multiplier,
+            kalshi_fee_per_share,
+        )
+
+        mult = kalshi_fee_multiplier(market_id)
+        return lambda price, shares: kalshi_fee_per_share(price, mult) * shares
 
     # ------------------------------------------------------------------
     def _mlb_context(self) -> dict[str, dict]:
@@ -358,7 +380,7 @@ class Runner:
             _market, quote = pair
             decision = evaluate_exit(agg, quote, self.positions,
                                      model_weight=strategy.model_weight,
-                                     fee_fn=self.fee_fn)
+                                     fee_fn=self.decision_fee_fn(market_id))
             if not decision.close:
                 continue
             if decision.sellable < agg["size"] * 0.999:
@@ -465,7 +487,8 @@ class Runner:
 
             # Arb sweep runs for every quoted market, independent of whether
             # the model produces a bet.
-            arb = find_bundle_arb(sm.market, quote, self.fee_fn)
+            mkt_fee_fn = self.decision_fee_fn(sm.market.market_id)
+            arb = find_bundle_arb(sm.market, quote, mkt_fee_fn)
             if arb:
                 summary["arbs"] += 1
                 log.info("ARB FOUND (log-only): %s profit=%.3f/pair x %.0f",
@@ -474,7 +497,7 @@ class Runner:
 
             intent = evaluate_market(
                 sm.market, quote, sm.prediction, staking_cfg,
-                strategy_cfg, self.fee_fn, exposure,
+                strategy_cfg, mkt_fee_fn, exposure,
             )
             if intent is None:
                 continue

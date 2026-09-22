@@ -66,15 +66,46 @@ SPORT_FOR_KEY = {
 }
 
 
-def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0) -> float:
-    """ceil-to-cent(0.07 × mult × C × P × (1−P)); P in dollars.
+FEE_RATE = 0.07
+# Series whose fee schedule carries a multiplier (verified 2026-09; the
+# match is on the SERIES prefix, never a loose substring — a bare "MLB" in
+# a ticker would mis-price unrelated markets).
+FEE_MULTIPLIERS = {"KXMLBGAME": 0.5}
 
-    KXMLBGAME runs fee_multiplier 0.5. Maker fee is 25% of taker on
-    quadratic_with_maker_fees series — prefer resting orders.
+
+def kalshi_fee_multiplier(market_id: str) -> float:
+    """Fee multiplier for a ticker, by series prefix. Unknown series pay
+    full rate — never assume a discount that may not exist."""
+    for series, mult in FEE_MULTIPLIERS.items():
+        if (market_id or "").startswith(series):
+            return mult
+    return 1.0
+
+
+def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0) -> float:
+    """TOTAL settled fee for one order: ceil-to-cent(0.07 × mult × C × P × (1−P)).
+
+    The ceil applies ONCE PER ORDER, so this is NOT linear in `contracts`:
+    calling it with contracts=1.0 does not yield the marginal per-share fee
+    (at P=0.20 it returns $0.02 against a true marginal of $0.0112). Use it
+    for what the venue actually charges — execution and accounting — and use
+    `kalshi_fee_per_share` for edge/sizing/exit math.
     """
-    raw = 0.07 * fee_multiplier * contracts * price * (1.0 - price)
+    raw = FEE_RATE * fee_multiplier * contracts * price * (1.0 - price)
     # round() guards against FP noise (e.g. 1.7500000000000002) inflating the ceil
     return math.ceil(round(raw * 100.0, 6)) / 100.0
+
+
+def kalshi_fee_per_share(price: float, fee_multiplier: float = 1.0) -> float:
+    """MARGINAL fee per contract — linear, no rounding.
+
+    This is the number every decision path needs (edge thresholds, Kelly
+    sizing, exit value, arb cost). Quantising it to whole cents by way of
+    `kalshi_taker_fee(price, 1.0)` inflates modelled cost by up to ~2x
+    inside the bot's [0.15, 0.85] entry band, which silently suppresses
+    real trades and can trip the exit hard stop on phantom cost.
+    """
+    return FEE_RATE * fee_multiplier * price * (1.0 - price)
 
 
 class KalshiClient(ExchangeClient):
@@ -376,7 +407,7 @@ class KalshiClient(ExchangeClient):
             return None
         avg, _ = walk_sell(sell_levels(quote, side), min_price, placed.filled)
         fee = kalshi_taker_fee(avg, placed.filled,
-                               fee_multiplier=0.5 if "MLB" in market_id else 1.0)
+                               fee_multiplier=kalshi_fee_multiplier(market_id))
         return {"closed_size": placed.filled, "avg_price": round(avg, 4),
                 "proceeds": round(avg * placed.filled - fee, 4),
                 "fee": round(fee, 4)}

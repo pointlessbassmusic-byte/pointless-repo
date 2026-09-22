@@ -214,7 +214,8 @@ def test_runner_exit_pass_wiring(tmp_path):
 
     stub = SimpleNamespace(
         positions=PositionConfig(min_hold_minutes=0.0),
-        exchange=ex, store=store, fee_fn=lambda p, s: 0.0)
+        exchange=ex, store=store, fee_fn=lambda p, s: 0.0,
+        decision_fee_fn=lambda market_id: (lambda p, s: 0.0))
     # market collapsed to a 0.20 bid: hard stop (value 19.5 < 50% of 50)
     exits = Runner._manage_positions(
         stub, {"m1": (None, quote(0.20, 0.24))}, StrategyConfig())
@@ -273,7 +274,8 @@ def test_runner_partial_close_banks_proceeds(tmp_path):
               "fee": 0.0}]
     ex = SimpleNamespace(close_position=lambda *a, **k: fills.pop(0))
     stub = SimpleNamespace(positions=PositionConfig(min_hold_minutes=0.0),
-                           exchange=ex, store=store, fee_fn=lambda p, s: 0.0)
+                           exchange=ex, store=store, fee_fn=lambda p, s: 0.0,
+                           decision_fee_fn=lambda market_id: (lambda p, s: 0.0))
     quoted = {"m1": (None, quote(0.20, 0.24))}  # hard-stop territory
 
     assert Runner._manage_positions(stub, quoted, StrategyConfig()) == 0
@@ -366,3 +368,52 @@ def test_kalshi_market_info_time_fields():
     assert mi.start_time is not None and mi.start_time.day == 22
     assert mi.close_time is not None and mi.close_time.day == 22
     assert mi.close_time.month == 9  # never the Oct 6 legal bound
+
+
+def test_kalshi_fee_marginal_vs_total():
+    """The ceil in kalshi_taker_fee is PER ORDER, so it is not linear in
+    contracts: f(p, 1.0) is not the marginal per-share fee. Decision paths
+    must use kalshi_fee_per_share instead (audit finding, 2026-09-22)."""
+    from sportsbot.exchanges.kalshi import (
+        kalshi_fee_multiplier,
+        kalshi_fee_per_share,
+        kalshi_taker_fee,
+    )
+
+    # the trap: whole-cent quantisation inflates the modelled per-share fee
+    assert kalshi_taker_fee(0.20, 1.0) == 0.02
+    assert abs(kalshi_fee_per_share(0.20) - 0.0112) < 1e-9
+    # marginal is linear and never rounds up
+    for p in (0.15, 0.2, 0.5, 0.85):
+        assert kalshi_fee_per_share(p) <= kalshi_taker_fee(p, 1.0)
+        assert abs(kalshi_fee_per_share(p) * 10 - 0.07 * 10 * p * (1 - p)) < 1e-12
+    # total cost keeps the venue's ceil-once-per-order behaviour
+    assert kalshi_taker_fee(0.5, 100.0) == 1.75
+
+    # series multiplier: prefix match only, never a loose substring
+    assert kalshi_fee_multiplier("KXMLBGAME-26SEP24-SD") == 0.5
+    assert kalshi_fee_multiplier("KXATPMATCH-x") == 1.0
+    assert kalshi_fee_multiplier("KXWTAMLBFAKE-x") == 1.0
+    assert kalshi_fee_multiplier("") == 1.0
+    assert abs(kalshi_fee_per_share(0.46, 0.5) - 0.07 * 0.5 * 0.46 * 0.54) < 1e-12
+
+
+def test_runner_decision_fee_fn_uses_marginal_and_series_multiplier():
+    """Runner hands decision paths the marginal fee with the market's own
+    multiplier; non-Kalshi venues keep their (already linear) fee_fn."""
+    from types import SimpleNamespace
+
+    from sportsbot.bot.runner import Runner
+
+    kalshi_stub = SimpleNamespace(venue="kalshi", fee_fn=lambda p, s: 99.0)
+    f_mlb = Runner.decision_fee_fn(kalshi_stub, "KXMLBGAME-26SEP24-SD")
+    f_tennis = Runner.decision_fee_fn(kalshi_stub, "KXATPMATCH-x")
+    # MLB pays half of tennis at the same price, and neither is the
+    # whole-cent-quantised $0.02
+    assert abs(f_mlb(0.46, 1.0) - 0.5 * f_tennis(0.46, 1.0)) < 1e-12
+    assert f_tennis(0.20, 1.0) < 0.02
+    # linear in shares
+    assert abs(f_tennis(0.20, 10.0) - 10 * f_tennis(0.20, 1.0)) < 1e-12
+
+    other = SimpleNamespace(venue="polymarket", fee_fn=lambda p, s: 42.0)
+    assert Runner.decision_fee_fn(other, "anything")(0.5, 1.0) == 42.0
