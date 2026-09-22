@@ -142,12 +142,41 @@ sportsbot run -c config/sim.yaml     # the $100 paper book on live markets
 sportsbot board -c config/sim.yaml --loop 60   # rebuild the page every minute
 ```
 
-**The highest-value next action is `sportsbot fit tennis`.** Kalshi lists 264
-tennis markets at a 0.020 median spread and the tennis model is the
-best-developed in the repo — but it has zero rated players on this host,
-because the web sandbox cannot reach the Sackmann CSVs. Run the fit on the
-laptop or the VPS and the tennis sleeve turns on against the deepest liquid
-slate available.
+## Tennis: a bootstrap that unblocks the sport without pretending to replace Sackmann
+
+Tennis had zero rated players here because this host cannot reach the Sackmann
+CSVs — the session's GitHub scoping 404s third-party raw files, and attaching
+the upstream repo is refused (cross-tier adds are not supported). So the
+ratings now come from the same trick table tennis already uses: Kalshi settles
+one market per player, so a settled ATP/WTA event names both players and says
+which one won.
+
+`sportsbot fit tennis` takes `--source auto|sackmann|kalshi`, defaults to
+`auto`, and prints a loud warning when it falls back. Measured here: **1,574
+matches, 650 players, 103 with the 10+ matches the model requires**, covering
+2026-07-15 to 2026-09-22. That took the scan from 86 markets to **180**.
+
+It is a fallback, not a substitute, and the code says so in three places:
+
+- The ratings file records `meta.source`, because a bootstrap and a Sackmann
+  fit are not interchangeable and the difference is invisible from the numbers.
+- The allocator halves a sleeve whose ratings are provisional
+  (`PROVISIONAL_RATINGS_FACTOR`), because the 0.35 prior was earned by a
+  walk-forward result on the real history and a bootstrap has never been
+  validated at all. The dashboard shows "provisional ratings (halved)" as the
+  binding constraint.
+- There are no surface splits, so the model's surface weight collapses to zero
+  and it prices on overall Elo alone — which it already degrades to cleanly
+  (`w_surf = surface_weight * min(1, n_surf/10)`).
+
+What it looks like in practice: of 94 tennis markets scanned, 56 were passed on
+model uncertainty (thin ratings — most players have only a few months of
+matches) and 38 had no two-sided book yet. Roughly 40% clear the uncertainty
+bar, so the sport genuinely trades once books appear.
+
+**Running `sportsbot fit tennis` on the laptop or VPS remains the better
+move** — it reaches Sackmann, gets decades of history with surfaces, and the
+sleeve stops being halved.
 
 `config/sim.yaml` is a complete standalone config whose dollar knobs are scaled
 to $100 — the $1,000 defaults would put a $50 max stake (half the account) in

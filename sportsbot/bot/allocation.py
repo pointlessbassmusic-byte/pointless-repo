@@ -34,6 +34,13 @@ CLV_GAIN = 8.0
 CLV_FLOOR = 0.4
 CLV_CAP = 1.6
 
+# A sleeve whose ratings came from a market bootstrap rather than a proper
+# history keeps only this share of its prior. The prior was earned by a
+# walk-forward result on the real history; a bootstrap is a different and
+# much thinner artifact (no surface splits, a couple of months of matches)
+# that has never been validated, so it should not inherit the full weight.
+PROVISIONAL_RATINGS_FACTOR = 0.5
+
 
 @dataclass(frozen=True)
 class Sleeve:
@@ -58,9 +65,10 @@ SLEEVES: tuple[Sleeve, ...] = (
         prior_weight=0.35,
         evidence=(
             "Best-developed model (surface-blended Elo + O'Malley/Markov) and "
-            "the sharpest target band in the research (0.60-0.63 log loss), "
-            "but NOT yet fitted or validated on this host. Held at zero until "
-            "`sportsbot fit tennis` produces ratings."
+            "the sharpest target band in the research (0.60-0.63 log loss). "
+            "Zero until `sportsbot fit tennis` produces ratings; halved while "
+            "those ratings are a Kalshi bootstrap rather than the Sackmann "
+            "history, which has no surface splits and only months of matches."
         ),
         needs_ratings=True,
     ),
@@ -99,11 +107,14 @@ def allocate(
     cfg: dict,
     by_sport: dict[str, dict] | None = None,
     has_ratings: dict[str, bool] | None = None,
+    provisional: dict[str, bool] | None = None,
 ) -> dict:
     """Per-sport risk budget in dollars.
 
     `by_sport` is `positions.category_report()["by_sport"]`; `has_ratings`
-    says which sports currently have fitted ratings on this host.
+    says which sports currently have fitted ratings on this host, and
+    `provisional` which of those came from a market bootstrap rather than a
+    real history.
 
     Returns {"sleeves": {sport: {...}}, "unallocated", "bankroll"} where each
     sleeve carries its weight, dollar budget, the cap that bound it, and the
@@ -112,6 +123,7 @@ def allocate(
     """
     by_sport = by_sport or {}
     has_ratings = has_ratings or {}
+    provisional = provisional or {}
     sports_cfg = cfg.get("sports", {})
     adaptive = cfg.get("adaptive", {})
     bank_cfg = cfg.get("bankroll", {})
@@ -136,7 +148,9 @@ def allocate(
         # closing prices must not clear a 30-observation guard.
         n_clv = int(stats.get("n_clv", 0) or 0)
         mult = clv_multiplier(stats.get("mean_clv"), n_clv, min_bets)
-        weights[s.sport] = s.prior_weight * mult
+        prior = s.prior_weight * (PROVISIONAL_RATINGS_FACTOR
+                                  if provisional.get(s.sport) else 1.0)
+        weights[s.sport] = prior * mult
 
     total_w = sum(weights.values())
     sleeves: dict[str, dict] = {}
@@ -160,7 +174,10 @@ def allocate(
             "weight": round(share, 4),
             "budget": round(capped, 2),
             "active": True,
+            "provisional": bool(provisional.get(s.sport)),
             "bound_by": ("per-sport cap" if capped < raw - 1e-9
+                         else "provisional ratings (halved)"
+                         if provisional.get(s.sport)
                          else "CLV-adjusted share" if mult != 1.0
                          else "evidence prior"),
             "clv_multiplier": round(mult, 3),
