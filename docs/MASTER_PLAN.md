@@ -170,3 +170,14 @@ Pipeline per cycle:
       Miami reads -4.4F against Polymarket's buckets on the same day — two independent
       books agreeing puts the error in our grid cell, not in either market. Still not a
       settled outcome, so `bias_f` stays unfitted until `weather_calibrate` has truth.
+- [ ] **polymarket-edge's headline model has never run.** Its 2090 recorded estimates
+      are 100% weather: five sports are configured but `ODDS_API_KEY` is unset, so the
+      odds client returns nothing and sportsbook-consensus fair value produces zero
+      estimates, while the cycle still reports signals as normal. Needs a (free, 500
+      req/month) key from the-odds-api.com in `.env`. Until then the only independent
+      signal either engine has is weather, and three lines now say the book prices that
+      better than we do: settled Brier 0.0690 vs climatology 0.1813 (sportsbot, 186
+      rows), our sigma running 1.48-1.85x the market-implied one, and our own report's
+      0.0156 against the market's 0.0071 over 1576 estimates on proxy outcomes.
+      `python -m src.main` now warns at startup and `python -m src.report` prints the
+      arm mix, so a one-armed run is visible instead of inferred.

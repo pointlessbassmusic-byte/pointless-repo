@@ -392,3 +392,24 @@ def test_divergence_rows_carry_both_sides_sigma():
     assert (target, city, unit) == (local_date, "miami", "F")
     assert abs(mu - 88.5) < 1e-9 and abs(diff - (mu - mkt_mu)) < 1e-9
     assert sigma == model.sigma_for(1, "fahrenheit") and 0 < mkt_sd < sigma
+
+
+def test_arm_mix_separates_weather_from_sportsbook(tmp_path):
+    """A run that is all one arm usually means another went silently inert."""
+    from src.report import arm_mix
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    rows = [("w1", "weather:miami 2026-09-22 [88.0,89.0] mu=88.5"),
+            ("w2", "weather:london 2026-09-22 [20.0,20.0] mu=21.0"),
+            ("s1", "Yankees @ Red Sox"),
+            ("u1", None)]
+    for token_id, matched in rows:
+        db.conn.execute(
+            "INSERT INTO estimates (ts, token_id, question, outcome, matched_game,"
+            " fair_prob, consensus_prob, n_books, ask)"
+            " VALUES (datetime('now'), ?, 'q', 'Yes', ?, 0.5, 0.5, 0, 0.5)",
+            (token_id, matched))
+    db.conn.commit()
+
+    assert dict(arm_mix(db.conn)) == {"weather": 2, "sportsbook": 1, "unattributed": 1}
