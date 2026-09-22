@@ -46,6 +46,15 @@ Checklist concepts adapted from tradermonty/claude-trading-skills
    before it trades real money. Sizing on it beforehand is betting the sigma we
    already know is the wider of the two.
 
+   Weigh this one heavily. sportsbot scored the same domain on settled
+   outcomes and the market won by an order of magnitude — Brier 0.0121 against
+   its NWS arm's 0.1431 on the first NWS-covered cohort, 0.0690 against
+   climatology's 0.1813 over 186 rows — which is why it keeps weather out of
+   trading entirely (`bot/allocation.py`). That is a different forecast source
+   than ours, so it does not settle our case, but it means the burden of proof
+   sits with us: require this engine's own settled record to show it beating
+   the market baseline, not merely beating climatology or coin.
+
 ## Output
 
 Print a pass/fail table with evidence per check. If anything fails, name the

@@ -109,6 +109,16 @@ Reference implementation and regression tests:
   sigma is a median 1.85x the sigma bucket prices imply, so narrow centre
   buckets always look overpriced to us: treat a NO on one as a variance bet
   needing settled evidence, not a temperature call.
+- That evidence now exists and it goes against us. Two independent lines agree
+  the book's weather distribution beats ours: the live sigma ratios above, and
+  settled Brier scores — market 0.0121 vs an NWS arm's 0.1431 on the first
+  NWS-covered cohort, 0.0690 vs climatology 0.1813 over 186 rows
+  (`docs/SIGNALS_2026-09-17.md`, `sportsbot weather-score`). sportsbot already
+  keeps weather out of trading for this reason (`bot/allocation.py`). The
+  engine suite still takes these bets in **dry run**, deliberately, because
+  that is how its own settled record gets built — but treat a weather signal
+  as unproven until that record exists, and see the `pre-live-gate` skill
+  before any of it meets real money.
 - Lead time in `substrate_bridge/kalshi_weather.py` still counts from the
   target date's **UTC** midnight (two call sites), which runs 4-8h short for
   US stations. Small next to that module's 0.55/day ramp and it only feeds
