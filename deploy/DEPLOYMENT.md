@@ -43,6 +43,9 @@ Then:
 | backtest | `... sportsbot backtest tennis` |
 | reset kill switch after review | `... sportsbot reset-kill-switch` |
 | go-live preflight | `... sportsbot doctor` — config/gate/DB/ratings age/keys/venues/clock; exits non-zero on FAIL |
+| trading dashboard (sim/real) | `... sportsbot board` → `/opt/sportsbot/data/board.html`; runs every minute as `sportsbot-board.service` |
+| $100 sim book | runs as `sportsbot-sim.service` (paper mode, live market data); logs via `journalctl -u sportsbot-sim` |
+| record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
 | weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |
@@ -78,6 +81,29 @@ ssh -L 8000:localhost:8000 root@YOUR_SERVER_IP \
 ```
 
 or just copy it down: `scp root@YOUR_SERVER_IP:/opt/sportsbot/data/dashboard.html .`
+
+## The $100 sim book and the dashboard
+
+`sportsbot-sim.service` runs `config/sim.yaml` — paper mode against live
+market data, with every dollar knob scaled to a $100 bankroll (the $1,000
+defaults would put half the account in one market). `sportsbot-board.service`
+rebuilds `data/board.html` every minute: equity, where the money is allowed to
+go and the evidence for it, every decision including the passes and why, and
+the go-live gate.
+
+View it the same way as the substrate dashboard — through an SSH tunnel, not
+an open web port:
+
+```bash
+ssh -L 8000:localhost:8000 root@YOUR_SERVER_IP \
+    "cd /opt/sportsbot/data && python3 -m http.server 8000 --bind 127.0.0.1"
+# then open http://localhost:8000/board.html
+```
+
+The page's sim/real switch is a **view** switch. It shows you a different
+book; it cannot start real trading, and it deliberately has no control that
+could. Real orders still require `mode: live` in config AND `SPORTSBOT_LIVE=1`
+in the environment, both set by hand on the host — see the gate below.
 
 ## Going live — the gate, not a suggestion
 
