@@ -4,6 +4,8 @@ exporter's forecast no-backfill rule."""
 import sqlite3
 import time
 
+import pytest
+
 from sportsbot.signals.chatter import count_flags, entities_from_events_csv
 from sportsbot.signals.nws import prob_from_high
 
@@ -203,3 +205,46 @@ def test_kalshi_order_placement_never_auto_retries(monkeypatch):
     except httpx.HTTPStatusError:
         pass
     assert attempts["get"] == 5
+
+
+def test_score_arms_keeps_arms_separate_and_honors_no_backfill(tmp_path, monkeypatch):
+    """Each arm is scored at the same decision point, and a forecast recorded
+    after the first sighting never reaches the NWS arm."""
+    import sportsbot.substrate_bridge.climatology as climo_mod
+    from sportsbot.substrate_bridge.kalshi_weather import SCHEMA, score_arms
+
+    db = tmp_path / "w.sqlite"
+    conn = sqlite3.connect(db)
+    conn.executescript(SCHEMA)
+    first_ts = time.time() - 86400
+    title = "Will the maximum temperature be >70° on Sep 16, 2026?"
+    rows = [("A", 0.80, 1), ("B", 0.20, 0)]
+    for ticker, mid, outcome in rows:
+        conn.execute("INSERT INTO weather_snapshots (ts, ticker, series, title,"
+                     " yes_bid, yes_ask, close_ts) VALUES (?,?,?,?,?,?,?)",
+                     (first_ts, ticker, "KXHIGHNY", title, mid - 0.01, mid + 0.01, first_ts))
+        conn.execute("INSERT INTO weather_outcomes (ticker, outcome, settled_ts)"
+                     " VALUES (?,?,?)", (ticker, outcome, first_ts + 3600))
+    # forecast recorded AFTER the decision point -> must not be used
+    conn.execute("INSERT INTO weather_forecasts (ts, series, target_date, forecast_high)"
+                 " VALUES (?,?,?,?)", (first_ts + 600, "KXHIGHNY", "2026-09-16", 95))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(climo_mod.Climatology, "prob", lambda self, s, t: 0.60)
+
+    res = score_arms(str(db))
+    assert res["all"]["n"] == 2
+    assert res["all"]["nws_n"] == 0 and res["all"]["nws"] is None
+    assert res["nws_covered"]["n"] == 0
+    assert res["all"]["coin"] == 0.25
+    assert res["all"]["climatology"] == pytest.approx(0.5 * (0.16 + 0.36))
+    assert res["all"]["market"] == pytest.approx(0.04)          # arms stay separate
+
+    # same forecast recorded AT the decision point -> now it counts
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO weather_forecasts (ts, series, target_date, forecast_high)"
+                 " VALUES (?,?,?,?)", (first_ts, "KXHIGHNY", "2026-09-16", 95))
+    conn.commit()
+    conn.close()
+    res = score_arms(str(db))
+    assert res["nws_covered"]["n"] == 2 and res["all"]["nws"] is not None

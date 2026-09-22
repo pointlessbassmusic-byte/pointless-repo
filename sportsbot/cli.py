@@ -291,6 +291,35 @@ def weather_snapshot(config: str = CONFIG_OPT,
         console.print(svc.export_ingest_csv(export))
 
 
+@app.command("weather-score")
+def weather_score(config: str = CONFIG_OPT,
+                  db: str = typer.Option("data/weather_snapshots.sqlite")):
+    """Decision-time Brier per arm on settled weather markets: coin vs
+    climatology vs NWS forecast vs market. Offline (cached climatology)."""
+    _setup(config)
+    from rich.table import Table
+
+    from sportsbot.substrate_bridge.kalshi_weather import score_arms
+
+    res = score_arms(db)
+    for label, row in [("all settled", res["all"]),
+                       *[(f"cohort {d}", r) for d, r in res["by_day"].items()],
+                       ("NWS-covered (like-for-like)", res["nws_covered"])]:
+        if not row["n"]:
+            console.print(f"[dim]{label}: no settled rows[/dim]")
+            continue
+        t = Table(title=f"{label} — n={row['n']}, base rate {row['base_rate']:.3f}")
+        t.add_column("arm")
+        t.add_column("Brier", justify="right")
+        t.add_column("n", justify="right")
+        t.add_row("coin", f"{row['coin']:.4f}", str(row["n"]))
+        for arm in ("climatology", "nws", "market"):
+            t.add_row(arm,
+                      "—" if row[arm] is None else f"{row[arm]:.4f}",
+                      str(row[f"{arm}_n"]))
+        console.print(t)
+
+
 def _write_ops_json(cfg: dict, store, path: str) -> None:
     """Bot-operations summary (mirrors `sportsbot status`) for the dashboard's
     ops panel."""

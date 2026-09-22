@@ -277,3 +277,90 @@ class WeatherSnapshotService:
                 written += 1
         return {"rows": written, "path": out_path,
                 "nws_rows": nws_rows, "climatology_rows": climo_rows}
+
+
+def score_arms(db_path: str = "data/weather_snapshots.sqlite") -> dict:
+    """Decision-time Brier per arm on settled weather markets — the substrate's
+    triple-null hierarchy (coin / conventional / market) with the NWS forecast
+    arm kept separate instead of collapsed into `export_ingest_csv`'s single
+    priority-ordered baseline_prob.
+
+    Every arm is scored at the SAME decision point (each ticker's max-lead
+    first sighting) under the same no-backfill rule, so the comparison is
+    like-for-like. `nws_covered` is the subset where a decision-time forecast
+    existed — the only cohort where NWS vs climatology is a fair contest.
+    """
+    from datetime import datetime, timezone
+
+    from sportsbot.substrate_bridge.climatology import Climatology, parse_market
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    climo = Climatology()
+    try:
+        from sportsbot.signals.nws import prob_from_high, sigma_for_lead
+    except ImportError:
+        prob_from_high = None
+
+    def nws_prob(series, title, first_ts):
+        if prob_from_high is None:
+            return None
+        parsed = parse_market(title)
+        if parsed is None:
+            return None
+        row = conn.execute(
+            "SELECT forecast_high FROM weather_forecasts"
+            " WHERE series=? AND target_date=? AND ts <= ?"
+            " ORDER BY ts ASC LIMIT 1",
+            (series, parsed[0].isoformat(), first_ts + 1.0)).fetchone()
+        if row is None:
+            return None
+        lead = (datetime.combine(parsed[0], datetime.min.time(),
+                                 tzinfo=timezone.utc).timestamp() - first_ts) / 86400.0
+        return prob_from_high(title, float(row["forecast_high"]),
+                              sigma=sigma_for_lead(lead))
+
+    recs = []
+    for r in conn.execute(
+        """SELECT s.ticker, s.series, s.title, MIN(s.ts) AS first_ts,
+                  o.outcome, o.settled_ts
+           FROM weather_snapshots s
+           LEFT JOIN weather_outcomes o ON o.ticker = s.ticker
+           GROUP BY s.ticker"""
+    ).fetchall():
+        if r["outcome"] is None:
+            continue
+        snap = conn.execute(
+            "SELECT yes_bid, yes_ask FROM weather_snapshots WHERE ticker=? AND ts=?",
+            (r["ticker"], r["first_ts"])).fetchone()
+        if snap is None or snap["yes_bid"] is None or snap["yes_ask"] is None:
+            continue
+        recs.append({
+            "ticker": r["ticker"],
+            "day": datetime.fromtimestamp(r["settled_ts"] or r["first_ts"],
+                                          timezone.utc).date().isoformat(),
+            "market": (snap["yes_bid"] + snap["yes_ask"]) / 2.0,
+            "nws": nws_prob(r["series"], r["title"], r["first_ts"]),
+            "climatology": climo.prob(r["series"], r["title"]),
+            "outcome": int(r["outcome"]),
+        })
+
+    def briers(rows: list[dict]) -> dict:
+        out = {"n": len(rows)}
+        if not rows:
+            return out
+        out["base_rate"] = sum(x["outcome"] for x in rows) / len(rows)
+        out["coin"] = sum((0.5 - x["outcome"]) ** 2 for x in rows) / len(rows)
+        for arm in ("climatology", "nws", "market"):
+            vals = [(x[arm] - x["outcome"]) ** 2 for x in rows if x[arm] is not None]
+            out[arm] = sum(vals) / len(vals) if vals else None
+            out[f"{arm}_n"] = len(vals)
+        return out
+
+    covered = [x for x in recs if x["nws"] is not None]
+    return {
+        "all": briers(recs),
+        "by_day": {d: briers([x for x in recs if x["day"] == d])
+                   for d in sorted({x["day"] for x in recs})},
+        "nws_covered": briers(covered),
+    }
