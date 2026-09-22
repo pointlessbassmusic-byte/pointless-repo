@@ -64,6 +64,10 @@ CREATE INDEX IF NOT EXISTS idx_wf_series_date ON weather_forecasts(series, targe
 
 
 class WeatherSnapshotService:
+    # Pacing for the public market endpoints, which 429 in bursts.
+    SERIES_PAUSE = 1.5
+    RETRY_SWEEP_PAUSE = 10.0
+
     def __init__(self, client: Optional[KalshiClient] = None,
                  db_path: str = "data/weather_snapshots.sqlite",
                  series: Optional[list[str]] = None) -> None:
@@ -78,38 +82,70 @@ class WeatherSnapshotService:
     # ------------------------------------------------------------------
     def snapshot_once(self) -> dict:
         """One pass over all series: record open-market quotes, settle
-        previously tracked tickers. Returns a summary."""
+        previously tracked tickers. Returns a summary.
+
+        Requests are paced apart and series that still fail get one re-sweep.
+        A market's FIRST sighting is the protocol's decision point and the
+        no-backfill rule forbids reconstructing it later, so a series dropped
+        from a pass (Kalshi 429s these public endpoints in bursts) costs that
+        station's max-lead snapshot permanently.
+        """
         recorded = 0
         now = time.time()
         self._record_forecasts(now)   # BEFORE market rows: forecast ts <= snapshot ts
-        for series in self.series:
-            try:
-                data = self.client._request(
-                    "GET", f"{API_ROOT}/markets",
-                    params={"series_ticker": series, "status": "open",
-                            "mve_filter": "exclude", "limit": 200},
-                )
-            except Exception as exc:
-                log.warning("weather snapshot failed for %s: %s", series, exc)
-                continue
-            for m in data.get("markets", []):
-                bid = self.client._dollars(m, "yes_bid_dollars")
-                ask = self.client._dollars(m, "yes_ask_dollars")
-                close = self.client._ts(m, "close_time", "expected_expiration_time")
-                try:
-                    self.conn.execute(
-                        "INSERT OR IGNORE INTO weather_snapshots"
-                        " (ts, ticker, series, title, yes_bid, yes_ask, close_ts)"
-                        " VALUES (?,?,?,?,?,?,?)",
-                        (now, m.get("ticker"), series, m.get("title"),
-                         bid, ask, close.timestamp() if close else None),
-                    )
-                    recorded += 1
-                except sqlite3.Error:
-                    log.exception("snapshot insert failed")
+
+        pending, failed = list(self.series), []
+        for series in pending:
+            recorded += self._snapshot_series(series, now, failed)
+            time.sleep(self.SERIES_PAUSE)
+
+        missing: list[str] = []
+        if failed:
+            log.info("weather snapshot: re-sweeping %s", failed)
+            time.sleep(self.RETRY_SWEEP_PAUSE)
+            for series in failed:
+                recorded += self._snapshot_series(series, now, missing)
+                time.sleep(self.SERIES_PAUSE)
+        if missing:
+            log.warning("weather snapshot: no decision-time rows for %s "
+                        "(max-lead sighting lost for this pass)", missing)
+
         self.conn.commit()
         settled = self._resolve_outcomes()
-        return {"recorded": recorded, "settled": settled}
+        return {"recorded": recorded, "settled": settled, "missing_series": missing}
+
+    def _snapshot_series(self, series: str, now: float,
+                         failed: list[str]) -> int:
+        """Record one series' open markets, appending to `failed` instead of
+        raising so one unreachable station never costs the rest of the pass."""
+        try:
+            data = self.client._request(
+                "GET", f"{API_ROOT}/markets",
+                params={"series_ticker": series, "status": "open",
+                        "mve_filter": "exclude", "limit": 200},
+            )
+        except Exception as exc:  # noqa: BLE001 — one station down != no pass
+            log.warning("weather snapshot failed for %s: %s", series, exc)
+            failed.append(series)
+            return 0
+        recorded = 0
+        for m in data.get("markets", []):
+            bid = self.client._dollars(m, "yes_bid_dollars")
+            ask = self.client._dollars(m, "yes_ask_dollars")
+            close = self.client._ts(m, "close_time", "expected_expiration_time")
+            try:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO weather_snapshots"
+                    " (ts, ticker, series, title, yes_bid, yes_ask, close_ts)"
+                    " VALUES (?,?,?,?,?,?,?)",
+                    (now, m.get("ticker"), series, m.get("title"),
+                     bid, ask, close.timestamp() if close else None),
+                )
+                recorded += 1
+            except sqlite3.Error:
+                log.exception("snapshot insert failed")
+        self.conn.commit()
+        return recorded
 
     def _record_forecasts(self, now: float) -> None:
         """Record NWS point-forecast highs for each series' settlement station.
