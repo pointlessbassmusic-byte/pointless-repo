@@ -426,13 +426,16 @@ def signals_retro(
     events: str = typer.Option(..., help="ingest-schema CSV with resolved events"),
     max_events: int = typer.Option(80),
     db: str = typer.Option("data/chatter.sqlite"),
+    export: str = typer.Option("", help="also persist collected rows to this CSV"),
 ):
     """Retrospective pilot: pre-decision chatter windows for resolved events
     (post timestamps bounded at decision time — hypothesis-generating only)."""
     _setup(config)
-    from sportsbot.signals.chatter import retro_study
+    from sportsbot.signals.chatter import export_retro_csv, retro_study
 
     console.print(retro_study(events, db_path=db, max_events=max_events))
+    if export:
+        console.print(f"exported {export_retro_csv(db, export)} rows -> {export}")
 
 
 @app.command()

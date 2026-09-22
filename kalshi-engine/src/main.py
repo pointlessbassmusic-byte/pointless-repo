@@ -1,0 +1,181 @@
+"""Kalshi predictions engine — entrypoint.
+
+Usage:
+    python -m src.main --dry-run
+    python -m src.main --once --dry-run
+    python -m src.main --live    # requires live: true in config.yaml + API creds in .env
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from .client import KalshiClient
+from .config import load_config
+from .execution.executor import Executor
+from .risk import RiskGate
+from .storage.db import Database
+from .strategy.edge import build_signals
+from .substrate.base import Context
+from .substrate.ensemble import Ensemble
+from .substrate.generators.market_implied import MarketImplied
+from .substrate.generators.mean_reversion import MeanReversion
+from .substrate.generators.momentum import Momentum
+from .substrate.generators.time_decay import TimeDecay
+from .substrate.generators.weather import WeatherHigh
+
+log = logging.getLogger("kalshi-engine")
+
+GENERATOR_REGISTRY = {
+    "market_implied": MarketImplied,
+    "mean_reversion": MeanReversion,
+    "momentum": Momentum,
+    "time_decay": TimeDecay,
+    "weather": WeatherHigh,
+}
+
+
+def build_ensemble(substrate_cfg: dict) -> Ensemble:
+    gens = []
+    for name, gcfg in (substrate_cfg.get("generators") or {}).items():
+        cls = GENERATOR_REGISTRY.get(name)
+        if cls is None:
+            log.warning("unknown generator in config: %s", name)
+            continue
+        if gcfg.get("enabled", True):
+            gens.append(cls(gcfg))
+    log.info("substrate: %d generators active: %s", len(gens), [g.name for g in gens])
+    return Ensemble(gens)
+
+
+def settle_open_positions(db: Database, client: KalshiClient) -> None:
+    """Resolve settlements for markets we hold live orders in, every cycle —
+    the daily-loss circuit breaker is blind without this."""
+    pending = db.placed_unsettled_tickers()
+    if not pending:
+        return
+    results = {
+        m.ticker: m.result
+        for m in client.markets_by_tickers(pending)
+        if m.status in ("settled", "finalized") and m.result in ("yes", "no")
+    }
+    if results:
+        db.record_settlements(results)
+        log.info("settled %d open positions (realized PnL today: %+.2f USD)",
+                 len(results), db.realized_pnl_today())
+
+
+def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor, db: Database) -> None:
+    settle_open_positions(db, client)
+    mcfg = cfg.markets
+    whitelist = mcfg.get("series_whitelist") or []
+    statuses = mcfg.get("statuses", ["open"])
+    max_markets = int(mcfg.get("max_markets_per_scan", 500))
+
+    if whitelist:
+        markets = []
+        for series in whitelist:
+            markets.extend(client.markets(statuses=statuses, series_ticker=series,
+                                          max_markets=max_markets))
+    else:
+        # discover via /events: the raw /markets feed is buried in MVE shard markets
+        markets = client.markets_via_events(
+            max_events=int(mcfg.get("max_events_per_scan", 20000)),
+            categories=mcfg.get("categories") or None,
+        )
+
+    # filters
+    min_volume = int(mcfg.get("min_volume", 0))
+    max_days = float(mcfg.get("max_days_to_expiry", 365))
+    blacklist = tuple(mcfg.get("series_blacklist") or [])
+    horizon = datetime.now(timezone.utc) + timedelta(days=max_days)
+    markets = [
+        m for m in markets
+        if m.volume >= min_volume and 0 < m.mid < 1
+        and (m.expiration is None or m.expiration <= horizon)
+        and not (blacklist and m.ticker.startswith(blacklist))
+    ]
+    # keep the most liquid markets if the scan is bigger than we want to model —
+    # but never drop markets our informed generators understand (weather series):
+    # they must survive the liquidity cut or the engine's best edge never fires
+    if len(markets) > max_markets:
+        keep_prefixes = tuple(mcfg.get("always_include_prefixes") or [])
+        priority = [m for m in markets if keep_prefixes and m.ticker.startswith(keep_prefixes)]
+        rest = sorted((m for m in markets if m not in priority),
+                      key=lambda m: m.volume, reverse=True)
+        markets = priority + rest[:max(0, max_markets - len(priority))]
+    log.info("%d markets after filters", len(markets))
+
+    # build context from *prior* scans' history, then record this scan's prices —
+    # recording first would make "N scans ago" off by one for every generator.
+    # Only genuine two-sided mids are recorded: on a one-sided book, .mid falls
+    # back to last_price, which can be hours stale and would poison the history
+    # that mean-reversion/momentum trade on.
+    ctx = Context(price_history=db.price_history([m.ticker for m in markets]),
+                  scan_interval_sec=cfg.scan_interval_sec)
+    db.record_prices({
+        m.ticker: (m.yes_bid + m.yes_ask) / 2
+        for m in markets if m.yes_bid > 0 and m.yes_ask > 0
+    })
+
+    results, n_forecasts = [], 0
+    for m in markets:
+        res = ensemble.predict(m, ctx)
+        if res:
+            results.append(res)
+            n_forecasts += len(res.forecasts)
+            db.record_forecasts(m.ticker, res.forecasts)
+
+    signals = build_signals(
+        results,
+        cfg.strategy,
+        exclude_tickers=db.placed_tickers(),
+        existing_exposure=db.live_exposure(),
+    )
+    db.record_scan(len(markets), n_forecasts, len(signals))
+    executor.execute(signals)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Kalshi predictions engine")
+    parser.add_argument("--live", action="store_true", help="place real orders (requires live: true in config)")
+    parser.add_argument("--dry-run", action="store_true", help="explicitly force dry run")
+    parser.add_argument("--once", action="store_true", help="run one cycle and exit")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    cfg = load_config()
+
+    live = args.live and cfg.live and not args.dry_run
+    if args.live and not cfg.live:
+        log.warning("--live passed but config has live: false — staying in DRY RUN")
+    if live and cfg.use_demo and cfg.read_prod:
+        log.warning("live demo orders against PROD market data: prod tickers usually don't "
+                    "exist on demo — set read_prod: false to exercise the demo order flow")
+    log.info("mode: %s | orders: %s | market data: %s",
+             "LIVE TRADING" if live else "dry run",
+             "DEMO" if cfg.use_demo else "PROD",
+             "PROD" if cfg.read_prod else ("DEMO" if cfg.use_demo else "PROD"))
+
+    db = Database(cfg.db_path)
+    client = KalshiClient(cfg.api_key_id, cfg.private_key_path, demo=cfg.use_demo,
+                          read_prod=cfg.read_prod)
+    ensemble = build_ensemble(cfg.substrate)
+    gate = RiskGate(db, cfg.raw.get("risk", {}), Path(__file__).resolve().parent.parent)
+    executor = Executor(client, db, live=live, risk_gate=gate)
+
+    while True:
+        try:
+            run_cycle(cfg, client, ensemble, executor, db)
+        except Exception:  # noqa: BLE001 — keep the loop alive across transient API failures
+            log.exception("scan cycle failed")
+        if args.once:
+            break
+        time.sleep(cfg.scan_interval_sec)
+
+
+if __name__ == "__main__":
+    main()

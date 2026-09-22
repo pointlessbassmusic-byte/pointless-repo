@@ -371,3 +371,19 @@ def retro_report(db_path: str = "data/chatter.sqlite") -> str:
     lines.append("Retrospective pilot only — a hypothesis for the live accrual "
                  "path, not promotion evidence.")
     return "\n".join(lines)
+
+
+def export_retro_csv(db_path: str, out_path: str) -> int:
+    """Persist collected retro rows to CSV (committed alongside reports so
+    collections survive ephemeral environments)."""
+    import csv as _csv
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT event_id, query, close_time, market_prob, outcome, posts,"
+        " flagged FROM retro_chatter ORDER BY close_time").fetchall()
+    with open(out_path, "w", newline="") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["event_id", "query", "close_time", "market_prob",
+                    "outcome", "posts", "flagged"])
+        w.writerows(rows)
+    return len(rows)

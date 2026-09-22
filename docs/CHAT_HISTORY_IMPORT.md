@@ -19,7 +19,7 @@ automatically into this repo. To preserve them:
    ```markdown
    # <topic>
    - Date: YYYY-MM-DD
-   - Engine: polymarket-bot | kalshi-engine | both
+   - Engine: polymarket-edge | kalshi-engine | both
    - Key decisions: <one-line summary>
    ```
 

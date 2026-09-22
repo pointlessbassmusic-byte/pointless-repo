@@ -1,0 +1,14 @@
+[Unit]
+Description=Kalshi predictions engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pointless-repo/kalshi-engine
+ExecStart=/opt/pointless-repo/kalshi-engine/.venv/bin/python -m src.main
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -38,7 +38,7 @@ laptop (dev) ──git push──▶ GitHub (source of truth) ──deploy.sh─
 
 ## The two engines
 
-### 1. Polymarket sports betting bot (`polymarket-bot/`)
+### 1. Polymarket sports betting bot (`polymarket-edge/`)
 
 Scans Polymarket sports events, builds a fair-probability estimate for each outcome from
 sportsbook consensus odds (de-vigged) plus model priors, compares against Polymarket's order book,
@@ -87,6 +87,32 @@ Pipeline per cycle:
 - [ ] Deploy to Linode, run dry for ≥1 week, review SQLite logs
 - [ ] Calibration review: are fair probs beating market closes?
 - [ ] Turn on live mode with small bankroll caps
-- [ ] Add generators: injuries/news feed, weather (outdoor sports), line-movement momentum
-- [ ] Backtest harness over recorded scans
+- [x] Line-movement momentum generator
+- [x] Weather generator: open-meteo daily-high forecasts vs Kalshi KXHIGH* strike
+      bands (Normal error model, lead-time-scaled sigma, per-station forecast cache;
+      keyless API). Daily settlement makes these the fastest calibration feedback
+      loop in the engine.
+- [x] Weather sigma calibrator (`python -m src.weather_calibrate` + daily systemd
+      timer): fits sigma_base/sigma_per_day empirically — from open-meteo's
+      previous-runs history where reachable, else from self-logged forecasts scored
+      against Kalshi's own settled bands (the YES band's midpoint is the observed
+      high).
+- [ ] Injuries/news feed generator (needs a data source decision)
+- [x] Calibration/report harness over recorded scans (`python -m src.report` in each engine)
+- [x] Real settlement tracking: reports score against actual Kalshi results / Gamma resolutions,
+      falling back to a price proxy for still-open markets
+- [x] Kalshi market discovery via `/events` (curated feed; the raw `/markets` firehose is buried
+      in auto-generated MVE shard markets) + prod market data in dry-run (`read_prod`)
+- [x] CI: pytest for all three modules on every push
+- [x] `arb-scanner/`: cross-platform Polymarket↔Kalshi complement arbitrage + bundle
+      detection with fee model and suspect-match quarantine (detect-only)
+- [x] Risk gate in both engines: kill-switch file + daily realized-loss circuit breaker
+- [x] Repo Claude skills: `pre-live-gate`, `engine-health`
+- [x] Momentum generator (steady line-movement drift; complement of mean-reversion)
+- [x] Replay backtester (`python -m src.backtest` in kalshi-engine): re-runs the substrate
+      over recorded price history and Brier-scores every generator against real outcomes —
+      offline parameter tuning with no API calls
+- [x] Migrated the live order path off `py-clob-client` (archived) to the official
+      `polymarket-client` SDK — same SDK and usage pattern as sportsbot's exchange
+      client; lazily imported, adapter unit-tested with a fake client.
 - [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on
