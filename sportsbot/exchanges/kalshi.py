@@ -167,7 +167,31 @@ class KalshiClient(ExchangeClient):
                 cursor = data.get("cursor")
                 if not cursor or not data.get("markets"):
                     break
+        self._pair_event_siblings(out)
         return out
+
+    @staticmethod
+    def _pair_event_siblings(markets: list[MarketInfo]) -> None:
+        """Kalshi's no_sub_title mirrors the YES-side player instead of
+        naming the opponent, so a market parses with home == away — which
+        would make the scanner rate a player against themselves. Each match
+        event carries one market per player, so the true opponent is the
+        SIBLING market's home within the same event_ticker."""
+        by_event: dict[str, list[MarketInfo]] = {}
+        for mi in markets:
+            ev = (mi.meta or {}).get("event_ticker")
+            if ev:
+                by_event.setdefault(ev, []).append(mi)
+        for group in by_event.values():
+            if len(group) != 2:
+                continue
+            a, b = group
+            if not a.home or not b.home or a.home == b.home:
+                continue
+            if not a.away or a.away == a.home:
+                a.away = b.home
+            if not b.away or b.away == b.home:
+                b.away = a.home
 
     @staticmethod
     def _dollars(m: dict, field: str) -> Optional[float]:
@@ -192,20 +216,26 @@ class KalshiClient(ExchangeClient):
         return None
 
     def _to_market_info(self, m: dict, sport: Sport, series: str) -> MarketInfo:
-        # Kalshi sports match markets close at (or just after) game start, so
-        # close_time is the best available start proxy for the pre-match
-        # cutoff; the risk layer falls back to it when start_time is unknown.
-        close_time = self._ts(m, "close_time", "expected_expiration_time")
+        # occurrence_datetime is the scheduled match START (verified live:
+        # 2026-09-22T07:00Z for a 26SEP22 ticker). close_time and
+        # expiration_time are FAR-FUTURE legal bounds (+2 weeks — the market
+        # trades through the match), so they must never be the start proxy:
+        # the pre-match cutoff would never trigger and the bot would enter
+        # in-play. expected_expiration_time tracks the real settle window.
+        start_time = self._ts(m, "occurrence_datetime")
+        close_time = self._ts(m, "expected_expiration_time", "close_time")
         return MarketInfo(
             exchange=Exchange.KALSHI,
             market_id=m.get("ticker", ""),
             question=m.get("title", ""),
             slug=m.get("ticker", ""),
             sport=sport,
-            # yes_sub_title names the outcome the YES contract pays on.
+            # yes_sub_title names the player the YES contract pays on;
+            # no_sub_title MIRRORS it (verified live), so the true opponent
+            # is recovered by _pair_event_siblings after discovery.
             home=m.get("yes_sub_title") or m.get("subtitle") or None,
             away=m.get("no_sub_title") or None,
-            start_time=None,
+            start_time=start_time,
             close_time=close_time,
             active=m.get("status") in ("active", "open"),
             tick_size=0.01,

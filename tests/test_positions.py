@@ -321,3 +321,48 @@ def test_aggregate_open_bets():
     assert a["size"] == 100.0 and a["stake"] == 50.0
     assert abs(a["model_prob"] - 0.58) < 1e-9         # stake-weighted
     assert a["last_ts"].startswith("2026-09-17T01")   # newest for hold timer
+
+
+def test_kalshi_event_sibling_pairing():
+    """Kalshi parses home==away (no_sub_title mirrors the player); pairing
+    within an event recovers the true opponent from the sibling market."""
+    from sportsbot.core.types import Exchange, MarketInfo, Sport
+    from sportsbot.exchanges.kalshi import KalshiClient
+
+    def mi(ticker, player, event):
+        return MarketInfo(exchange=Exchange.KALSHI, market_id=ticker,
+                          question=f"Will {player} win?", slug=ticker,
+                          sport=Sport.TENNIS, home=player, away=player,
+                          meta={"event_ticker": event})
+
+    a = mi("KXATPMATCH-X-SVR", "Dalibor Svrcina", "KXATPMATCH-X")
+    b = mi("KXATPMATCH-X-SEK", "Philip Sekulic", "KXATPMATCH-X")
+    lone = mi("KXATPMATCH-Y-FOO", "Solo Player", "KXATPMATCH-Y")
+    KalshiClient._pair_event_siblings([a, b, lone])
+    assert a.home == "Dalibor Svrcina" and a.away == "Philip Sekulic"
+    assert b.home == "Philip Sekulic" and b.away == "Dalibor Svrcina"
+    assert lone.away == "Solo Player"  # unpaired: left as parsed (skipped)
+
+
+def test_kalshi_market_info_time_fields():
+    """occurrence_datetime is the match start; close_time/expiration_time
+    are far-future legal bounds and must never become the start proxy
+    (the pre-match cutoff would never trigger -> in-play entries)."""
+    from sportsbot.core.types import Sport
+    from sportsbot.exchanges.kalshi import KalshiClient
+
+    raw = {"ticker": "KXATPMATCH-26SEP22SVRSEK-SVR",
+           "title": "Dalibor Svrcina wins",
+           "yes_sub_title": "Dalibor Svrcina",
+           "no_sub_title": "Dalibor Svrcina",
+           "event_ticker": "KXATPMATCH-26SEP22SVRSEK",
+           "occurrence_datetime": "2026-09-22T07:00:00Z",
+           "expected_expiration_time": "2026-09-22T07:00:00Z",
+           "close_time": "2026-10-06T04:00:00Z",
+           "expiration_time": "2026-10-06T04:00:00Z",
+           "status": "active"}
+    client = KalshiClient(env="demo")
+    mi = client._to_market_info(raw, Sport.TENNIS, "KXATPMATCH")
+    assert mi.start_time is not None and mi.start_time.day == 22
+    assert mi.close_time is not None and mi.close_time.day == 22
+    assert mi.close_time.month == 9  # never the Oct 6 legal bound
