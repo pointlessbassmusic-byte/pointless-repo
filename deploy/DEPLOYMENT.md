@@ -85,8 +85,13 @@ or just copy it down: `scp root@YOUR_SERVER_IP:/opt/sportsbot/data/dashboard.htm
 ## The $100 sim book and the dashboard
 
 `sportsbot-sim.service` runs `config/sim.yaml` — paper mode against live
-market data, with every dollar knob scaled to a $100 bankroll (the $1,000
-defaults would put half the account in one market). `sportsbot-board.service`
+**Kalshi** market data, with every dollar knob scaled to a $100 bankroll (the
+$1,000 defaults would put half the account in one market). Kalshi rather than
+Polymarket because that is where the tradable books are: measured the same
+hour, Kalshi MLB quotes a 0.010 median spread against Polymarket's 0.94, and
+Polymarket's table-tennis books never tighten enough to trade at all
+(`docs/DASHBOARD_2026-09-22.md`). It is also the US-legal venue for real
+money. Kalshi market data is public, so the sim needs no API keys. `sportsbot-board.service`
 rebuilds `data/board.html` every minute: equity, where the money is allowed to
 go and the evidence for it, every decision including the passes and why, and
 the go-live gate.
