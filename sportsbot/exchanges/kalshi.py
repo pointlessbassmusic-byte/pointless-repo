@@ -30,7 +30,12 @@ from decimal import Decimal
 from typing import Any, Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from sportsbot.core.books import sell_levels, walk_sell
 from sportsbot.core.types import (
@@ -108,6 +113,15 @@ def kalshi_fee_per_share(price: float, fee_multiplier: float = 1.0) -> float:
     return FEE_RATE * fee_multiplier * price * (1.0 - price)
 
 
+class KalshiClientError(httpx.HTTPStatusError):
+    """A 4xx that is not a rate limit: the request itself is wrong (bad
+    ticker, bad signature, no permission). Retrying cannot change the
+    answer, so `_request` must not — five backed-off attempts per settled
+    ticker would stall the trading loop for half a minute apiece. Subclasses
+    HTTPStatusError so existing `except httpx.HTTPError` handlers still
+    catch it and keep `.response`."""
+
+
 class KalshiClient(ExchangeClient):
     exchange = Exchange.KALSHI
 
@@ -172,16 +186,30 @@ class KalshiClient(ExchangeClient):
         if resp.status_code == 429:
             # Kalshi sends no Retry-After; let tenacity back off.
             raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+        if 400 <= resp.status_code < 500:
+            raise KalshiClientError(
+                f"kalshi {resp.status_code} on {method.upper()} {path}: "
+                f"{resp.text[:200]}",
+                request=resp.request,
+                response=resp,
+            )
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 
-    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, max=10), reraise=True)
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, max=10),
+        retry=retry_if_not_exception_type(KalshiClientError),
+        reraise=True,
+    )
     def _request(self, method: str, path: str, params: dict | None = None,
                  json_body: dict | None = None, auth: bool = False) -> Any:
         """Retrying path for reads and idempotent writes (cancel). Five
         attempts: the public market endpoints 429 in bursts, and on the
         weather snapshot service a dropped series means a market's max-lead
-        first sighting is lost for good (the protocol forbids backfilling)."""
+        first sighting is lost for good (the protocol forbids backfilling).
+        4xx responses are raised straight through — they are answers, not
+        transient failures."""
         return self._request_once(method, path, params=params,
                                   json_body=json_body, auth=auth)
 
@@ -433,6 +461,31 @@ class KalshiClient(ExchangeClient):
             log.error("kalshi cancel failed: %s", exc)
             return False
 
+    @staticmethod
+    def _num(o: dict, *fields: str) -> Optional[float]:
+        """First present numeric field, Decimal-parsed. The 2026 surface
+        serves counts as `*_fp` decimal strings ("330.35"), so never float()
+        the raw value and never treat a missing field as zero."""
+        for f in fields:
+            v = o.get(f)
+            if v not in (None, ""):
+                try:
+                    return float(Decimal(str(v)))
+                except Exception:
+                    continue
+        return None
+
+    @staticmethod
+    def _order_outcome(o: dict) -> str:
+        """Which contract the order is long. Create Order V2 books in YES
+        terms with side "bid"/"ask"; some payloads still carry the outcome
+        directly as "yes"/"no". Reading a literal "yes" through the bid/ask
+        branch would invert the side, so match the vocabulary first."""
+        raw = str(o.get("outcome_side") or o.get("side") or "").lower()
+        if raw in ("yes", "no"):
+            return raw
+        return "yes" if raw == "bid" else "no"
+
     def get_open_orders(self) -> list[Order]:
         try:
             data = self._request(
@@ -443,7 +496,37 @@ class KalshiClient(ExchangeClient):
             return []
         orders = []
         for o in data.get("orders", []):
-            outcome = o.get("outcome_side") or ("yes" if o.get("side") == "bid" else "no")
+            outcome = self._order_outcome(o)
+            size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
+            remaining = self._num(o, "remaining_count_fp", "remaining_count")
+            explicit = self._num(o, "fill_count_fp", "fill_count")
+            if explicit is None:
+                taker = self._num(o, "taker_fill_count_fp", "taker_fill_count")
+                maker = self._num(o, "maker_fill_count_fp", "maker_fill_count")
+                if taker is not None or maker is not None:
+                    explicit = (taker or 0.0) + (maker or 0.0)
+            if explicit is not None:
+                filled = explicit
+            elif size is not None and remaining is not None:
+                filled = max(0.0, size - remaining)
+            else:
+                # The executor books a maker fill only when the venue reports
+                # MORE filled than it already knows, so a silent 0.0 here
+                # means a partially filled resting order is never booked:
+                # untracked exposure in live mode. Say so loudly instead.
+                filled = 0.0
+                log.warning(
+                    "kalshi order %s: no fill count in payload (keys=%s); "
+                    "fills on this resting order cannot be reconciled",
+                    o.get("order_id"), sorted(o),
+                )
+            # Price of the side we are long, in that side's own terms.
+            price = self._num(o, "yes_price_dollars" if outcome == "yes"
+                              else "no_price_dollars")
+            if price is None:
+                yes_px = self._num(o, "yes_price_dollars")
+                if yes_px is not None:
+                    price = round(1.0 - yes_px, 4)
             orders.append(
                 Order(
                     order_id=str(o.get("order_id", "")),
@@ -451,9 +534,10 @@ class KalshiClient(ExchangeClient):
                     exchange=Exchange.KALSHI,
                     market_id=o.get("ticker", ""),
                     side=Side.YES if outcome == "yes" else Side.NO,
-                    price=0.0,
-                    size=0.0,
-                    status=OrderStatus.OPEN,
+                    price=price or 0.0,
+                    size=size or 0.0,
+                    filled=filled,
+                    status=OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN,
                     raw=o,
                 )
             )
@@ -471,11 +555,17 @@ class KalshiClient(ExchangeClient):
             qty = float(Decimal(str(qty)))
             if qty == 0:
                 continue
+            # market_exposure is what the contracts cost; without it
+            # Position.cost reads 0 and any PnL derived from venue state
+            # would silently look like pure profit.
+            exposure = self._num(p, "market_exposure_dollars", "total_traded_dollars")
+            avg = round(abs(exposure) / abs(qty), 4) if exposure else 0.0
             positions.append(
                 Position(
                     market_id=p.get("ticker", ""),
                     side=Side.YES if qty > 0 else Side.NO,
                     size=abs(qty),
+                    avg_price=avg,
                 )
             )
         return positions
