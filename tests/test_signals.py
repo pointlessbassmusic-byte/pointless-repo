@@ -105,3 +105,101 @@ def test_retro_query_mapping():
     assert retro_query_for_event("mlb-lad-atl-2026-08-27") == "Dodgers Braves"
     assert retro_query_for_event("mlb-xxx-atl-2026-08-27") is None   # unknown code -> skip
     assert retro_query_for_event("will-novak-djokovic-win-the-2026-australian-open") is None
+
+
+def test_failed_series_is_reswept_not_dropped(monkeypatch, tmp_path):
+    """A 429'd series gets a second sweep: its markets' first sighting is the
+    protocol's decision point and the no-backfill rule can never rebuild it."""
+    from sportsbot.substrate_bridge.kalshi_weather import WeatherSnapshotService
+
+    svc = WeatherSnapshotService.__new__(WeatherSnapshotService)
+    svc.conn = sqlite3.connect(":memory:")
+    svc.conn.row_factory = sqlite3.Row
+    from sportsbot.substrate_bridge.kalshi_weather import SCHEMA
+    svc.conn.executescript(SCHEMA)
+    svc.series = ["KXHIGHNY", "KXHIGHMIA"]
+    svc.SERIES_PAUSE = svc.RETRY_SWEEP_PAUSE = 0.0
+    monkeypatch.setattr(svc, "_record_forecasts", lambda now: None)
+    monkeypatch.setattr(svc, "_resolve_outcomes", lambda: 0)
+
+    calls = []
+
+    class FakeClient:
+        def _request(self, method, path, params=None, **kw):
+            series = params["series_ticker"]
+            calls.append(series)
+            if series == "KXHIGHMIA" and calls.count("KXHIGHMIA") == 1:
+                raise RuntimeError("rate limited")
+            return {"markets": [{"ticker": f"{series}-T", "title": "t",
+                                 "yes_bid_dollars": "0.40",
+                                 "yes_ask_dollars": "0.44"}]}
+
+        def _dollars(self, m, key):
+            return float(m[key])
+
+        def _ts(self, m, *keys):
+            return None
+
+    svc.client = FakeClient()
+    out = svc.snapshot_once()
+    assert calls == ["KXHIGHNY", "KXHIGHMIA", "KXHIGHMIA"]   # one re-sweep
+    assert out["recorded"] == 2 and out["missing_series"] == []
+    tickers = {r[0] for r in svc.conn.execute("SELECT ticker FROM weather_snapshots")}
+    assert tickers == {"KXHIGHNY-T", "KXHIGHMIA-T"}
+
+
+def test_series_down_all_pass_is_reported_not_silent(monkeypatch):
+    """Still failing after the re-sweep → named in missing_series, so the loop
+    logs which station lost its decision-time row instead of dropping it."""
+    from sportsbot.substrate_bridge.kalshi_weather import SCHEMA, WeatherSnapshotService
+
+    svc = WeatherSnapshotService.__new__(WeatherSnapshotService)
+    svc.conn = sqlite3.connect(":memory:")
+    svc.conn.row_factory = sqlite3.Row
+    svc.conn.executescript(SCHEMA)
+    svc.series = ["KXHIGHMIA"]
+    svc.SERIES_PAUSE = svc.RETRY_SWEEP_PAUSE = 0.0
+    monkeypatch.setattr(svc, "_record_forecasts", lambda now: None)
+    monkeypatch.setattr(svc, "_resolve_outcomes", lambda: 0)
+
+    class DeadClient:
+        def _request(self, *a, **kw):
+            raise RuntimeError("rate limited")
+
+    svc.client = DeadClient()
+    assert svc.snapshot_once()["missing_series"] == ["KXHIGHMIA"]
+
+
+def test_kalshi_order_placement_never_auto_retries(monkeypatch):
+    """place_order must not resubmit: the same client_order_id sent twice
+    either duplicates the order or is rejected while the first is live
+    (ExchangeClient.place_order promises no blind resubmits)."""
+    import httpx
+
+    from sportsbot.core.types import Order, OrderType, Side
+    from sportsbot.exchanges.kalshi import KalshiClient
+
+    c = KalshiClient(env="demo")
+    monkeypatch.setattr(c, "_auth_headers", lambda *a, **kw: {})
+    attempts = {"post": 0, "get": 0}
+
+    def fake_request(method, url, params=None, json=None, headers=None):
+        attempts["post" if method == "POST" else "get"] += 1
+        req = httpx.Request(method, url)
+        return httpx.Response(429, request=req)
+
+    monkeypatch.setattr(c.http, "request", fake_request)
+
+    order = Order(market_id="KXHIGHNY-X", side=Side.YES, size=10.0,
+                  price=0.40, order_type=OrderType.LIMIT)
+    c.place_order(order)
+    assert attempts["post"] == 1          # submitted once, never resubmitted
+
+    # reads still retry — a dropped snapshot loses a decision point for good
+    import tenacity
+    monkeypatch.setattr(KalshiClient._request.retry, "wait", tenacity.wait_none())
+    try:
+        c._request("GET", "/markets")
+    except httpx.HTTPStatusError:
+        pass
+    assert attempts["get"] == 5
