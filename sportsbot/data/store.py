@@ -64,6 +64,34 @@ CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    account TEXT NOT NULL,
+    market_id TEXT NOT NULL,
+    sport TEXT,
+    title TEXT,
+    action TEXT NOT NULL,
+    side TEXT,
+    model_prob REAL,
+    market_prob REAL,
+    price REAL,
+    edge REAL,
+    stake REAL,
+    reason TEXT
+);
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    account TEXT NOT NULL,
+    cash REAL,
+    exposure REAL,
+    equity REAL,
+    realized_pnl REAL,
+    open_positions INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(account, ts);
+CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity_snapshots(account, ts);
 CREATE INDEX IF NOT EXISTS idx_bets_market ON bets(market_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_market ON market_snapshots(market_id, ts);
 """
@@ -138,6 +166,76 @@ class Store:
             )
             self.conn.commit()
 
+    def record_decision(self, account: str, market_id: str, action: str,
+                        sport: str | None = None, title: str | None = None,
+                        side: str | None = None, model_prob: float | None = None,
+                        market_prob: float | None = None, price: float | None = None,
+                        edge: float | None = None, stake: float | None = None,
+                        reason: str | None = None) -> None:
+        """One line of the bot's reasoning: what it looked at and what it did.
+
+        `action` is 'bet', 'skip' or 'exit'. Skips carry the reason they were
+        skipped — the decision feed is only honest if the passes are in it too,
+        since on a near-efficient slate almost every decision is a pass.
+        """
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO decisions (ts, account, market_id, sport, title, action,"
+                " side, model_prob, market_prob, price, edge, stake, reason)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (_now(), account, market_id, sport, title, action, side,
+                 model_prob, market_prob, price, edge, stake, reason))
+            self.conn.commit()
+
+    def prune_decisions(self, keep: int = 5000,
+                        account: str | None = None) -> int:
+        """Keep the feed bounded — a 5-minute loop over a full slate writes
+        thousands of passes a day and none are worth keeping forever.
+
+        Pruning is PER ACCOUNT: a global cap lets the sim book's thousands of
+        daily passes evict the real book's feed entirely, which is the one
+        feed you would actually want kept.
+        """
+        with self._lock:
+            if account is None:
+                accounts = [r[0] for r in self.conn.execute(
+                    "SELECT DISTINCT account FROM decisions")]
+            else:
+                accounts = [account]
+            removed = 0
+            for acct in accounts:
+                cur = self.conn.execute(
+                    "DELETE FROM decisions WHERE account=? AND id NOT IN"
+                    " (SELECT id FROM decisions WHERE account=?"
+                    "  ORDER BY id DESC LIMIT ?)", (acct, acct, keep))
+                removed += cur.rowcount
+            self.conn.commit()
+            return removed
+
+    def record_equity(self, account: str, cash: float, exposure: float,
+                      equity: float, realized_pnl: float,
+                      open_positions: int) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO equity_snapshots (ts, account, cash, exposure, equity,"
+                " realized_pnl, open_positions) VALUES (?,?,?,?,?,?,?)",
+                (_now(), account, cash, exposure, equity, realized_pnl,
+                 open_positions))
+            self.conn.commit()
+
+    def recent_decisions(self, account: str, limit: int = 60) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM decisions WHERE account=? ORDER BY id DESC LIMIT ?",
+            (account, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def equity_series(self, account: str, limit: int = 1000) -> list[dict]:
+        """Oldest-first, so it plots as a curve without the caller reversing it."""
+        rows = self.conn.execute(
+            "SELECT * FROM equity_snapshots WHERE account=? ORDER BY id DESC LIMIT ?",
+            (account, limit)).fetchall()
+        return [dict(r) for r in reversed(rows)]
+
     def record_order(self, client_id: str, order_id: str, market_id: str, side: str,
                      price: float, size: float, filled: float, status: str,
                      raw: dict | None = None) -> None:
@@ -180,13 +278,30 @@ class Store:
             " AND COALESCE(status, 'open') != 'closed'").fetchall()
         return [dict(r) for r in rows]
 
-    def settled_bets(self, limit: int = 1000) -> list[dict]:
-        """Bets with realized PnL: resolved (outcome set) or closed early."""
+    def settled_bets(self, limit: int = 1000,
+                     mode: str | None = None) -> list[dict]:
+        """Bets with realized PnL: resolved (outcome set) or closed early.
+
+        `mode` filters in SQL rather than in the caller — filtering a truncated
+        page in Python silently drops the oldest rows of the mode you wanted,
+        which for an equity total is a permanent divergence, not a display
+        glitch."""
+        sql = ("SELECT * FROM bets WHERE (outcome IS NOT NULL"
+               " OR COALESCE(status, '') = 'closed')")
+        args: list = []
+        if mode is not None:
+            sql += " AND COALESCE(mode, 'paper') = ?"
+            args.append(mode)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
+
+    def open_bets_for(self, mode: str) -> list[dict]:
+        """Open bets for one account's book (see `settled_bets`)."""
         rows = self.conn.execute(
-            "SELECT * FROM bets WHERE outcome IS NOT NULL"
-            " OR COALESCE(status, '') = 'closed' ORDER BY id DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
+            "SELECT * FROM bets WHERE outcome IS NULL"
+            " AND COALESCE(status,'') != 'closed'"
+            " AND COALESCE(mode, 'paper') = ?", (mode,)).fetchall()
         return [dict(r) for r in rows]
 
     def bets_today(self) -> list[dict]:

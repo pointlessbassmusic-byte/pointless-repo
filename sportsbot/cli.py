@@ -291,6 +291,80 @@ def weather_snapshot(config: str = CONFIG_OPT,
         console.print(svc.export_ingest_csv(export))
 
 
+@app.command("weather-score")
+def weather_score(config: str = CONFIG_OPT,
+                  db: str = typer.Option("data/weather_snapshots.sqlite")):
+    """Decision-time Brier per arm on settled weather markets: coin vs
+    climatology vs NWS forecast vs market. Offline (cached climatology)."""
+    _setup(config)
+    from rich.table import Table
+
+    from sportsbot.substrate_bridge.kalshi_weather import score_arms
+
+    res = score_arms(db)
+    for label, row in [("all settled", res["all"]),
+                       *[(f"cohort {d}", r) for d, r in res["by_day"].items()],
+                       ("NWS-covered (like-for-like)", res["nws_covered"])]:
+        if not row["n"]:
+            console.print(f"[dim]{label}: no settled rows[/dim]")
+            continue
+        t = Table(title=f"{label} — n={row['n']}, base rate {row['base_rate']:.3f}")
+        t.add_column("arm")
+        t.add_column("Brier", justify="right")
+        t.add_column("n", justify="right")
+        t.add_row("coin", f"{row['coin']:.4f}", str(row["n"]))
+        for arm in ("climatology", "nws", "market"):
+            t.add_row(arm,
+                      "—" if row[arm] is None else f"{row[arm]:.4f}",
+                      str(row[f"{arm}_n"]))
+        console.print(t)
+
+
+@app.command("board")
+def board(config: str = CONFIG_OPT,
+          out: str = typer.Option("data/board.html", help="output HTML file"),
+          refresh: int = typer.Option(60, help="page auto-refresh seconds; 0 = off"),
+          loop: int = typer.Option(0, help="rebuild every N seconds; 0 = once")):
+    """Trading dashboard: sim vs real book, equity, decisions, allocation, gate.
+
+    A view, not a control — it cannot start live trading (that still needs
+    `mode: live` plus SPORTSBOT_LIVE=1 on the host). Offline; no orders."""
+    import time as _time
+
+    from sportsbot.dashboard import build
+    from sportsbot.data.store import Store
+
+    cfg = _setup(config)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    while True:
+        console.print(build(cfg, store, out, refresh=refresh))
+        if loop <= 0:
+            break
+        _time.sleep(max(5, loop))
+
+
+@app.command("verify-fees")
+def verify_fees(config: str = CONFIG_OPT,
+                note: str = typer.Option(..., help="what you traded and the fee you saw")):
+    """Record that you verified venue fees with one tiny manual trade — the
+    go-live criterion that cannot be measured from the database."""
+    import time as _time
+
+    from datetime import datetime, timezone
+
+    from sportsbot.bot.gate import FEES_VERIFIED_KEY
+    from sportsbot.data.store import Store
+
+    cfg = _setup(config)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+
+    store.set_kv(FEES_VERIFIED_KEY, {
+        "verified": True, "note": note,
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "epoch": _time.time()})
+    console.print(f"[green]fees verified[/green]: {note}")
+
+
 def _write_ops_json(cfg: dict, store, path: str) -> None:
     """Bot-operations summary (mirrors `sportsbot status`) for the dashboard's
     ops panel."""

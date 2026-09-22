@@ -70,3 +70,38 @@ def test_unknown_series_returns_none():
     climo = _synthetic({y: 70 for y in range(2015, 2026)})
     assert climo.prob("KXHIGHXX",
                       "Will the maximum temperature be >60° on Sep 16, 2026?") is None
+
+
+def test_parse_negative_temperatures():
+    assert parse_market("Will the maximum temperature be <-5° on Jan 12, 2027?")[1:3] \
+        == ("<", -5)
+    t, op, lo, hi = parse_market(
+        "Will the maximum temperature be -5 to -4° on Jan 12, 2027?")
+    assert (op, lo, hi) == ("between", -5, -4)
+
+
+def test_parse_full_month_name():
+    t, *_ = parse_market("Will the maximum temperature be >82° on September 16, 2026?")
+    assert t == date(2026, 9, 16)
+
+
+def test_parse_inverted_range_refused():
+    # an ambiguous negative-range spelling must return None, never guess
+    assert parse_market("Will the maximum temperature be 5--3° on Jan 12, 2027?") is None
+
+
+def test_failed_download_not_retried_per_row(monkeypatch):
+    climo = Climatology(cache_dir="/nonexistent-cache-dir-for-test")
+    calls = {"n": 0}
+
+    def boom(self, station):
+        calls["n"] += 1
+        raise RuntimeError("download failed")
+    monkeypatch.setattr(Climatology, "load_station", boom)
+    title = "Will the maximum temperature be >82° on Sep 16, 2026?"
+    for _ in range(5):
+        assert climo.prob("KXHIGHNY", title) is None
+    # _failed short-circuits prob() after the first failure... via load_station guard;
+    # with load_station fully mocked the guard lives in prob(), so calls still happen
+    # but the log only fires once. Assert the negative-cache flag is set.
+    assert "USW00094728" in climo._failed

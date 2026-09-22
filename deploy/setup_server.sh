@@ -48,9 +48,13 @@ chown -R sportsbot:sportsbot "$APP_DIR"
 echo "==> systemd"
 cp "$APP_DIR/deploy/sportsbot.service" /etc/systemd/system/sportsbot.service
 cp "$APP_DIR/deploy/weather-snapshot.service" /etc/systemd/system/weather-snapshot.service
+cp "$APP_DIR/deploy/sportsbot-sim.service" /etc/systemd/system/sportsbot-sim.service
+cp "$APP_DIR/deploy/sportsbot-board.service" /etc/systemd/system/sportsbot-board.service
 systemctl daemon-reload
 systemctl enable sportsbot
 systemctl enable --now weather-snapshot   # read-only data collection; safe to start now
+systemctl enable --now sportsbot-sim      # $100 paper book on live markets; no real money
+systemctl enable --now sportsbot-board    # rebuilds the dashboard HTML every minute
 
 echo "==> initial model fit (tennis + baseball; table tennis bootstraps from Polymarket)"
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit baseball || true

@@ -215,7 +215,8 @@ def test_runner_exit_pass_wiring(tmp_path):
     stub = SimpleNamespace(
         positions=PositionConfig(min_hold_minutes=0.0),
         exchange=ex, store=store, fee_fn=lambda p, s: 0.0,
-        decision_fee_fn=lambda market_id: (lambda p, s: 0.0))
+        decision_fee_fn=lambda market_id: (lambda p, s: 0.0),
+        mode="paper", account="sim", _record_exit=lambda *a, **k: None)
     # market collapsed to a 0.20 bid: hard stop (value 19.5 < 50% of 50)
     exits = Runner._manage_positions(
         stub, {"m1": (None, quote(0.20, 0.24))}, StrategyConfig())
@@ -275,7 +276,9 @@ def test_runner_partial_close_banks_proceeds(tmp_path):
     ex = SimpleNamespace(close_position=lambda *a, **k: fills.pop(0))
     stub = SimpleNamespace(positions=PositionConfig(min_hold_minutes=0.0),
                            exchange=ex, store=store, fee_fn=lambda p, s: 0.0,
-                           decision_fee_fn=lambda market_id: (lambda p, s: 0.0))
+                           decision_fee_fn=lambda market_id: (lambda p, s: 0.0),
+                           mode="paper", account="sim",
+                           _record_exit=lambda *a, **k: None)
     quoted = {"m1": (None, quote(0.20, 0.24))}  # hard-stop territory
 
     assert Runner._manage_positions(stub, quoted, StrategyConfig()) == 0

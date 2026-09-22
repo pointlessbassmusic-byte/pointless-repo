@@ -64,6 +64,10 @@ CREATE INDEX IF NOT EXISTS idx_wf_series_date ON weather_forecasts(series, targe
 
 
 class WeatherSnapshotService:
+    # Pacing for the public market endpoints, which 429 in bursts.
+    SERIES_PAUSE = 1.5
+    RETRY_SWEEP_PAUSE = 10.0
+
     def __init__(self, client: Optional[KalshiClient] = None,
                  db_path: str = "data/weather_snapshots.sqlite",
                  series: Optional[list[str]] = None) -> None:
@@ -78,38 +82,70 @@ class WeatherSnapshotService:
     # ------------------------------------------------------------------
     def snapshot_once(self) -> dict:
         """One pass over all series: record open-market quotes, settle
-        previously tracked tickers. Returns a summary."""
+        previously tracked tickers. Returns a summary.
+
+        Requests are paced apart and series that still fail get one re-sweep.
+        A market's FIRST sighting is the protocol's decision point and the
+        no-backfill rule forbids reconstructing it later, so a series dropped
+        from a pass (Kalshi 429s these public endpoints in bursts) costs that
+        station's max-lead snapshot permanently.
+        """
         recorded = 0
         now = time.time()
         self._record_forecasts(now)   # BEFORE market rows: forecast ts <= snapshot ts
-        for series in self.series:
-            try:
-                data = self.client._request(
-                    "GET", f"{API_ROOT}/markets",
-                    params={"series_ticker": series, "status": "open",
-                            "mve_filter": "exclude", "limit": 200},
-                )
-            except Exception as exc:
-                log.warning("weather snapshot failed for %s: %s", series, exc)
-                continue
-            for m in data.get("markets", []):
-                bid = self.client._dollars(m, "yes_bid_dollars")
-                ask = self.client._dollars(m, "yes_ask_dollars")
-                close = self.client._ts(m, "close_time", "expected_expiration_time")
-                try:
-                    self.conn.execute(
-                        "INSERT OR IGNORE INTO weather_snapshots"
-                        " (ts, ticker, series, title, yes_bid, yes_ask, close_ts)"
-                        " VALUES (?,?,?,?,?,?,?)",
-                        (now, m.get("ticker"), series, m.get("title"),
-                         bid, ask, close.timestamp() if close else None),
-                    )
-                    recorded += 1
-                except sqlite3.Error:
-                    log.exception("snapshot insert failed")
+
+        pending, failed = list(self.series), []
+        for series in pending:
+            recorded += self._snapshot_series(series, now, failed)
+            time.sleep(self.SERIES_PAUSE)
+
+        missing: list[str] = []
+        if failed:
+            log.info("weather snapshot: re-sweeping %s", failed)
+            time.sleep(self.RETRY_SWEEP_PAUSE)
+            for series in failed:
+                recorded += self._snapshot_series(series, now, missing)
+                time.sleep(self.SERIES_PAUSE)
+        if missing:
+            log.warning("weather snapshot: no decision-time rows for %s "
+                        "(max-lead sighting lost for this pass)", missing)
+
         self.conn.commit()
         settled = self._resolve_outcomes()
-        return {"recorded": recorded, "settled": settled}
+        return {"recorded": recorded, "settled": settled, "missing_series": missing}
+
+    def _snapshot_series(self, series: str, now: float,
+                         failed: list[str]) -> int:
+        """Record one series' open markets, appending to `failed` instead of
+        raising so one unreachable station never costs the rest of the pass."""
+        try:
+            data = self.client._request(
+                "GET", f"{API_ROOT}/markets",
+                params={"series_ticker": series, "status": "open",
+                        "mve_filter": "exclude", "limit": 200},
+            )
+        except Exception as exc:  # noqa: BLE001 — one station down != no pass
+            log.warning("weather snapshot failed for %s: %s", series, exc)
+            failed.append(series)
+            return 0
+        recorded = 0
+        for m in data.get("markets", []):
+            bid = self.client._dollars(m, "yes_bid_dollars")
+            ask = self.client._dollars(m, "yes_ask_dollars")
+            close = self.client._ts(m, "close_time", "expected_expiration_time")
+            try:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO weather_snapshots"
+                    " (ts, ticker, series, title, yes_bid, yes_ask, close_ts)"
+                    " VALUES (?,?,?,?,?,?,?)",
+                    (now, m.get("ticker"), series, m.get("title"),
+                     bid, ask, close.timestamp() if close else None),
+                )
+                recorded += 1
+            except sqlite3.Error:
+                log.exception("snapshot insert failed")
+        self.conn.commit()
+        return recorded
 
     def _record_forecasts(self, now: float) -> None:
         """Record NWS point-forecast highs for each series' settlement station.
@@ -241,3 +277,90 @@ class WeatherSnapshotService:
                 written += 1
         return {"rows": written, "path": out_path,
                 "nws_rows": nws_rows, "climatology_rows": climo_rows}
+
+
+def score_arms(db_path: str = "data/weather_snapshots.sqlite") -> dict:
+    """Decision-time Brier per arm on settled weather markets — the substrate's
+    triple-null hierarchy (coin / conventional / market) with the NWS forecast
+    arm kept separate instead of collapsed into `export_ingest_csv`'s single
+    priority-ordered baseline_prob.
+
+    Every arm is scored at the SAME decision point (each ticker's max-lead
+    first sighting) under the same no-backfill rule, so the comparison is
+    like-for-like. `nws_covered` is the subset where a decision-time forecast
+    existed — the only cohort where NWS vs climatology is a fair contest.
+    """
+    from datetime import datetime, timezone
+
+    from sportsbot.substrate_bridge.climatology import Climatology, parse_market
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    climo = Climatology()
+    try:
+        from sportsbot.signals.nws import prob_from_high, sigma_for_lead
+    except ImportError:
+        prob_from_high = None
+
+    def nws_prob(series, title, first_ts):
+        if prob_from_high is None:
+            return None
+        parsed = parse_market(title)
+        if parsed is None:
+            return None
+        row = conn.execute(
+            "SELECT forecast_high FROM weather_forecasts"
+            " WHERE series=? AND target_date=? AND ts <= ?"
+            " ORDER BY ts ASC LIMIT 1",
+            (series, parsed[0].isoformat(), first_ts + 1.0)).fetchone()
+        if row is None:
+            return None
+        lead = (datetime.combine(parsed[0], datetime.min.time(),
+                                 tzinfo=timezone.utc).timestamp() - first_ts) / 86400.0
+        return prob_from_high(title, float(row["forecast_high"]),
+                              sigma=sigma_for_lead(lead))
+
+    recs = []
+    for r in conn.execute(
+        """SELECT s.ticker, s.series, s.title, MIN(s.ts) AS first_ts,
+                  o.outcome, o.settled_ts
+           FROM weather_snapshots s
+           LEFT JOIN weather_outcomes o ON o.ticker = s.ticker
+           GROUP BY s.ticker"""
+    ).fetchall():
+        if r["outcome"] is None:
+            continue
+        snap = conn.execute(
+            "SELECT yes_bid, yes_ask FROM weather_snapshots WHERE ticker=? AND ts=?",
+            (r["ticker"], r["first_ts"])).fetchone()
+        if snap is None or snap["yes_bid"] is None or snap["yes_ask"] is None:
+            continue
+        recs.append({
+            "ticker": r["ticker"],
+            "day": datetime.fromtimestamp(r["settled_ts"] or r["first_ts"],
+                                          timezone.utc).date().isoformat(),
+            "market": (snap["yes_bid"] + snap["yes_ask"]) / 2.0,
+            "nws": nws_prob(r["series"], r["title"], r["first_ts"]),
+            "climatology": climo.prob(r["series"], r["title"]),
+            "outcome": int(r["outcome"]),
+        })
+
+    def briers(rows: list[dict]) -> dict:
+        out = {"n": len(rows)}
+        if not rows:
+            return out
+        out["base_rate"] = sum(x["outcome"] for x in rows) / len(rows)
+        out["coin"] = sum((0.5 - x["outcome"]) ** 2 for x in rows) / len(rows)
+        for arm in ("climatology", "nws", "market"):
+            vals = [(x[arm] - x["outcome"]) ** 2 for x in rows if x[arm] is not None]
+            out[arm] = sum(vals) / len(vals) if vals else None
+            out[f"{arm}_n"] = len(vals)
+        return out
+
+    covered = [x for x in recs if x["nws"] is not None]
+    return {
+        "all": briers(recs),
+        "by_day": {d: briers([x for x in recs if x["day"] == d])
+                   for d in sorted({x["day"] for x in recs})},
+        "nws_covered": briers(covered),
+    }

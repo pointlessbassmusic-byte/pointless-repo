@@ -160,9 +160,12 @@ class KalshiClient(ExchangeClient):
             "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
         }
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, max=8), reraise=True)
-    def _request(self, method: str, path: str, params: dict | None = None,
-                 json_body: dict | None = None, auth: bool = False) -> Any:
+    def _request_once(self, method: str, path: str, params: dict | None = None,
+                      json_body: dict | None = None, auth: bool = False) -> Any:
+        """Single attempt, no retry. Order submission uses this directly: a
+        resubmit of the same client_order_id after a timeout either duplicates
+        the order or comes back rejected while the first attempt is live, and
+        `ExchangeClient.place_order` promises no blind resubmits."""
         url = f"{self.base}{path}"
         headers = self._auth_headers(method, path) if auth else {}
         resp = self.http.request(method, url, params=params, json=json_body, headers=headers)
@@ -171,6 +174,16 @@ class KalshiClient(ExchangeClient):
             raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
         resp.raise_for_status()
         return resp.json() if resp.content else {}
+
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, max=10), reraise=True)
+    def _request(self, method: str, path: str, params: dict | None = None,
+                 json_body: dict | None = None, auth: bool = False) -> Any:
+        """Retrying path for reads and idempotent writes (cancel). Five
+        attempts: the public market endpoints 429 in bursts, and on the
+        weather snapshot service a dropped series means a market's max-lead
+        first sighting is lost for good (the protocol forbids backfilling)."""
+        return self._request_once(method, path, params=params,
+                                  json_body=json_body, auth=auth)
 
     # ------------------------------------------------------------------
     # Discovery / quotes (public)
@@ -351,7 +364,7 @@ class KalshiClient(ExchangeClient):
             "self_trade_prevention_type": "maker",
         }
         try:
-            resp = self._request(
+            resp = self._request_once(
                 "POST", f"{API_ROOT}/portfolio/events/orders", json_body=body, auth=True
             )
             payload = resp.get("order", resp)
