@@ -48,7 +48,7 @@ STATIONS = {
 # "Will the maximum temperature be >82° on Sep 16, 2026?"
 # "... be <75° on ..."   "... be 81-82° on ..."
 _TITLE_RE = re.compile(
-    r"be\s*(?P<op>[<>])?\s*(?P<lo>\d+)(?:-(?P<hi>\d+))?°\s*on\s*"
+    r"be\s*(?P<op>[<>])?\s*(?P<lo>-?\d+)(?:\s*(?:-|to)\s*(?P<hi>-?\d+))?°\s*on\s*"
     r"(?P<date>[A-Za-z]+ \d{1,2}, \d{4})")
 
 
@@ -59,13 +59,21 @@ def parse_market(title: str) -> Optional[tuple[date, str, int, int]]:
     m = _TITLE_RE.search(title or "")
     if not m:
         return None
-    try:
-        target = datetime.strptime(m.group("date"), "%b %d, %Y").date()
-    except ValueError:
+    target = None
+    for fmt in ("%b %d, %Y", "%B %d, %Y"):
+        try:
+            target = datetime.strptime(m.group("date"), fmt).date()
+            break
+        except ValueError:
+            continue
+    if target is None:
         return None
     lo = int(m.group("lo"))
     if m.group("hi") is not None:
-        return target, "between", lo, int(m.group("hi"))
+        hi = int(m.group("hi"))
+        if hi < lo:
+            return None      # ambiguous negative-range form — refuse, never guess
+        return target, "between", lo, hi
     op = m.group("op")
     if op not in (">", "<"):
         return None
@@ -83,9 +91,12 @@ def _satisfies(tmax: int, op: str, lo: int, hi: int) -> bool:
 class Climatology:
     """Loads (and caches) station TMAX history; answers market probabilities."""
 
+    CACHE_MAX_AGE_DAYS = 30   # refetch so later target years see recent obs
+
     def __init__(self, cache_dir: str = CACHE_DIR):
         self.cache_dir = cache_dir
         self._records: dict[str, dict[str, int]] = {}   # station -> {iso date: tmax}
+        self._failed: set[str] = set()                   # one download attempt per process
 
     # -- data --------------------------------------------------------------
     def _cache_path(self, station: str) -> str:
@@ -94,11 +105,17 @@ class Climatology:
     def load_station(self, station: str) -> dict[str, int]:
         if station in self._records:
             return self._records[station]
+        if station in self._failed:
+            raise RuntimeError(f"climatology download already failed for {station}")
         path = self._cache_path(station)
         if os.path.exists(path):
-            with open(path) as fh:
-                self._records[station] = {k: int(v) for k, v in json.load(fh).items()}
-            return self._records[station]
+            import time as _time
+            fresh = (_time.time() - os.path.getmtime(path)) < self.CACHE_MAX_AGE_DAYS * 86400
+            if fresh:
+                with open(path) as fh:
+                    self._records[station] = {k: int(v) for k, v in json.load(fh).items()}
+                return self._records[station]
+            log.info("climatology: cache for %s is stale — refreshing", station)
         log.info("climatology: downloading TMAX history for %s", station)
         resp = httpx.get(NCEI_URL, params={
             "dataset": "daily-summaries", "stations": station,
@@ -134,7 +151,9 @@ class Climatology:
         try:
             records = self.load_station(station)
         except Exception:  # noqa: BLE001 — network/cache failure = no baseline, never a crash
-            log.exception("climatology load failed for %s", station)
+            if station not in self._failed:
+                log.exception("climatology load failed for %s", station)
+            self._failed.add(station)
             return None
 
         target_doy = target.timetuple().tm_yday
