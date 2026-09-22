@@ -1,0 +1,352 @@
+{
+ "n_paths": 604,
+ "base_rate_win": 0.5,
+ "hold_mean_pnl": -0.0399,
+ "by_sport": {
+  "mlb": 240,
+  "table_tennis": 212,
+  "tennis": 152
+ },
+ "grid": [
+  {
+   "stop": null,
+   "edge": -0.03,
+   "n": 604,
+   "mean_delta": 0.1265,
+   "exit_rate": 0.707,
+   "loser_delta": 0.7136,
+   "winner_delta": -0.4607,
+   "saves": 141,
+   "whipsaws": 286
+  },
+  {
+   "stop": null,
+   "edge": -0.05,
+   "n": 604,
+   "mean_delta": 0.1191,
+   "exit_rate": 0.6159,
+   "loser_delta": 0.5908,
+   "winner_delta": -0.3526,
+   "saves": 105,
+   "whipsaws": 267
+  },
+  {
+   "stop": null,
+   "edge": -0.08,
+   "n": 604,
+   "mean_delta": 0.0504,
+   "exit_rate": 0.4421,
+   "loser_delta": 0.2829,
+   "winner_delta": -0.1821,
+   "saves": 46,
+   "whipsaws": 221
+  },
+  {
+   "stop": 0.3,
+   "edge": null,
+   "n": 604,
+   "mean_delta": -0.043,
+   "exit_rate": 0.4139,
+   "loser_delta": 0.1376,
+   "winner_delta": -0.2236,
+   "saves": 215,
+   "whipsaws": 35
+  },
+  {
+   "stop": 0.3,
+   "edge": -0.03,
+   "n": 604,
+   "mean_delta": 0.0353,
+   "exit_rate": 0.9189,
+   "loser_delta": 0.6648,
+   "winner_delta": -0.5943,
+   "saves": 266,
+   "whipsaws": 289
+  },
+  {
+   "stop": 0.3,
+   "edge": -0.05,
+   "n": 604,
+   "mean_delta": 0.0251,
+   "exit_rate": 0.8692,
+   "loser_delta": 0.5552,
+   "winner_delta": -0.5051,
+   "saves": 254,
+   "whipsaws": 271
+  },
+  {
+   "stop": 0.3,
+   "edge": -0.08,
+   "n": 604,
+   "mean_delta": 0.0059,
+   "exit_rate": 0.7715,
+   "loser_delta": 0.3894,
+   "winner_delta": -0.3777,
+   "saves": 237,
+   "whipsaws": 229
+  },
+  {
+   "stop": 0.5,
+   "edge": null,
+   "n": 604,
+   "mean_delta": -0.0637,
+   "exit_rate": 0.5414,
+   "loser_delta": 0.2829,
+   "winner_delta": -0.4103,
+   "saves": 256,
+   "whipsaws": 71
+  },
+  {
+   "stop": 0.5,
+   "edge": -0.03,
+   "n": 604,
+   "mean_delta": 0.0187,
+   "exit_rate": 0.9553,
+   "loser_delta": 0.724,
+   "winner_delta": -0.6867,
+   "saves": 283,
+   "whipsaws": 294
+  },
+  {
+   "stop": 0.5,
+   "edge": -0.05,
+   "n": 604,
+   "mean_delta": 0.008,
+   "exit_rate": 0.9172,
+   "loser_delta": 0.6325,
+   "winner_delta": -0.6166,
+   "saves": 276,
+   "whipsaws": 278
+  },
+  {
+   "stop": 0.5,
+   "edge": -0.08,
+   "n": 604,
+   "mean_delta": -0.0141,
+   "exit_rate": 0.8311,
+   "loser_delta": 0.4968,
+   "winner_delta": -0.5251,
+   "saves": 266,
+   "whipsaws": 236
+  },
+  {
+   "stop": 0.7,
+   "edge": null,
+   "n": 604,
+   "mean_delta": -0.1137,
+   "exit_rate": 0.7103,
+   "loser_delta": 0.4577,
+   "winner_delta": -0.6851,
+   "saves": 278,
+   "whipsaws": 151
+  },
+  {
+   "stop": 0.7,
+   "edge": -0.03,
+   "n": 604,
+   "mean_delta": -0.0046,
+   "exit_rate": 0.9719,
+   "loser_delta": 0.7804,
+   "winner_delta": -0.7895,
+   "saves": 290,
+   "whipsaws": 297
+  },
+  {
+   "stop": 0.7,
+   "edge": -0.05,
+   "n": 604,
+   "mean_delta": -0.028,
+   "exit_rate": 0.957,
+   "loser_delta": 0.727,
+   "winner_delta": -0.783,
+   "saves": 287,
+   "whipsaws": 291
+  },
+  {
+   "stop": 0.7,
+   "edge": -0.08,
+   "n": 604,
+   "mean_delta": -0.0629,
+   "exit_rate": 0.9222,
+   "loser_delta": 0.6349,
+   "winner_delta": -0.7607,
+   "saves": 285,
+   "whipsaws": 272
+  }
+ ],
+ "grid_prestart": [
+  {
+   "stop": null,
+   "edge": -0.03,
+   "n": 594,
+   "mean_delta": 0.0401,
+   "exit_rate": 0.2088,
+   "loser_delta": 0.2009,
+   "winner_delta": -0.1207,
+   "saves": 42,
+   "whipsaws": 82
+  },
+  {
+   "stop": null,
+   "edge": -0.05,
+   "n": 594,
+   "mean_delta": 0.0324,
+   "exit_rate": 0.1094,
+   "loser_delta": 0.1176,
+   "winner_delta": -0.0527,
+   "saves": 22,
+   "whipsaws": 43
+  },
+  {
+   "stop": null,
+   "edge": -0.08,
+   "n": 594,
+   "mean_delta": 0.0084,
+   "exit_rate": 0.0556,
+   "loser_delta": 0.0403,
+   "winner_delta": -0.0235,
+   "saves": 7,
+   "whipsaws": 26
+  },
+  {
+   "stop": 0.3,
+   "edge": null,
+   "n": 594,
+   "mean_delta": -0.0027,
+   "exit_rate": 0.0926,
+   "loser_delta": 0.0317,
+   "winner_delta": -0.0371,
+   "saves": 49,
+   "whipsaws": 6
+  },
+  {
+   "stop": 0.3,
+   "edge": -0.03,
+   "n": 594,
+   "mean_delta": 0.0369,
+   "exit_rate": 0.2997,
+   "loser_delta": 0.2316,
+   "winner_delta": -0.1578,
+   "saves": 90,
+   "whipsaws": 88
+  },
+  {
+   "stop": 0.3,
+   "edge": -0.05,
+   "n": 594,
+   "mean_delta": 0.0292,
+   "exit_rate": 0.2003,
+   "loser_delta": 0.1483,
+   "winner_delta": -0.0899,
+   "saves": 70,
+   "whipsaws": 49
+  },
+  {
+   "stop": 0.3,
+   "edge": -0.08,
+   "n": 594,
+   "mean_delta": 0.0057,
+   "exit_rate": 0.1481,
+   "loser_delta": 0.0721,
+   "winner_delta": -0.0606,
+   "saves": 56,
+   "whipsaws": 32
+  },
+  {
+   "stop": 0.5,
+   "edge": null,
+   "n": 594,
+   "mean_delta": -0.0228,
+   "exit_rate": 0.133,
+   "loser_delta": 0.0624,
+   "winner_delta": -0.108,
+   "saves": 62,
+   "whipsaws": 17
+  },
+  {
+   "stop": 0.5,
+   "edge": -0.03,
+   "n": 594,
+   "mean_delta": 0.0169,
+   "exit_rate": 0.3367,
+   "loser_delta": 0.2604,
+   "winner_delta": -0.2266,
+   "saves": 102,
+   "whipsaws": 98
+  },
+  {
+   "stop": 0.5,
+   "edge": -0.05,
+   "n": 594,
+   "mean_delta": 0.0098,
+   "exit_rate": 0.2391,
+   "loser_delta": 0.1787,
+   "winner_delta": -0.1592,
+   "saves": 83,
+   "whipsaws": 59
+  },
+  {
+   "stop": 0.5,
+   "edge": -0.08,
+   "n": 594,
+   "mean_delta": -0.0137,
+   "exit_rate": 0.1869,
+   "loser_delta": 0.1028,
+   "winner_delta": -0.1302,
+   "saves": 69,
+   "whipsaws": 42
+  },
+  {
+   "stop": 0.7,
+   "edge": null,
+   "n": 594,
+   "mean_delta": -0.0552,
+   "exit_rate": 0.2424,
+   "loser_delta": 0.1497,
+   "winner_delta": -0.26,
+   "saves": 93,
+   "whipsaws": 51
+  },
+  {
+   "stop": 0.7,
+   "edge": -0.03,
+   "n": 594,
+   "mean_delta": -0.0181,
+   "exit_rate": 0.4394,
+   "loser_delta": 0.3378,
+   "winner_delta": -0.374,
+   "saves": 130,
+   "whipsaws": 131
+  },
+  {
+   "stop": 0.7,
+   "edge": -0.05,
+   "n": 594,
+   "mean_delta": -0.0229,
+   "exit_rate": 0.3485,
+   "loser_delta": 0.2653,
+   "winner_delta": -0.3112,
+   "saves": 114,
+   "whipsaws": 93
+  },
+  {
+   "stop": 0.7,
+   "edge": -0.08,
+   "n": 594,
+   "mean_delta": -0.0461,
+   "exit_rate": 0.2963,
+   "loser_delta": 0.19,
+   "winner_delta": -0.2822,
+   "saves": 100,
+   "whipsaws": 76
+  }
+ ],
+ "production": {
+  "stop": 0.5,
+  "edge": -0.05
+ },
+ "caveats": [
+  "no-skill entry proxy: deltas are insurance bounds, not edge",
+  "grid (all ticks) assumes fills at printed in-play prices \u2014 optimistic during score jumps; grid_prestart is fill-realistic but only covers records with a known game start"
+ ]
+}

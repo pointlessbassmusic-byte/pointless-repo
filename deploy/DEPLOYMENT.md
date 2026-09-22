@@ -42,6 +42,7 @@ Then:
 | refresh ratings (cron this daily) | `... sportsbot fit baseball && ... fit tennis && ... fit table_tennis` |
 | backtest | `... sportsbot backtest tennis` |
 | reset kill switch after review | `... sportsbot reset-kill-switch` |
+| go-live preflight | `... sportsbot doctor` — config/gate/DB/ratings age/keys/venues/clock; exits non-zero on FAIL |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
 | weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
