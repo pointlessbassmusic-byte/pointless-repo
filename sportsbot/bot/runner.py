@@ -41,6 +41,10 @@ from sportsbot.engine.tennis import TennisModel
 
 log = logging.getLogger(__name__)
 
+# How many distinct drop reasons to name per feed row before
+# collapsing the rest into a count.
+_DROP_EXAMPLES = 3
+
 SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
               "table_tennis": Sport.TABLE_TENNIS}
 
@@ -478,20 +482,38 @@ class Runner:
     def _record_scan_drops(self, drops: list) -> None:
         """Put the scanner's funnel loss in the decision feed, AGGREGATED.
 
-        One row per (sport, reason), not per market. A slate where a model
-        is unfit drops every market in that sport -- writing them
-        individually would be a few hundred identical rows per cycle, and
-        since the dashboard renders the most recent decisions, they would
-        evict every real bet and skip from the feed within one cycle. The
-        count carries the same information without destroying the view.
+        One row per (sport, category), never one per market. The dashboard
+        renders the most recent decisions, and the drop counts here are
+        large: an unfit model loses every market in its sport, and a slate
+        whose players are mostly unrated loses two markets per player.
+        Written individually those would evict every real bet and skip from
+        the feed within a single cycle, breaking the view this exists to
+        improve.
+
+        Grouping is on `category` rather than `reason` because the reason
+        names the specific player or market — grouping on it would put a
+        row per unrated player back in the feed. The specifics are not lost:
+        a few are carried as examples, with a count for the rest.
         """
         if not drops:
             return
-        grouped: dict[tuple[str, str], int] = {}
+        grouped: dict[tuple[str, str], list] = {}
         for d in drops:
             sport = d.market.sport.value if d.market.sport else "unknown"
-            grouped[(sport, d.reason)] = grouped.get((sport, d.reason), 0) + 1
-        for (sport, reason), n in sorted(grouped.items(), key=lambda kv: -kv[1]):
+            grouped.setdefault((sport, d.category), []).append(d)
+        for (sport, category), group in sorted(grouped.items(),
+                                               key=lambda kv: -len(kv[1])):
+            n = len(group)
+            seen: list[str] = []
+            for d in group:
+                if d.reason not in seen:
+                    seen.append(d.reason)
+                if len(seen) == _DROP_EXAMPLES:
+                    break
+            detail = "; ".join(seen)
+            extra = len({d.reason for d in group}) - len(seen)
+            if extra > 0:
+                detail += f"; and {extra} more"
             try:
                 self.store.record_decision(
                     account=self.account,
@@ -502,7 +524,7 @@ class Runner:
                     sport=sport,
                     title=f"{n} {sport} market{'s' if n != 1 else ''} not scanned",
                     action="skip",
-                    reason=f"dropped before pricing: {reason}",
+                    reason=f"dropped before pricing — {category}: {detail}",
                 )
             except Exception:
                 log.exception("scan-drop record failed")

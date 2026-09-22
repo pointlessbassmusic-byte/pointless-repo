@@ -42,6 +42,11 @@ class ScanDrop:
 
     market: MarketInfo
     reason: str
+    # A stable, low-cardinality label for grouping in the decision feed.
+    # `reason` names the specific market or player, so it cannot be the
+    # group key: a slate with 48 unrated players would produce 48 rows and
+    # crowd out the bets the feed exists to show.
+    category: str
 
 
 class Scanner:
@@ -78,10 +83,10 @@ class Scanner:
         warned_unfit: set[str] = set()
         for m in markets:
             if m.sport is None or m.sport not in self.models:
-                drops.append(ScanDrop(m, "no model loaded for this sport"))
+                drops.append(ScanDrop(m, "no model loaded for this sport", "no model"))
                 continue
             if not m.home or not m.away:
-                drops.append(ScanDrop(m, "market names no participants"))
+                drops.append(ScanDrop(m, "market names no participants", "no participants"))
                 continue
             model = self.models[m.sport]
             candidates = self._rated_entities(model)
@@ -92,7 +97,7 @@ class Scanner:
                                 "markets this cycle (run `sportsbot fit`)", model.name)
                 drops.append(ScanDrop(
                     m, f"model {model.name} has no rated entities "
-                       f"— run `sportsbot fit`"))
+                       f"— run `sportsbot fit`", "model unfit"))
                 continue
             home = match_entity(m.home, candidates, self.match_threshold)
             away = match_entity(m.away, candidates, self.match_threshold)
@@ -100,11 +105,12 @@ class Scanner:
                 unmatched = m.home if home is None else m.away
                 drops.append(ScanDrop(
                     m, f"{unmatched!r} not matched to any rated entity "
-                       f"(unmatched = skip, by design)"))
+                       f"(unmatched = skip, by design)", "entity unrated"))
                 continue
             if home == away:
                 drops.append(ScanDrop(
-                    m, f"both sides matched the same rated entity ({home!r})"))
+                    m, f"both sides matched the same rated entity ({home!r})",
+                    "degenerate pairing"))
                 continue
             context = dict((extra_context or {}).get(m.market_id, {}))
 
@@ -133,7 +139,7 @@ class Scanner:
                 pred = model.predict(event)
             except Exception:
                 log.exception("prediction failed for %s", m.market_id)
-                drops.append(ScanDrop(m, "model raised while predicting"))
+                drops.append(ScanDrop(m, "model raised while predicting", "prediction error"))
                 continue
             if not yes_is_home:      # restate for the YES side
                 pred.prob_yes = 1.0 - pred.prob_yes

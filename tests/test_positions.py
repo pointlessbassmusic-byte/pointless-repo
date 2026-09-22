@@ -343,10 +343,15 @@ def test_kalshi_event_sibling_pairing():
     a = mi("KXATPMATCH-X-SVR", "Dalibor Svrcina", "KXATPMATCH-X")
     b = mi("KXATPMATCH-X-SEK", "Philip Sekulic", "KXATPMATCH-X")
     lone = mi("KXATPMATCH-Y-FOO", "Solo Player", "KXATPMATCH-Y")
-    KalshiClient._pair_event_siblings([a, b, lone])
-    assert a.home == "Dalibor Svrcina" and a.away == "Philip Sekulic"
-    assert b.home == "Philip Sekulic" and b.away == "Dalibor Svrcina"
-    assert lone.away == "Solo Player"  # unpaired: left as parsed (skipped)
+    out = KalshiClient._pair_event_opponents([a, b, lone], Sport.TENNIS)
+    paired = {m.market_id: m for m in out}
+    assert paired["KXATPMATCH-X-SVR"].home == "Dalibor Svrcina"
+    assert paired["KXATPMATCH-X-SVR"].away == "Philip Sekulic"
+    assert paired["KXATPMATCH-X-SEK"].home == "Philip Sekulic"
+    assert paired["KXATPMATCH-X-SEK"].away == "Dalibor Svrcina"
+    # An event with no sibling cannot yield an opponent, so it is dropped
+    # rather than passed on still claiming a player faces themselves.
+    assert "KXATPMATCH-Y-FOO" not in paired
 
 
 def test_kalshi_market_info_time_fields():

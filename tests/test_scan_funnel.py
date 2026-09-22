@@ -33,6 +33,7 @@ def test_unfit_model_reports_every_market_it_drops():
     assert len(drops) == 5
     assert all("no rated entities" in d.reason for d in drops)
     assert all("sportsbot fit" in d.reason for d in drops)
+    assert {d.category for d in drops} == {"model unfit"}
 
 
 def test_unfit_model_warns_once_not_once_per_market(caplog):
@@ -83,7 +84,8 @@ def test_a_fully_dropped_slate_writes_one_row_per_reason_not_per_market():
     store = _RecordingStore()
     r = _runner_stub(store)
     drops = [SimpleNamespace(market=_market(f"T{i}", "A", "B"),
-                             reason="model X has no rated entities")
+                             reason="model X has no rated entities",
+                             category="model unfit")
              for i in range(200)]
     Runner._record_scan_drops(r, drops)
     assert len(store.rows) == 1
@@ -100,11 +102,12 @@ def test_drops_are_grouped_by_sport_and_reason():
     r = _runner_stub(store)
     drops = (
         [SimpleNamespace(market=_market(f"T{i}", "A", "B", Sport.TENNIS),
-                         reason="unfit") for i in range(3)]
+                         reason="unfit", category="model unfit")
+         for i in range(3)]
         + [SimpleNamespace(market=_market("B1", "A", "B", Sport.BASEBALL),
-                           reason="unfit")]
+                           reason="unfit", category="model unfit")]
         + [SimpleNamespace(market=_market("T9", "A", "B", Sport.TENNIS),
-                           reason="no match")]
+                           reason="no match", category="entity unrated")]
     )
     Runner._record_scan_drops(r, drops)
     assert len(store.rows) == 3
@@ -119,10 +122,28 @@ def test_recording_a_drop_never_breaks_the_cycle():
 
     r = SimpleNamespace(store=Boom(), account="sim")
     Runner._record_scan_drops(
-        r, [SimpleNamespace(market=_market("T1", "A", "B"), reason="x")])
+        r, [SimpleNamespace(market=_market("T1", "A", "B"), reason="x",
+                            category="c")])
 
 
 def test_no_drops_writes_nothing():
     store = _RecordingStore()
     Runner._record_scan_drops(_runner_stub(store), [])
     assert store.rows == []
+
+
+def test_many_distinct_reasons_still_collapse_to_one_row():
+    """Grouping is on category, not reason. A slate of 48 unrated players
+    yields 48 distinct reasons; grouping on those would put a row per
+    player back in the feed, which is the thing being avoided."""
+    store = _RecordingStore()
+    drops = [SimpleNamespace(market=_market(f"T{i}", "A", "B"),
+                             reason=f"player {i!r} not matched",
+                             category="entity unrated")
+             for i in range(48)]
+    Runner._record_scan_drops(_runner_stub(store), drops)
+    assert len(store.rows) == 1
+    reason = store.rows[0]["reason"]
+    assert "entity unrated" in reason
+    assert "player 0" in reason          # a few named...
+    assert "and 45 more" in reason       # ...the rest counted

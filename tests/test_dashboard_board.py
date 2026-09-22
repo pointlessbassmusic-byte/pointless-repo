@@ -250,3 +250,35 @@ def test_settled_bets_filters_mode_before_truncating(tmp_path):
 
     assert len(store.settled_bets(limit=3, mode="live")) == 3
     assert account_equity(store, "real", 100.0)["realized_pnl"] == 25.0
+
+
+def test_bootstrap_ratings_get_half_the_prior():
+    """Ratings from a market bootstrap have never been walk-forward validated
+    and carry no surface splits. They unblock a sport; they do not earn the
+    weight the validated history earned."""
+    from sportsbot.bot.allocation import PROVISIONAL_RATINGS_FACTOR, allocate
+
+    full = allocate(100.0, CFG, {}, RATED)
+    boot = allocate(100.0, CFG, {}, RATED, provisional={"tennis": True})
+    assert boot["sleeves"]["tennis"]["provisional"] is True
+    assert "provisional" in boot["sleeves"]["tennis"]["bound_by"]
+    # halved relative to its own prior, before renormalisation
+    assert PROVISIONAL_RATINGS_FACTOR == 0.5
+    assert boot["sleeves"]["tennis"]["weight"] < full["sleeves"]["tennis"]["weight"]
+    # and the sleeve is still live, not switched off
+    assert boot["sleeves"]["tennis"]["budget"] > 0
+
+
+def test_provenance_is_read_from_the_ratings_file(tmp_path):
+    import json
+
+    from sportsbot.dashboard import ratings_provenance
+
+    d = tmp_path / "ratings"
+    d.mkdir()
+    (d / "tennis.json").write_text(json.dumps(
+        {"overall": {"a": 1}, "meta": {"source": "kalshi-bootstrap"}}))
+    (d / "baseball.json").write_text(json.dumps(
+        {"elo": {"NYY": 1500}, "meta": {"source": "sackmann"}}))
+    prov = ratings_provenance({"storage": {"ratings_dir": str(d)}})
+    assert prov["tennis"] is True and prov["baseball"] is False

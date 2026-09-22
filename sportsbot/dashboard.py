@@ -52,6 +52,26 @@ _RATINGS_FILES = {
 }
 
 
+def ratings_provenance(cfg: dict) -> dict[str, bool]:
+    """Which sports' ratings came from a market bootstrap rather than a real
+    history. `sportsbot fit` records this in the ratings file, because the two
+    are not interchangeable and the difference is invisible from the numbers
+    alone."""
+    import json
+    import os
+
+    d = cfg.get("storage", {}).get("ratings_dir", "data/ratings")
+    out: dict[str, bool] = {}
+    for sport, (fname, _key) in _RATINGS_FILES.items():
+        try:
+            with open(os.path.join(d, fname)) as fh:
+                meta = json.load(fh).get("meta") or {}
+        except (OSError, ValueError):
+            meta = {}
+        out[sport] = "bootstrap" in str(meta.get("source", ""))
+    return out
+
+
 def rated_counts(cfg: dict) -> dict[str, int]:
     """How many entities each sport actually has ratings for.
 
@@ -324,9 +344,11 @@ def collect(cfg: dict, store) -> dict:
     cat = reports["sim"]
     counts = rated_counts(cfg)
     ratings = {k: v > 0 for k, v in counts.items()}
+    provisional = ratings_provenance(cfg)
     out = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "mode": f'{cfg.get("mode", "paper")}/{cfg.get("exchange", "polymarket")}',
-           "categories": cat, "rated": counts, "accounts": {}}
+           "categories": cat, "rated": counts, "provisional": provisional,
+           "accounts": {}}
     for acct in ACCOUNTS:
         start = starting_balance(cfg, acct)
         eq = account_equity(store, acct, start)
@@ -336,7 +358,8 @@ def collect(cfg: dict, store) -> dict:
             "decisions": store.recent_decisions(acct, limit=300),
             "gate": evidence_gate(store, acct),
             "allocation": allocate(max(eq["equity"], 0.0), cfg,
-                                   reports[acct].get("by_sport", {}), ratings),
+                                   reports[acct].get("by_sport", {}), ratings,
+                                   provisional=provisional),
         }
     return out
 

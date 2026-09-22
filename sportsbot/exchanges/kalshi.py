@@ -277,79 +277,59 @@ class KalshiClient(ExchangeClient):
                 cursor = data.get("cursor")
                 if not cursor or not data.get("markets"):
                     break
-        # Both paths repair the same defect (no_sub_title mirrors the YES
-        # side, so a market parses as a game against itself). The MLB path
-        # is richer where it applies -- it maps team codes to real names and
-        # recovers the true home team -- but it only knows baseball, so the
-        # racket sports keep the generic sibling pairing.
-        if sport is Sport.BASEBALL:
-            out = self._pair_mlb_opponents(out)
-        else:
-            self._pair_event_siblings(out)
-        return out
+        return self._pair_event_opponents(out, sport)
 
     @staticmethod
-    def _pair_mlb_opponents(markets: list[MarketInfo]) -> list[MarketInfo]:
-        """Fill in each MLB market's opponent and true home team.
+    def _pair_event_opponents(markets: list[MarketInfo],
+                              sport: Sport) -> list[MarketInfo]:
+        """Fill in each market's opponent from its sibling in the same event.
 
-        Kalshi lists one market per team and sets `no_sub_title` to the SAME
-        team as `yes_sub_title`, so on its own every market looks like a game
-        against itself and the scanner drops it. The opponent has to come from
-        the sibling market in the same event.
+        Kalshi lists one market per competitor and sets `no_sub_title` to the
+        SAME name as `yes_sub_title`, so on its own every market looks like a
+        contest against itself and the scanner drops it (it skips
+        `home == away`). The opponent can only come from the other market in
+        the event.
 
         `home` stays the YES side, because `Prediction.prob_yes` is defined as
-        P(home wins) repo-wide; the real home team goes in meta["home_field"]
-        so the model can put home advantage on the right side.
+        P(home wins) repo-wide. For baseball the real home team additionally
+        goes in meta["home_field"], so the model can put home advantage on the
+        right side — tennis has no such asymmetry.
         """
+        if sport not in (Sport.BASEBALL, Sport.TENNIS, Sport.TABLE_TENNIS):
+            return markets
+        is_mlb = sport is Sport.BASEBALL
+
         by_event: dict[str, list[MarketInfo]] = {}
         for m in markets:
             by_event.setdefault(str(m.meta.get("event_ticker") or ""), []).append(m)
 
         out: list[MarketInfo] = []
         for event_ticker, group in by_event.items():
-            codes = {str(m.meta.get("team_code")) for m in group
-                     if m.meta.get("team_code")}
-            if len(group) != 2 or len(codes) != 2:
-                continue  # not a clean two-sided game; skip rather than guess
-            split = split_mlb_event(event_ticker, codes)
-            home_code = split[1] if split else None
+            if len(group) != 2:
+                continue  # not a clean two-sided contest; skip rather than guess
+            home_code = None
+            if is_mlb:
+                codes = {str(m.meta.get("team_code")) for m in group
+                         if m.meta.get("team_code")}
+                if len(codes) != 2:
+                    continue
+                split = split_mlb_event(event_ticker, codes)
+                home_code = split[1] if split else None
             for m in group:
                 other = next(x for x in group if x is not m)
-                mine = str(m.meta.get("team_code"))
-                theirs = str(other.meta.get("team_code"))
-                home_name = KALSHI_MLB_TEAMS.get(mine)
-                away_name = KALSHI_MLB_TEAMS.get(theirs)
-                if not home_name or not away_name:
-                    continue  # unmapped code: skip, never guess a team
+                if is_mlb:
+                    mine = KALSHI_MLB_TEAMS.get(str(m.meta.get("team_code")))
+                    theirs = KALSHI_MLB_TEAMS.get(str(other.meta.get("team_code")))
+                else:
+                    mine, theirs = m.home, other.home
+                if not mine or not theirs or mine == theirs:
+                    continue  # unmapped or degenerate: skip, never guess
                 meta = dict(m.meta)
                 if home_code is not None:
                     meta["home_field"] = KALSHI_MLB_TEAMS.get(home_code)
                 out.append(m.model_copy(update={
-                    "home": home_name, "away": away_name, "meta": meta}))
+                    "home": mine, "away": theirs, "meta": meta}))
         return out
-
-    @staticmethod
-    def _pair_event_siblings(markets: list[MarketInfo]) -> None:
-        """Kalshi's no_sub_title mirrors the YES-side player instead of
-        naming the opponent, so a market parses with home == away — which
-        would make the scanner rate a player against themselves. Each match
-        event carries one market per player, so the true opponent is the
-        SIBLING market's home within the same event_ticker."""
-        by_event: dict[str, list[MarketInfo]] = {}
-        for mi in markets:
-            ev = (mi.meta or {}).get("event_ticker")
-            if ev:
-                by_event.setdefault(ev, []).append(mi)
-        for group in by_event.values():
-            if len(group) != 2:
-                continue
-            a, b = group
-            if not a.home or not b.home or a.home == b.home:
-                continue
-            if not a.away or a.away == a.home:
-                a.away = b.home
-            if not b.away or b.away == b.home:
-                b.away = a.home
 
     @staticmethod
     def _dollars(m: dict, field: str) -> Optional[float]:
@@ -390,10 +370,10 @@ class KalshiClient(ExchangeClient):
             sport=sport,
             # yes_sub_title names the player the YES contract pays on;
             # no_sub_title MIRRORS it (verified live), so the true opponent
-            # is recovered by _pair_event_siblings after discovery.
+            # is recovered by _pair_event_opponents after discovery.
             home=m.get("yes_sub_title") or m.get("subtitle") or None,
             # Kalshi repeats the same team in no_sub_title on MLB markets;
-            # _pair_mlb_opponents replaces this with the real opponent.
+            # _pair_event_opponents replaces this with the real opponent.
             away=m.get("no_sub_title") or None,
             start_time=start_time,
             close_time=close_time,

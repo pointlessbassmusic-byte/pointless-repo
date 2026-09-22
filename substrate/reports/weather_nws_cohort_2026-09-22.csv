@@ -1,0 +1,19 @@
+ticker,series,target_date,title,lead_days,forecast_high,nws_prob,climatology_prob,market_prob,outcome
+KXHIGHMIA-26SEP21-B84.5,KXHIGHMIA,2026-09-21,"Will the maximum temperature be 84-85° on Sep 21, 2026?",-0.787,89,0.0248,0.0461,0.005,0
+KXHIGHMIA-26SEP21-B86.5,KXHIGHMIA,2026-09-21,"Will the maximum temperature be 86-87° on Sep 21, 2026?",-0.787,89,0.1764,0.1144,0.005,0
+KXHIGHMIA-26SEP21-B88.5,KXHIGHMIA,2026-09-21,"Will the maximum temperature be 88-89° on Sep 21, 2026?",-0.787,89,0.4071,0.3303,0.735,1
+KXHIGHMIA-26SEP21-B90.5,KXHIGHMIA,2026-09-21,"Will the maximum temperature be 90-91° on Sep 21, 2026?",-0.787,89,0.3082,0.3579,0.26,0
+KXHIGHMIA-26SEP21-T84,KXHIGHMIA,2026-09-21,"Will the maximum temperature be <84° on Sep 21, 2026?",-0.787,89,0.01,0.0295,0.005,0
+KXHIGHMIA-26SEP21-T91,KXHIGHMIA,2026-09-21,"Will the maximum temperature be >91° on Sep 21, 2026?",-0.787,89,0.0824,0.1292,0.03,0
+KXHIGHNY-26SEP21-B66.5,KXHIGHNY,2026-09-21,"Will the maximum temperature be 66-67° on Sep 21, 2026?",-0.787,69,0.1764,0.0701,0.005,0
+KXHIGHNY-26SEP21-B68.5,KXHIGHNY,2026-09-21,"Will the maximum temperature be 68-69° on Sep 21, 2026?",-0.787,69,0.4071,0.0701,0.005,0
+KXHIGHNY-26SEP21-B70.5,KXHIGHNY,2026-09-21,"Will the maximum temperature be 70-71° on Sep 21, 2026?",-0.787,69,0.3082,0.0996,0.175,0
+KXHIGHNY-26SEP21-B72.5,KXHIGHNY,2026-09-21,"Will the maximum temperature be 72-73° on Sep 21, 2026?",-0.787,69,0.0762,0.1107,0.805,1
+KXHIGHNY-26SEP21-T66,KXHIGHNY,2026-09-21,"Will the maximum temperature be <66° on Sep 21, 2026?",-0.787,69,0.0259,0.0793,0.005,0
+KXHIGHNY-26SEP21-T73,KXHIGHNY,2026-09-21,"Will the maximum temperature be >73° on Sep 21, 2026?",-0.787,69,0.01,0.5775,0.015,0
+KXHIGHPHIL-26SEP21-B68.5,KXHIGHPHIL,2026-09-21,"Will the maximum temperature be 68-69° on Sep 21, 2026?",-0.787,72,0.0762,0.0406,0.005,0
+KXHIGHPHIL-26SEP21-B70.5,KXHIGHPHIL,2026-09-21,"Will the maximum temperature be 70-71° on Sep 21, 2026?",-0.787,72,0.3082,0.072,0.005,0
+KXHIGHPHIL-26SEP21-B72.5,KXHIGHPHIL,2026-09-21,"Will the maximum temperature be 72-73° on Sep 21, 2026?",-0.787,72,0.4071,0.1033,0.005,0
+KXHIGHPHIL-26SEP21-B74.5,KXHIGHPHIL,2026-09-21,"Will the maximum temperature be 74-75° on Sep 21, 2026?",-0.787,72,0.1764,0.0812,0.925,1
+KXHIGHPHIL-26SEP21-T68,KXHIGHPHIL,2026-09-21,"Will the maximum temperature be <68° on Sep 21, 2026?",-0.787,72,0.01,0.0904,0.005,0
+KXHIGHPHIL-26SEP21-T75,KXHIGHPHIL,2026-09-21,"Will the maximum temperature be >75° on Sep 21, 2026?",-0.787,72,0.0259,0.6199,0.06,0
