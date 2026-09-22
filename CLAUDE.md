@@ -95,8 +95,11 @@ Reference implementation and regression tests:
   settled history. A forecast several degrees off that mean is a mismatched
   input (grid cell vs. settlement station), not an edge: stand down past
   ~1.5 sigma and fit the offset from settled truth only (`city_bias`,
-  `bias_f`). `python -m src.weather_divergence` in polymarket-edge prints the
-  table. Never fit bias to market prices — that just copies the book.
+  `bias_f`). `python -m src.weather_divergence` prints the table in both
+  engines. Never fit bias to market prices — that just copies the book, even
+  when two venues agree: Miami reads -4.4F against both Kalshi's bands and
+  Polymarket's buckets, which says our grid cell is wrong but still is not a
+  settled outcome.
 - Empirically (Kalshi settlements, n=14): sigma ~= 2.4F same-day + 1.0F per
   lead day, i.e. **wider** than the 1.8 + 0.55 ramp in `signals/nws.py`, and
   roughly twice what bucket prices imply. Where those disagree, settled
@@ -139,7 +142,7 @@ edited.
 python -m pytest tests -q          # every module
 python -m src.main --once --dry-run  # one scan cycle (arb-scanner: --once)
 python -m src.report               # calibration vs real settlements (bot/engine)
-python -m src.weather_divergence   # polymarket-edge: forecast vs market-implied temps
+python -m src.weather_divergence   # bot/engine: forecast vs market-implied temps
 python -m src.backtest             # kalshi-engine: replay history offline
 ```
 

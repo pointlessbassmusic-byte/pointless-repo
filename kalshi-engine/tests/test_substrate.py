@@ -508,3 +508,40 @@ def test_weather_abstains_when_forecast_contradicts_the_whole_bucket_set():
 
     # with no bucket set to compare against, the forecast still stands on its own
     assert gen.forecast(subject, Context()) is not None
+
+
+def test_market_implied_moments_reports_spread_as_well_as_mean():
+    from src.substrate.generators.weather import market_implied_moments
+
+    event = "KXHIGHNY-26SEP24"
+    tight = [_band(event, 75.0, 76.0, 0.01, 0.03), _band(event, 77.0, 78.0, 0.92, 0.94),
+             _band(event, 79.0, 80.0, 0.01, 0.03), _band(event, 81.0, 82.0, 0.01, 0.03)]
+    wide = [_band(event, 75.0, 76.0, 0.24, 0.26), _band(event, 77.0, 78.0, 0.24, 0.26),
+            _band(event, 79.0, 80.0, 0.24, 0.26), _band(event, 81.0, 82.0, 0.24, 0.26)]
+    _, tight_sd = market_implied_moments(tight, event)
+    _, wide_sd = market_implied_moments(wide, event)
+    assert tight_sd < 1.0 < wide_sd
+    assert market_implied_moments(tight[:2], event) is None   # partial set
+
+
+def test_divergence_rows_carry_both_sides_sigma():
+    """The CLI unpacks these rows positionally, so the shape is a contract."""
+    from src.substrate.generators.weather import WeatherHigh
+    from src.weather_divergence import divergences
+
+    gen = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6})
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 9, forecast_f=77.5, day_delta=1)
+    event = f"KXHIGHNY-{target.strftime('%y%b%d').upper()}"
+    bands = [_band(event, 75.0, 76.0, 0.03, 0.05), _band(event, 77.0, 78.0, 0.64, 0.66),
+             _band(event, 79.0, 80.0, 0.25, 0.27), _band(event, 81.0, 82.0, 0.03, 0.05)]
+    rows = divergences(gen, bands)
+    assert len(rows) == 1
+    got_target, prefix, mu, mkt_mu, diff, sigma, mkt_sd = rows[0]
+    assert (got_target, prefix) == (target, "KXHIGHNY")
+    assert abs(mu - 77.5) < 1e-9 and abs(diff - (mu - mkt_mu)) < 1e-9
+    assert sigma == gen.sigma_for(1) and 0 < mkt_sd < sigma
+
+    # a series we have no station for contributes nothing
+    for b in bands:
+        b.event_ticker = "KXNOTACITY-26SEP24"
+    assert divergences(gen, bands) == []

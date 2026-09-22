@@ -116,15 +116,19 @@ def bucket_center(floor: float | None, cap: float | None) -> float | None:
     return None
 
 
-def market_implied_mean(markets: list[Market], event_ticker: str,
-                        min_buckets: int = 4,
-                        min_total_prob: float = 0.8) -> float | None:
-    """Mean temperature implied by an event's own strike-band prices.
+def market_implied_moments(markets: list[Market], event_ticker: str,
+                           min_buckets: int = 4,
+                           min_total_prob: float = 0.8
+                           ) -> tuple[float, float] | None:
+    """(mean, stddev) temperature implied by an event's own strike-band prices.
 
     A station-day's bands are mutually exclusive and exhaustive, so their YES
     prices form a distribution over whole degrees whose mean is the market's
     expected temperature. A partial set (prices summing well below 1) says too
     little to compare against, so it returns None rather than a skewed mean.
+
+    The stddev is a floor: the open-ended end bands get the centre of the
+    nearest whole degree, pulling in whatever mass sits further out.
     """
     buckets: list[tuple[float, float]] = []
     for m in markets:
@@ -143,7 +147,17 @@ def market_implied_mean(markets: list[Market], event_ticker: str,
     total = sum(p for _, p in buckets)
     if len(buckets) < min_buckets or total < min_total_prob:
         return None
-    return sum(c * p for c, p in buckets) / total
+    mean = sum(c * p for c, p in buckets) / total
+    var = sum(p * (c - mean) ** 2 for c, p in buckets) / total
+    return mean, math.sqrt(var)
+
+
+def market_implied_mean(markets: list[Market], event_ticker: str,
+                        min_buckets: int = 4,
+                        min_total_prob: float = 0.8) -> float | None:
+    """Just the mean from market_implied_moments."""
+    moments = market_implied_moments(markets, event_ticker, min_buckets, min_total_prob)
+    return None if moments is None else moments[0]
 
 
 def _normal_cdf(x: float, mu: float, sigma: float) -> float:
@@ -216,6 +230,10 @@ class WeatherHigh(SignalGenerator):
                 self._cache.setdefault(name, (now, {}, 0))
         return self._cache.get(prefix, (now, {}, 0))[1]
 
+    def sigma_for(self, lead_days: int) -> float:
+        """Forecast-error stddev at this lead, in F."""
+        return self.sigma_base + self.sigma_per_day * max(0, lead_days)
+
     def _local_now(self, prefix: str) -> datetime:
         """Station-local wall clock, from open-meteo's utc_offset_seconds (DST
         correct, no tzdata needed). Both the lead time and the realized-window
@@ -251,7 +269,7 @@ class WeatherHigh(SignalGenerator):
                   else self.realized_hour_max)
         if lead_days == 0 and local_now.hour >= cutoff:
             return None
-        sigma = self.sigma_base + self.sigma_per_day * lead_days
+        sigma = self.sigma_for(lead_days)
         # A multi-degree gap against the market's own distribution is not an
         # edge we found, it is a sign our input describes something else — a
         # grid cell away from the settlement station, or a source that reports

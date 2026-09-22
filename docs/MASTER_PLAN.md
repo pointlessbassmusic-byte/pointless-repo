@@ -163,3 +163,10 @@ Pipeline per cycle:
       needs settled outcomes, not priors: score the recorded `mkt=` means
       (`python -m src.report`), and cross-check against `sportsbot weather-score`'s
       168-row sample, before either widening the market's view or narrowing ours.
+      Kalshi's bands say the same in F: ratio median 1.48 over 25 station-days.
+- [x] `python -m src.weather_divergence` in kalshi-engine too, so stations get vetted
+      the same way cities are. First run (25 station-days, all lead 0): median forecast
+      error -0.72F, but New Orleans -5.7, Miami -4.4, the SFO low -4.4, Austin -3.1.
+      Miami reads -4.4F against Polymarket's buckets on the same day — two independent
+      books agreeing puts the error in our grid cell, not in either market. Still not a
+      settled outcome, so `bias_f` stays unfitted until `weather_calibrate` has truth.
