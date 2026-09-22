@@ -45,6 +45,7 @@ Then:
 | go-live preflight | `... sportsbot doctor` — config/gate/DB/ratings age/keys/venues/clock; exits non-zero on FAIL |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
+| weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |
 | weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 
 Daily ratings refresh via cron (as the sportsbot user):

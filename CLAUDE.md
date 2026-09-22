@@ -100,7 +100,14 @@ Reference implementation and regression tests:
 - Empirically (Kalshi settlements, n=14): sigma ~= 2.4F same-day + 1.0F per
   lead day, i.e. **wider** than the 1.8 + 0.55 ramp in `signals/nws.py`, and
   roughly twice what bucket prices imply. Where those disagree, settled
-  outcomes decide, not priors.
+  outcomes decide, not priors — and `sportsbot weather-score` has the larger
+  sample (168 settled rows: coin 0.2500 -> climatology 0.1828 -> market
+  0.0751), so refit against it rather than against either prior.
+- Lead time in `substrate_bridge/kalshi_weather.py` still counts from the
+  target date's **UTC** midnight (two call sites), which runs 4-8h short for
+  US stations. Small next to that module's 0.55/day ramp and it only feeds
+  offline scoring, not orders — but it is the same mistake as the first bullet
+  and should go when that module is next touched.
 
 ---
 

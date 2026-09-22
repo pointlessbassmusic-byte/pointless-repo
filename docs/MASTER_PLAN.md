@@ -1,6 +1,18 @@
 # Master Plan
 
-_Last updated: 2026-09-15 (rev 4 — consolidation merged)_
+_Last updated: 2026-09-22 (rev 5 — engine suite rejoined, signals layer landed)_
+
+> **Rev 5 (2026-09-22):** three strands merged back into `main`. The engine
+> suite (`polymarket-edge/`, `kalshi-engine/`, `arb-scanner/`) returned as an
+> independent deployment alongside `sportsbot/` — the two never import each
+> other, and the root `CLAUDE.md` now carries both rulebooks. `sportsbot
+> doctor` gates go-live, exit-rule replay validates the exit logic offline,
+> and the external-signals layer (`sportsbot/signals/`) shipped with one
+> measured result and one honest negative: the NWS weather arm correlates
+> (+0.862 Pearson at decision lead) and is being scored against real
+> settlements via `sportsbot weather-score`, while the Bluesky chatter arm is
+> shelved — its eligible pool tops out at 21 events, below the n ≥ 30 bar its
+> own report enforces. See `docs/SIGNALS_2026-09-17.md`.
 
 > **Rev 4:** a parallel session consolidated the trading stack into one `sportsbot/`
 > package (per-sport Elo/Markov models, Polymarket + Kalshi exchange clients, risk-managed
@@ -115,6 +127,19 @@ Pipeline per cycle:
 - [x] Migrated the live order path off `py-clob-client` (archived) to the official
       `polymarket-client` SDK — same SDK and usage pattern as sportsbot's exchange
       client; lazily imported, adapter unit-tested with a fake client.
+- [x] Import old chat history into `docs/chat-imports/` (five drops, per-drop
+      manifests with secret scans) and mine it for parameters/ideas already settled
+- [x] External signals layer (`sportsbot/signals/`), DATA ONLY until backtest/CLV
+      evidence: NWS point forecasts as a decision-time weather baseline with a
+      lead-aware sigma and a no-backfill rule; Bluesky chatter collection with an
+      n ≥ 30 gate before any correlation is claimed
+- [x] Weather-arm triple-null on real settlements (`sportsbot weather-score`):
+      coin 0.2500 → climatology 0.1828 → market 0.0751 across 168 settled rows
+- [x] `sportsbot doctor` go-live preflight; exit-rule replay backtest
+- [ ] Score the first cohort carrying decision-time NWS baselines (84 markets,
+      targets Sep 21–22) — does the forecast arm beat climatology? beat the market?
+- [ ] Deploy `main` to the Linode box and let the paper stack accrue toward the
+      go-live gate (≥200 settled bets, positive mean CLV, Brier < 0.25, fees verified)
 - [x] Weather arm stands down where it has no informational edge, after a live dry-run
       staked 356 contracts against an already-settled San Antonio low:
       * lead time and the day's extremum window are now measured in station-local
@@ -134,4 +159,3 @@ Pipeline per cycle:
       model systematically fades narrow centre buckets — a variance bet, not a mean
       bet. Needs settled-outcome evidence (`python -m src.report`) before it is
       treated as edge; the recorded `mkt=` means make that measurable.
-- [ ] Import old chat history into `docs/chat-imports/` and mine it for parameters/ideas we already settled on
