@@ -34,19 +34,19 @@ def _mark_price(row: dict, snapshot: dict | None) -> float:
 def account_equity(store, account: str, starting_balance: float) -> dict:
     """Current cash / exposure / equity for one account."""
     mode = ACCOUNTS.get(account, account)
+    # Filter by mode in SQL, not after truncation: a Python-side filter over
+    # the newest N rows silently drops this account's older bets once the
+    # table passes N, and a realized-PnL total that loses rows is a permanent
+    # divergence rather than a display glitch.
     realized = 0.0
     settled_n = 0
-    for r in store.settled_bets(limit=10000):
-        if (r.get("mode") or "paper") != mode:
-            continue
+    for r in store.settled_bets(limit=1_000_000, mode=mode):
         realized += float(r.get("pnl") or 0.0)
         settled_n += 1
 
     open_stake = marked = 0.0
     open_n = 0
-    for r in store.open_bets():
-        if (r.get("mode") or "paper") != mode:
-            continue
+    for r in store.open_bets_for(mode):
         open_n += 1
         open_stake += float(r.get("stake") or 0.0)
         snap = store.last_snapshot(r["market_id"])

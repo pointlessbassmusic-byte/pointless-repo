@@ -9,7 +9,9 @@ User=sportsbot
 Group=sportsbot
 WorkingDirectory=/opt/sportsbot
 EnvironmentFile=-/opt/sportsbot/.env
-ExecStart=/opt/sportsbot/.venv/bin/sportsbot board --out /opt/sportsbot/data/board.html --loop 60
+# Same config as sportsbot-sim.service: rendering default.yaml while the bot
+# runs sim.yaml would show budgets ~10x what the running bot will actually risk.
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot board -c /opt/sportsbot/config/sim.yaml --out /opt/sportsbot/data/board.html --loop 60
 Restart=on-failure
 RestartSec=30
 MemoryMax=300M

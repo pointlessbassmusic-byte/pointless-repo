@@ -131,7 +131,10 @@ def allocate(
     weights: dict[str, float] = {}
     for s in eligible:
         stats = by_sport.get(s.sport, {})
-        n_clv = int(stats.get("n_clv", stats.get("n", 0)) or 0)
+        # Count CLV observations, never settled bets: mean_clv is averaged
+        # over rows that carried a closing price, so 40 settled bets with 5
+        # closing prices must not clear a 30-observation guard.
+        n_clv = int(stats.get("n_clv", 0) or 0)
         mult = clv_multiplier(stats.get("mean_clv"), n_clv, min_bets)
         weights[s.sport] = s.prior_weight * mult
 
@@ -151,7 +154,7 @@ def allocate(
         share = weights[s.sport] / total_w if total_w > 0 else 0.0
         raw = bankroll * total_cap * share
         capped = min(raw, bankroll * sport_cap)
-        n_clv = int(stats.get("n_clv", stats.get("n", 0)) or 0)
+        n_clv = int(stats.get("n_clv", 0) or 0)
         mult = clv_multiplier(stats.get("mean_clv"), n_clv, min_bets)
         sleeves[s.sport] = {
             "weight": round(share, 4),

@@ -187,15 +187,30 @@ class Store:
                  model_prob, market_prob, price, edge, stake, reason))
             self.conn.commit()
 
-    def prune_decisions(self, keep: int = 5000) -> int:
+    def prune_decisions(self, keep: int = 5000,
+                        account: str | None = None) -> int:
         """Keep the feed bounded — a 5-minute loop over a full slate writes
-        thousands of passes a day and none of them are worth keeping forever."""
+        thousands of passes a day and none are worth keeping forever.
+
+        Pruning is PER ACCOUNT: a global cap lets the sim book's thousands of
+        daily passes evict the real book's feed entirely, which is the one
+        feed you would actually want kept.
+        """
         with self._lock:
-            cur = self.conn.execute(
-                "DELETE FROM decisions WHERE id NOT IN"
-                " (SELECT id FROM decisions ORDER BY id DESC LIMIT ?)", (keep,))
+            if account is None:
+                accounts = [r[0] for r in self.conn.execute(
+                    "SELECT DISTINCT account FROM decisions")]
+            else:
+                accounts = [account]
+            removed = 0
+            for acct in accounts:
+                cur = self.conn.execute(
+                    "DELETE FROM decisions WHERE account=? AND id NOT IN"
+                    " (SELECT id FROM decisions WHERE account=?"
+                    "  ORDER BY id DESC LIMIT ?)", (acct, acct, keep))
+                removed += cur.rowcount
             self.conn.commit()
-            return cur.rowcount
+            return removed
 
     def record_equity(self, account: str, cash: float, exposure: float,
                       equity: float, realized_pnl: float,
@@ -263,13 +278,30 @@ class Store:
             " AND COALESCE(status, 'open') != 'closed'").fetchall()
         return [dict(r) for r in rows]
 
-    def settled_bets(self, limit: int = 1000) -> list[dict]:
-        """Bets with realized PnL: resolved (outcome set) or closed early."""
+    def settled_bets(self, limit: int = 1000,
+                     mode: str | None = None) -> list[dict]:
+        """Bets with realized PnL: resolved (outcome set) or closed early.
+
+        `mode` filters in SQL rather than in the caller — filtering a truncated
+        page in Python silently drops the oldest rows of the mode you wanted,
+        which for an equity total is a permanent divergence, not a display
+        glitch."""
+        sql = ("SELECT * FROM bets WHERE (outcome IS NOT NULL"
+               " OR COALESCE(status, '') = 'closed')")
+        args: list = []
+        if mode is not None:
+            sql += " AND COALESCE(mode, 'paper') = ?"
+            args.append(mode)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
+
+    def open_bets_for(self, mode: str) -> list[dict]:
+        """Open bets for one account's book (see `settled_bets`)."""
         rows = self.conn.execute(
-            "SELECT * FROM bets WHERE outcome IS NOT NULL"
-            " OR COALESCE(status, '') = 'closed' ORDER BY id DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
+            "SELECT * FROM bets WHERE outcome IS NULL"
+            " AND COALESCE(status,'') != 'closed'"
+            " AND COALESCE(mode, 'paper') = ?", (mode,)).fetchall()
         return [dict(r) for r in rows]
 
     def bets_today(self) -> list[dict]:

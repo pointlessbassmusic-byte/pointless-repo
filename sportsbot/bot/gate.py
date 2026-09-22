@@ -32,9 +32,7 @@ def evidence_gate(store, account: str = "sim") -> dict:
 
     mode = ACCOUNTS.get(account, account)
     tracker = PerformanceTracker()
-    for r in store.settled_bets(limit=10000):
-        if (r.get("mode") or "paper") != mode:
-            continue
+    for r in store.settled_bets(limit=1_000_000, mode=mode):
         tracker.add(BetRecord(
             market_id=r["market_id"], side=r.get("side") or "YES",
             model_prob=r.get("model_prob") or 0.5,

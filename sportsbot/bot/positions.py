@@ -225,9 +225,11 @@ def category_report(
     `sportsbot status` and the dashboard's ops panel. Pure read: computes
     exactly what the runner's `_cycle_configs` would apply next cycle.
 
-    Returns {"by_sport": {sport: {n, pnl, mean_clv, hit_rate, tightened,
-    min_edge, max_stake}}, "current_drawdown", "effective_kelly",
-    "tightened": [...]}.
+    Returns {"by_sport": {sport: {n, n_clv, pnl, mean_clv, hit_rate,
+    tightened, min_edge, max_stake}}, "current_drawdown", "effective_kelly",
+    "tightened": [...]}. `n_clv` is how many rows carried a closing price and
+    so actually fed `mean_clv` — always <= n, and the count any CLV-gated
+    decision must be made against.
     """
     stats: dict[str, dict] = {}
     for r in settled:
@@ -266,6 +268,7 @@ def category_report(
     for sport, d in sorted(stats.items()):
         by_sport[sport] = {
             "n": d["n"],
+            "n_clv": len(d["clvs"]),   # mean_clv averages only these rows
             "pnl": round(d["pnl"], 2),
             "mean_clv": (round(sum(d["clvs"]) / len(d["clvs"]), 4)
                          if d["clvs"] else None),

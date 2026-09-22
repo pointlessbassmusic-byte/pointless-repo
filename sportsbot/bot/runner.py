@@ -152,7 +152,12 @@ class Runner:
         # where they belong.
         self.account = "real" if self.mode == "live" else "sim"
         bank = cfg.get("bankroll", {})
-        self.starting_balance = float(bank.get("amount", 1000.0))
+        # The equity curve must be anchored to the SAME starting balance the
+        # dashboard renders against, or the stored curve and the Equity tile
+        # disagree by whatever the two settings differ by.
+        from sportsbot.dashboard import starting_balance
+
+        self.starting_balance = starting_balance(cfg, self.account)
         self.staking = StakingConfig(
             bankroll=float(bank.get("amount", 1000.0)),
             kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
@@ -358,7 +363,7 @@ class Runner:
         closer = getattr(self.exchange, "close_position", None)
         exits = 0
         for (market_id, side), agg in aggregate_open_bets(
-                self.store.open_bets()).items():
+                self.store.open_bets_for(self.mode)).items():
             pair = quoted.get(market_id)
             if pair is None:
                 continue  # not discoverable this cycle (e.g. in play): hold
@@ -403,10 +408,27 @@ class Runner:
                                      closing_price=result["avg_price"])
             self.store.set_kv(bank_key, None)
             exits += 1
+            self._record_exit(agg, decision,
+                              _market.sport.value
+                              if _market is not None and _market.sport else None)
             log.info("closed %s/%s: %s -> proceeds $%.2f on stake $%.2f",
                      market_id, side, decision.reason,
                      total_proceeds, agg["stake"])
         return exits
+
+    def _record_exit(self, agg: dict, decision, sport: str | None) -> None:
+        """A close is a decision too: without it the feed shows how a position
+        was opened and never how it ended."""
+        try:
+            self.store.record_decision(
+                account=self.account, market_id=agg["market_id"],
+                sport=sport, title=agg["market_id"], action="exit",
+                side=agg.get("side"), model_prob=agg.get("model_prob"),
+                price=getattr(decision, "exit_price", None),
+                stake=agg.get("stake"),
+                reason=getattr(decision, "reason", None))
+        except Exception:
+            log.exception("exit decision record failed")
 
     def _record_decision(self, sm, action: str, mid: float | None,
                          intent=None, reason: str | None = None) -> None:

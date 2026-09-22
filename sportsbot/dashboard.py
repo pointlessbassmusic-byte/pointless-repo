@@ -303,18 +303,25 @@ def collect(cfg: dict, store) -> dict:
 
     sports_cfg = cfg.get("sports", {})
     bank = cfg.get("bankroll", {})
-    cat = category_report(
-        store.settled_bets(limit=5000),
-        cfg.get("adaptive", {}),
-        float(bank.get("min_edge", 0.03)),
-        float(bank.get("max_stake_per_market", 50.0)),
-        {s: float(v["min_edge_override"]) for s, v in sports_cfg.items()
-         if isinstance(v, dict) and "min_edge_override" in v},
-        {s: float(v["max_stake_override"]) for s, v in sports_cfg.items()
-         if isinstance(v, dict) and "max_stake_override" in v},
-        float(bank.get("kelly_multiplier", 0.25)),
-        float(cfg.get("risk", {}).get("max_drawdown", 250.0)),
-    )
+
+    def report_for(mode: str) -> dict:
+        """Per-account evidence. Sizing the real book off the paper book's CLV
+        would let simulated fills decide how much real money moves."""
+        return category_report(
+            store.settled_bets(limit=1_000_000, mode=mode),
+            cfg.get("adaptive", {}),
+            float(bank.get("min_edge", 0.03)),
+            float(bank.get("max_stake_per_market", 50.0)),
+            {s: float(v["min_edge_override"]) for s, v in sports_cfg.items()
+             if isinstance(v, dict) and "min_edge_override" in v},
+            {s: float(v["max_stake_override"]) for s, v in sports_cfg.items()
+             if isinstance(v, dict) and "max_stake_override" in v},
+            float(bank.get("kelly_multiplier", 0.25)),
+            float(cfg.get("risk", {}).get("max_drawdown", 250.0)),
+        )
+
+    reports = {acct: report_for(mode) for acct, mode in ACCOUNTS.items()}
+    cat = reports["sim"]
     counts = rated_counts(cfg)
     ratings = {k: v > 0 for k, v in counts.items()}
     out = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -329,7 +336,7 @@ def collect(cfg: dict, store) -> dict:
             "decisions": store.recent_decisions(acct, limit=300),
             "gate": evidence_gate(store, acct),
             "allocation": allocate(max(eq["equity"], 0.0), cfg,
-                                   cat.get("by_sport", {}), ratings),
+                                   reports[acct].get("by_sport", {}), ratings),
         }
     return out
 
