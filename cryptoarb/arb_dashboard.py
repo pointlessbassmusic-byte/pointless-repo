@@ -11,7 +11,7 @@ from __future__ import annotations
 import html
 
 import allocator as alloc_mod
-from engine import live_gate
+from arb_engine import live_gate
 
 SERIES = [("bundle", "Polymarket bundle", "--series-1"),
           ("triangular", "KuCoin triangular", "--series-2"),

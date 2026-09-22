@@ -125,7 +125,7 @@ class Engine:
             summary = self.cycle()
             log.info("cycle %s", summary)
             if render_to:
-                from dashboard import render_to_file
+                from arb_dashboard import render_to_file
                 render_to_file(self, render_to)
             if cycles and i >= cycles:
                 return summary
@@ -153,7 +153,7 @@ def main():
     print(eng.cycle() if args.once else
           eng.run(args.interval, args.cycles, args.out))
     if args.once:
-        from dashboard import render_to_file
+        from arb_dashboard import render_to_file
         render_to_file(eng, args.out)
         print(f"dashboard -> {args.out}")
 

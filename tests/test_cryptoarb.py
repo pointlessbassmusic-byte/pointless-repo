@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cryptoarb"))
 
 import allocator  # noqa: E402
-import engine as eng  # noqa: E402
+import arb_engine as eng  # noqa: E402
 import strategies as strat  # noqa: E402
 from broker import PaperBroker  # noqa: E402
 from fees import DEFAULT_TAKER, FeeBook  # noqa: E402

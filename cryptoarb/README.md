@@ -54,8 +54,8 @@ cash is the correct state while nothing does.
 
 ```bash
 cd cryptoarb
-python3 engine.py --once                      # one cycle + dashboard
-python3 engine.py --interval 60 --out data/dashboard.html   # continuous
+python3 arb_engine.py --once                      # one cycle + dashboard
+python3 arb_engine.py --interval 60 --out data/dashboard.html   # continuous
 ```
 
 View `data/dashboard.html` (SSH-tunnel it like the substrate dashboard —
