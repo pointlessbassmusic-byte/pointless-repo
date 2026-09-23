@@ -208,6 +208,7 @@ class Runner:
                 max_drawdown=float(risk_cfg.get("max_drawdown", 250.0)),
                 stale_quote_seconds=float(risk_cfg.get("stale_quote_seconds", 120.0)),
                 min_minutes_before_start=float(risk_cfg.get("min_minutes_before_start", 10.0)),
+                max_pre_match_move=float(risk_cfg.get("max_pre_match_move", 0.08)),
                 calibration_min_bets=int(risk_cfg.get("calibration_min_bets", 50)),
                 calibration_max_brier=float(risk_cfg.get("calibration_max_brier", 0.26)),
                 bankroll=self.staking.bankroll,

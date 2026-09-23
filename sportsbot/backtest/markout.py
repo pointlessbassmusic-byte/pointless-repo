@@ -20,8 +20,9 @@ Three things this is built to report honestly:
 * **Fill imbalance.** A maker quoting both sides expects roughly balanced
   fills. When one side dominates, the position is directional, not flat,
   and any pooled average mixes spread capture with price drift instead of
-  cancelling it. Measured on 500k pre-match tennis fills the split was
-  78/22, so the pooled mean there was drift, not edge.
+  cancelling it. Measured on 34k tape-defined pre-match tennis fills the
+  split was 84/16 (see `prematch_cut`), so the pooled mean is drift, not
+  edge.
 * **Median as well as mean.** Mark-outs are fat-tailed. A positive mean
   with a zero median is a few large winners carrying a mass of fills that
   captured nothing, which is the opposite of a market maker's profile and
@@ -96,6 +97,28 @@ class MarkoutStats:
     def pays(self) -> bool:
         """The typical fill clears the fee. Median, not mean, on purpose."""
         return self.net_median > 0
+
+
+def prematch_cut(fills: Sequence[Fill], jump: float = 0.10,
+                 min_fills: int = 10) -> Optional[int]:
+    """Index of the first fill that looks in-play, or None.
+
+    Kalshi's `occurrence_datetime` is the expected settle bound, not the
+    start — on tennis the tape shows live price action a median 2.7h before
+    it — so a window defined by that timestamp is mostly in-play. The tape
+    itself is the better clock: a pre-match line does not move `jump` from
+    its opening print, a live one does within minutes. Everything before
+    that first jump is pre-match. Returns None when the tape never jumps or
+    jumps within the first `min_fills` prints (live from the start, or too
+    thin to judge), so the caller skips the market rather than guessing.
+    """
+    if not fills:
+        return None
+    p0 = fills[0].price
+    for i, f in enumerate(fills):
+        if abs(f.price - p0) > jump:
+            return i if i >= min_fills else None
+    return None
 
 
 def effective_spread(fills: Sequence[Fill], cap: float = 0.25) -> Optional[float]:

@@ -109,3 +109,32 @@ def test_venue_positions_carry_their_cost():
     assert p.side is Side.NO and p.size == 20.0
     assert p.avg_price == 0.35
     assert p.cost == 7.0
+
+
+# ---------------------------------------------------------------------------
+# Audit: occurrence_datetime is the expected END, not the start
+# ---------------------------------------------------------------------------
+def _raw(ticker, series_hint=None):
+    return {"ticker": ticker, "title": "x", "yes_sub_title": "A", "no_sub_title": "A",
+            "event_ticker": ticker.rsplit("-", 1)[0],
+            "occurrence_datetime": "2026-09-21T06:00:00Z",
+            "expected_expiration_time": "2026-09-21T06:00:00Z",
+            "close_time": "2026-10-05T03:00:00Z", "status": "active"}
+
+
+def test_tennis_has_no_start_time_because_kalshi_gives_none():
+    """occurrence_datetime == expected_expiration_time on tennis, and the
+    tape shows in-play action hours before it. Claiming it as the start
+    points the pre-match guard at the END of the match."""
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    mi = c._to_market_info(_raw("KXWTAMATCH-26SEP20YAOJOI-YAO"), Sport.TENNIS, "KXWTAMATCH")
+    assert mi.start_time is None
+    assert mi.close_time is not None          # settle bound still recorded
+
+
+def test_mlb_keeps_the_ticker_backed_start():
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    mi = c._to_market_info(_raw("KXMLBGAME-26SEP222210SDLAD-SD"), Sport.BASEBALL, "KXMLBGAME")
+    assert mi.start_time is not None

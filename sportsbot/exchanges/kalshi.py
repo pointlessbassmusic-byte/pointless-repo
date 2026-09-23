@@ -427,14 +427,25 @@ class KalshiClient(ExchangeClient):
         return None
 
     def _to_market_info(self, m: dict, sport: Sport, series: str) -> MarketInfo:
-        # occurrence_datetime is the scheduled match START (verified live:
-        # 2026-09-22T07:00Z for a 26SEP22 ticker). close_time and
-        # expiration_time are FAR-FUTURE legal bounds (+2 weeks — the market
-        # trades through the match), so they must never be the start proxy:
-        # the pre-match cutoff would never trigger and the bot would enter
-        # in-play. expected_expiration_time tracks the real settle window.
-        start_time = self._ts(m, "occurrence_datetime")
+        # occurrence_datetime == expected_expiration_time on every market
+        # checked (2026-09-23): it is the expected SETTLE bound, not the
+        # start. On tennis the tape shows in-play price action a median
+        # 2.7h BEFORE it (90% of markets), so using it as the start proxy
+        # points the pre-match guard at the END of the match. Tennis
+        # tickers carry no time of day, so there is no start to be had:
+        # start_time stays None and the risk layer refuses the entry
+        # (fail closed) rather than trade blind into a live match.
+        #
+        # MLB tickers embed the scheduled first pitch (26SEP222210SDLAD ->
+        # 22:10 local; the SD/LAD sample matched occurrence exactly), so
+        # occurrence is kept as the start there, and the price-movement
+        # in-play detector in risk.py backstops it either way.
+        #
+        # close_time / expiration_time are far-future legal bounds (+2
+        # weeks) and must never stand in for the start.
         close_time = self._ts(m, "expected_expiration_time", "close_time")
+        start_time = (self._ts(m, "occurrence_datetime")
+                      if sport is Sport.BASEBALL else None)
         return MarketInfo(
             exchange=Exchange.KALSHI,
             market_id=m.get("ticker", ""),

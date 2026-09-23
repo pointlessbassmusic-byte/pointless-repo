@@ -104,3 +104,21 @@ def test_markout_never_marks_to_a_trade_beyond_the_horizon():
 def test_too_few_fills_says_so_rather_than_guessing():
     assert markout([Fill(0, 0.5, "ask")], 60, FEE) is None
     assert "NO DATA" in verdict([None], half_spread=None)
+
+
+def test_prematch_cut_finds_the_first_live_print():
+    from sportsbot.backtest.markout import prematch_cut
+    tape = _tape([("ask", 0.50)] * 12 + [("ask", 0.65), ("ask", 0.80)])
+    assert prematch_cut(tape) == 12
+
+
+def test_prematch_cut_refuses_a_tape_that_is_live_from_the_start():
+    from sportsbot.backtest.markout import prematch_cut
+    tape = _tape([("ask", 0.50), ("ask", 0.65), ("ask", 0.80)])
+    assert prematch_cut(tape) is None
+
+
+def test_prematch_cut_is_none_when_the_tape_never_goes_live():
+    from sportsbot.backtest.markout import prematch_cut
+    assert prematch_cut(_tape([("ask", 0.50)] * 30)) is None
+    assert prematch_cut([]) is None

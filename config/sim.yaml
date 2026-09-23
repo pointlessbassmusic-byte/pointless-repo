@@ -69,6 +69,9 @@ risk:
   max_drawdown: 25.0             # kill switch: stop entirely, require manual reset
   stale_quote_seconds: 120       # skip markets with quotes older than this
   min_minutes_before_start: 10   # don't enter pre-match bets after this cutoff
+  max_pre_match_move: 0.08       # refuse entry once the mid has moved this far from
+                                 # first sighting: Kalshi's occurrence_datetime is the
+                                 # expected END, so the clock alone can pass a live match
   calibration_min_bets: 50       # start monitoring after N settled bets
   calibration_max_brier: 0.26    # pause betting if rolling Brier exceeds this
 
