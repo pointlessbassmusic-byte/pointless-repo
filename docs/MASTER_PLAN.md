@@ -170,6 +170,16 @@ Pipeline per cycle:
       Miami reads -4.4F against Polymarket's buckets on the same day — two independent
       books agreeing puts the error in our grid cell, not in either market. Still not a
       settled outcome, so `bias_f` stays unfitted until `weather_calibrate` has truth.
+- [x] **Sportsbook reference vs Polymarket, measured** (`docs/SPORTSBOOK_VS_POLYMARKET_2026-09-23.md`,
+      `python -m src.sportsbook_study`). 1,048 settled matches across four leagues, free
+      football-data.co.uk lines vs Polymarket's trade log 1h/6h/24h before kickoff. An hour
+      out Polymarket is as sharp as every closing line (paired Brier within ±0.0006, beats
+      Pinnacle on its 185-match subset), the regression weight is all on Polymarket, the
+      median gap is 0.8c against a 4c min_edge, and buying the book's side of a 2-3c gap
+      loses. The sportsbook-consensus thesis fails on liquid soccer; it needs a source that
+      leads the market, and a retail-book consensus does not. The item below is therefore
+      no longer the unlock it was written up as — the key would switch on a model with no
+      measured edge. US sports remain unmeasured; the script is the template.
 - [ ] **polymarket-edge's headline model has never run.** Its 2090 recorded estimates
       are 100% weather: five sports are configured but `ODDS_API_KEY` is unset, so the
       odds client returns nothing and sportsbook-consensus fair value produces zero

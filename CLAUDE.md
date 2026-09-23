@@ -145,9 +145,19 @@ the outcome and fabricates longshot edge.
   decision is telegraphed (2024-25); in a contested cycle (2026) the bucket
   sits at 0.80-0.88 and the rule does not fire — the 0.80-0.90 band is
   untested, do not lower the threshold on two meetings. No public history
-  reaches June 2022, so the surprise tail is unmeasured. The
-  sportsbook-consensus model is the same class. Weather is the reverse class:
-  the book is the sharper source.
+  reaches June 2022, so the surprise tail is unmeasured. Weather is the
+  reverse class: the book is the sharper source.
+- The sportsbook-consensus model is NOT a reference-price edge on liquid
+  soccer (`docs/SPORTSBOOK_VS_POLYMARKET_2026-09-23.md`, rerun with
+  `python -m src.sportsbook_study` in polymarket-edge, no key needed): on
+  1,048 settled EPL / La Liga / Bundesliga / Ligue 1 matches, Polymarket an
+  hour before kickoff scores the same Brier as the market-average, Bet365 and
+  Betfair closing lines to within ±0.0006, beats Pinnacle's closing line, and
+  a regression puts all the weight on the Polymarket price. Median
+  disagreement is 0.8c; buying the book's side of a 2-3c disagreement loses.
+  A reference must LEAD the market (fed-funds futures do); a consensus of the
+  books the crowd already reads does not. `ODDS_API_KEY` is not an unlock.
+  US sports are unmeasured; measure with the same script before assuming.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on

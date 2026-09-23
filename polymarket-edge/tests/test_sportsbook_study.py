@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from src.sportsbook_study import (
     BookRow, PolyMatch, brier, match, ols, paired_brier_diff, parse_book_csv,
-    parse_event, strategy, team,
+    drop_settled, parse_event, strategy, team,
 )
 
 CSV = (
@@ -140,3 +140,15 @@ def test_polymatch_dataclass_carries_what_sampling_needs():
     pm = PolyMatch(league="E0", slug="s", home="A", away="B",
                    kickoff=datetime(2026, 1, 1, tzinfo=timezone.utc), markets={}, result="H")
     assert pm.kickoff.tzinfo is timezone.utc
+
+
+def test_drop_settled_removes_the_whole_match_behind_a_post_settlement_print():
+    rows = [
+        {"slug": "ok", "horizon_h": 1, "pm_price": 0.60},
+        {"slug": "ok", "horizon_h": 1, "pm_price": 0.25},
+        {"slug": "wrong-kickoff", "horizon_h": 1, "pm_price": 0.999},   # already settled
+        {"slug": "wrong-kickoff", "horizon_h": 1, "pm_price": 0.001},
+        {"slug": "wrong-kickoff", "horizon_h": 24, "pm_price": 0.40},   # its other rows go too
+    ]
+    kept, n = drop_settled(rows)
+    assert n == 1 and {r["slug"] for r in kept} == {"ok"}

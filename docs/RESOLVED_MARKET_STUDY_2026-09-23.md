@@ -99,10 +99,13 @@ the pattern: the edge does not exist a month out.
 
 ## What this means for the engines
 
-- polymarket-edge's sportsbook-consensus thesis is the same *class* of edge
-  as the Fed pattern (a sharper external reference than the book). It has
-  never run for want of `ODDS_API_KEY`. It is the one engine model that this
-  study gives a reason to believe in.
+- polymarket-edge's sportsbook-consensus thesis looked like the same *class*
+  of edge as the Fed pattern (a sharper external reference than the book).
+  Measured the same day on 1,048 settled soccer matches
+  (`docs/SPORTSBOOK_VS_POLYMARKET_2026-09-23.md`), it is not: Polymarket an
+  hour before kickoff is as sharp as every sportsbook closing line, and the
+  book's side of a disagreement loses. The reference has to lead the market;
+  fed-funds futures do, a consensus of retail books does not.
 - The Fed rule itself now runs as a recorder in arb-scanner
   (`src/fed_watch.py`, `python -m src.fed_watch --report`): both venues, the
   three gates above, first-fire entries, settlement from Kalshi. It trades

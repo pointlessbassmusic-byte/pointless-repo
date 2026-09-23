@@ -424,10 +424,25 @@ def strategy(rows: list[dict], ref: str, threshold: float, spread: float = 0.01)
             "mean_gap": sum(r[ref] - r["pm_price"] for r in picks) / len(picks)}
 
 
+SETTLED_PRINT = 0.98
+
+
+def drop_settled(rows: list[dict]) -> tuple[list[dict], int]:
+    """Drop every row of a match that already prints at >= 0.98 on any outcome
+    at any horizon: no top-flight side is a 98% favourite an hour out, so the
+    print is post-settlement and the recorded kickoff is wrong (rescheduled or
+    re-listed fixtures). Returns the kept rows and the number of matches dropped."""
+    bad = {r["slug"] for r in rows if r["pm_price"] >= SETTLED_PRINT}
+    return [r for r in rows if r["slug"] not in bad], len(bad)
+
+
 def analyse(rows: list[dict], out=sys.stdout) -> None:
     def clean(rs, keys):
         return [r for r in rs if all(not math.isnan(r[k]) for k in keys)]
 
+    rows, dropped = drop_settled(rows)
+    print(f"dropped {dropped} match(es) with a post-settlement print; {len(rows)} rows remain",
+          file=out)
     for h in HORIZONS_H:
         hr = [r for r in rows if r["horizon_h"] == h]
         if not hr:
