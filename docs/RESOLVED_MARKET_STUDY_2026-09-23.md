@@ -103,6 +103,10 @@ the pattern: the edge does not exist a month out.
   as the Fed pattern (a sharper external reference than the book). It has
   never run for want of `ODDS_API_KEY`. It is the one engine model that this
   study gives a reason to believe in.
+- The Fed rule itself now runs as a recorder in arb-scanner
+  (`src/fed_watch.py`, `python -m src.fed_watch --report`): both venues, the
+  three gates above, first-fire entries, settlement from Kalshi. It trades
+  nothing; it exists to build the settled record the pre-live gate needs.
 - Weather is the opposite class: the book is the sharper source. Settled.
 - Price-history generators (mean reversion, momentum) are taker strategies on
   price alone; this study says the base rate for those is zero or negative.

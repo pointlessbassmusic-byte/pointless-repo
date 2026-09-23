@@ -199,8 +199,18 @@ Pipeline per cycle:
       lacks. Two studies, two venues, two methods: the price is the sharper source unless
       an external reference beats it. That leaves reference-price edges (Fed decisions,
       sportsbook consensus) as the only class with evidence behind it.
-- [ ] Operationalise the Fed rule as a scanner arm (both engines): within 7 days of an
-      FOMC date, flag any decision bucket >= 0.90 where the other venue agrees; dry-run
-      first, size as a short-vol position. Needs an FOMC calendar in config and a
-      cross-venue agreement check (arb-scanner already matches these events).
+- [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
+      every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
+      KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
+      meeting across venues, and fires when a bucket's ask is >= 0.90 within 7 days of
+      the decision (Kalshi close_time — no calendar to maintain) and the other venue's mid
+      is >= 0.85. First fire per (meeting, bucket, venue) is stored as the entry with a
+      fixed $25 stake; rows settle from Kalshi results and the report prints paid/settled,
+      mean net return, breakeven surprise rate and a rule-of-three bound. Not wired to
+      any executor: the settled record it builds is what pre-live-gate requires first.
+      Live 2026-09-23: Oct hike-25 0.51/0.54, hold 0.47/0.46 at 35 days — not firing.
+- [ ] Decide, on the first settled fires, whether the Kalshi leg goes to kalshi-engine's
+      executor in dry-run. Blocked on the record above; the generic ensemble dilutes a
+      2-3c edge below `min_edge` and `max_price: 0.95` excludes the buckets, so it needs
+      its own path, not a generator.
 

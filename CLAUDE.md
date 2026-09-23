@@ -155,6 +155,11 @@ the outcome and fabricates longshot edge.
   price lacks (`docs/EDGE_VERDICT_2026-09-23.md`: beta 0.065, t 0.2; market
   Brier 0.2399 vs model 0.2422). Calibrated is not the same as profitable:
   score a model against the price it would have paid, not against outcomes.
+- The Fed rule runs as a recorder, not a trader: `arb-scanner/src/fed_watch.py`
+  fires on a decision bucket at >= 0.90 within 7 days when the other venue
+  agrees, stores the first price it saw as the entry, and scores rows from
+  Kalshi settlements. That settled record is the pre-live-gate evidence; do
+  not wire it to an executor before it exists.
 - The Fed trade is short volatility: a surprise costs the stake, and one
   loss erases ~40 wins. Zero losses in 18 meetings bounds the surprise rate
   at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
@@ -194,6 +199,7 @@ python -m src.main --once --dry-run  # one scan cycle (arb-scanner: --once)
 python -m src.report               # calibration vs real settlements (bot/engine)
 python -m src.weather_divergence   # bot/engine: forecast vs market-implied temps
 python -m src.backtest             # kalshi-engine: replay history offline
+python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues + settled record
 ```
 
 ### Safety invariants — do not weaken
