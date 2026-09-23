@@ -81,6 +81,22 @@ def weather_bias(db: Database) -> list[tuple[str, int, float]]:
     return [(c, len(v), round(sum(v) / len(v), 2)) for c, v in sorted(errs.items())]
 
 
+def arm_mix(conn, where: str = "", params: tuple = ()) -> list[tuple[str, int]]:
+    """How many estimates each model arm produced, commonest first.
+
+    A run whose estimates are all from one arm is worth seeing at a glance: it
+    usually means another arm is silently inert (a missing API key stops the
+    sportsbook feed without stopping the cycle), not that the others found
+    nothing."""
+    rows = conn.execute(
+        "SELECT CASE WHEN matched_game LIKE 'weather:%' THEN 'weather'"
+        "            WHEN matched_game IS NULL OR matched_game = '' THEN 'unattributed'"
+        "            ELSE 'sportsbook' END AS arm, COUNT(*)"
+        f" FROM estimates WHERE 1=1{where} GROUP BY arm ORDER BY 2 DESC", params
+    ).fetchall()
+    return [(arm, n) for arm, n in rows]
+
+
 def report(db: Database, days: float | None) -> None:
     conn = db.conn
     where, params = _since_clause(days)
@@ -95,6 +111,18 @@ def report(db: Database, days: float | None) -> None:
         " GROUP BY status ORDER BY 2 DESC", params
     ).fetchall():
         print(f"orders[{status}]: {n}  (${stake:.2f})")
+
+    arms = arm_mix(conn, where, params)
+    if arms:
+        total = sum(n for _, n in arms)
+        print("\nestimates by model arm:")
+        for arm, n in arms:
+            print(f"  {arm:<14} {n:>6}  ({n / total:.0%})")
+        if dict(arms).get("weather", 0) == total:
+            print("  every estimate came from the weather arm. The sportsbook-"
+                  "consensus\n  model produced nothing — check ODDS_API_KEY and "
+                  "the odds feed, because\n  weather alone has not been shown to "
+                  "beat the book (see CLAUDE.md).")
 
     biases = weather_bias(db)
     if biases:

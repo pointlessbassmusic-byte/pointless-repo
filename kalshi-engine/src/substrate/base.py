@@ -15,6 +15,9 @@ class Context:
     price_history: dict[str, list[tuple[str, float]]] = field(default_factory=dict)
     # expected seconds between scans; None disables gap checking (backtests)
     scan_interval_sec: float | None = None
+    # every market in this cycle's scan, so a generator can read a market's
+    # siblings — a strike band is only interpretable next to the rest of its set
+    markets: list[Market] = field(default_factory=list)
 
 
 def window_contiguous(window: list[tuple[str, float]],
