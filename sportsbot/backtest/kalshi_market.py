@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 CACHE_DIR = "data/cache/kalshi_candles"
 _EVENT_DATE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})")
+_EVENT_START = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})(\d{4})")
 _MONTHS = {m: i for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], start=1)}
@@ -48,6 +49,7 @@ class MarketGame:
     home_ticker: str
     close_ts: int
     home_won: bool
+    start_ts: Optional[int] = None   # first pitch, from the event ticker
 
 
 @dataclass
@@ -97,6 +99,31 @@ class Result:
             "brier": round(brier, 4),
             "mean_edge": round(sum(b.edge for b in self.bets) / n, 4),
         }
+
+
+def event_start_ts(event_ticker: str) -> Optional[int]:
+    """First pitch from the event ticker (…-26SEP242210SDLAD = 22:10 ET).
+
+    This matters for CLV. Kalshi's MLB markets close AFTER the game ends, so
+    the last quote before close is a near-settlement price that already knows
+    the result — comparing an entry against it measures whether the bet won,
+    not whether it beat the closing line. The closing line is the last quote
+    before first pitch.
+    """
+    m = _EVENT_START.search(event_ticker)
+    if not m:
+        return None
+    yy, mon, dd, hhmm = m.groups()
+    month = _MONTHS.get(mon)
+    if month is None:
+        return None
+    try:
+        # Kalshi stamps these in US Eastern; -4h covers the season (EDT).
+        naive = datetime(2000 + int(yy), month, int(dd),
+                         int(hhmm[:2]) % 24, int(hhmm[2:]), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return int(naive.timestamp()) + 4 * 3600
 
 
 def event_date(event_ticker: str) -> Optional[datetime]:
@@ -166,16 +193,22 @@ def fetch_settled_games(client, series: str = "KXMLBGAME",
             continue
         out.append(MarketGame(date=when, home=home_name, away=away_name,
                               home_ticker=home_mkt["ticker"], close_ts=close_ts,
-                              home_won=(result == "yes")))
+                              home_won=(result == "yes"),
+                              start_ts=event_start_ts(ev)))
     out.sort(key=lambda g: g.date)
     return out
 
 
 def quote_at_lead(client, series: str, ticker: str, close_ts: int,
-                  lead_hours: float, pause: float = 0.4) -> Optional[tuple]:
-    """(yes_bid, yes_ask, closing_mid) `lead_hours` before close, from the
-    hourly candlesticks. Cached on disk: the history never changes, and a
-    sweep of a full season is thousands of calls."""
+                  lead_hours: float, pause: float = 0.4,
+                  start_ts: Optional[int] = None) -> Optional[tuple]:
+    """(yes_bid, yes_ask, closing_mid) `lead_hours` before first pitch.
+
+    `start_ts` is first pitch. Both the entry and the closing line are taken
+    relative to it, never to `close_ts`: these markets stay open through the
+    game, so a quote near close has already seen the result. Cached on disk —
+    the history never changes and a season sweep is thousands of calls.
+    """
     from sportsbot.exchanges.kalshi import API_ROOT
 
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -212,7 +245,8 @@ def quote_at_lead(client, series: str, ticker: str, close_ts: int,
         except (KeyError, TypeError, ValueError):
             return None
 
-    target = close_ts - lead_hours * 3600
+    anchor = start_ts or close_ts
+    target = anchor - lead_hours * 3600
     entry = min(candles, key=lambda c: abs(c.get("end_period_ts", 0) - target))
     if abs(entry.get("end_period_ts", 0) - target) > 3 * 3600:
         return None           # nothing quoted near the decision point
@@ -221,7 +255,15 @@ def quote_at_lead(client, series: str, ticker: str, close_ts: int,
     if bid is None or ask is None or ask <= bid:
         return None
 
-    last = candles[-1]
+    # Closing line = the last candle ending strictly BEFORE first pitch. The
+    # boundary candle is dropped on purpose: first pitch comes from the
+    # ticker via an assumed Eastern offset, so a candle straddling it could
+    # carry an in-play print, and an in-play price (already ~0 or ~1) does not
+    # dent CLV, it destroys it.
+    pre = [c for c in candles if c.get("end_period_ts", 0) < anchor]
+    if not pre:
+        return None
+    last = pre[-1]
     cb = dollars(last, "yes_bid", "close_dollars")
     ca = dollars(last, "yes_ask", "close_dollars")
     closing = ((cb + ca) / 2.0 if cb is not None and ca is not None
@@ -275,7 +317,8 @@ def run_backtest(history, games: list[MarketGame], client,
         if mg is not None:
             res.considered += 1
             quote = quote_at_lead(client, series, mg.home_ticker,
-                                  mg.close_ts, lead_hours)
+                                  mg.close_ts, lead_hours,
+                                  start_ts=mg.start_ts)
             if quote is not None:
                 res.priced += 1
                 bid, ask, closing = quote
