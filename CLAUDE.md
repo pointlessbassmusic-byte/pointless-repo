@@ -163,8 +163,12 @@ the outcome and fabricates longshot edge.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
   910 settled Kalshi games at real quotes and fees, has no information the
   price lacks (`docs/EDGE_VERDICT_2026-09-23.md`: beta 0.065, t 0.2; market
-  Brier 0.2399 vs model 0.2422). Calibrated is not the same as profitable:
-  score a model against the price it would have paid, not against outcomes.
+  Brier 0.2399 vs model 0.2422). Its bootstrapped tennis Elo is worse: on
+  1,577 settled Kalshi matches it scores below the base rate (Brier 0.2589
+  vs market 0.2024), its bets lose ~18% per bet (t ~ -2.2), and the market
+  is right when they disagree (PR #24; sleeve zeroed, provisional ratings
+  untradeable). Calibrated is not the same as profitable: score a model
+  against the price it would have paid, not against outcomes.
 - The Fed rule runs as a recorder, not a trader: `arb-scanner/src/fed_watch.py`
   fires on a decision bucket at >= 0.90 within 7 days when the other venue
   agrees, stores the first price it saw as the entry, and scores rows from
