@@ -21,7 +21,7 @@ from sportsbot.exchanges.kalshi import kalshi_taker_fee
 from sportsbot.exchanges.paper import PaperExchange
 from sportsbot.exchanges.polymarket import taker_fee
 
-NO_FEE = lambda price, shares: 0.0  # noqa: E731
+NO_FEE = lambda price, shares, market_id=None: 0.0  # noqa: E731
 
 
 def _market(**kw):

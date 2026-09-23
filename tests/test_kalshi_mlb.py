@@ -113,3 +113,41 @@ def test_tennis_markets_pair_on_player_names_without_home_field():
     assert cina.home == "Federico Cina"
     assert cina.away == "Nikoloz Basilashvili"
     assert "home_field" not in cina.meta
+
+
+def test_mlb_fee_multiplier_is_half_and_actually_reaches_the_edge_test():
+    """Kalshi charges MLB at half rate (fee_multiplier 0.5) and tennis at
+    full. Charging one rate for both doubles the fee the edge test subtracts
+    on MLB, which suppresses bets that really do clear the bar."""
+    from sportsbot.exchanges.kalshi import kalshi_taker_fee, series_of
+
+    assert series_of("KXMLBGAME-26SEP242210SDLAD-SD") == "KXMLBGAME"
+    assert series_of("") == ""
+    # 100 contracts at 0.50: 0.07 * mult * 100 * 0.25
+    assert kalshi_taker_fee(0.50, 100, 1.0) == 1.75
+    assert kalshi_taker_fee(0.50, 100, 0.5) == 0.88   # ceil-to-cent of 0.875
+
+
+def test_fee_fn_contract_is_uniform_across_venues():
+    """Both venues' fee functions take (price, shares, market_id) so the
+    strategy can hand over the market without knowing the venue. Polymarket's
+    third positional used to be base_fee_bps — passing a ticker there would
+    have silently produced a nonsense fee rather than an error."""
+    from sportsbot.exchanges.polymarket import taker_fee
+
+    assert taker_fee(0.5, 10) == taker_fee(0.5, 10, "KXMLBGAME-X")
+    assert taker_fee(0.5, 10, "KXMLBGAME-X", 2000.0) > taker_fee(0.5, 10)
+
+
+def test_kalshi_fee_multiplier_falls_back_without_network(monkeypatch):
+    from sportsbot.exchanges import kalshi as k
+
+    c = k.KalshiClient(env="demo")
+    monkeypatch.setattr(k, "_FEE_MULTIPLIERS", {})
+
+    def boom(*a, **kw):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(c, "_request", boom)
+    assert c.fee_multiplier("KXMLBGAME-26SEP24-SD") == 0.5     # known fallback
+    assert c.fee_multiplier("KXUNKNOWN-1") == 1.0              # conservative
