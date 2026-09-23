@@ -156,7 +156,14 @@ the outcome and fabricates longshot edge.
   Brier 0.2399 vs model 0.2422). Calibrated is not the same as profitable:
   score a model against the price it would have paid, not against outcomes.
 - The Fed trade is short volatility: a surprise costs the stake, and one
-  loss erases ~40 wins. Size it so a total loss changes nothing.
+  loss erases ~40 wins. Zero losses in 18 meetings bounds the surprise rate
+  at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
+  not prove the trade; the mechanism's longer record does. Size it so a total
+  loss changes nothing.
+- PnL from hundreds of bets cannot settle an edge claim: per-bet return SD on
+  50c binaries is ~1.0, so 2% ROI needs ~10,000 bets (PR #22's power
+  analysis). Closing-line value needs ~80-500 observations. Judge strategies
+  by CLV against the price paid, not by realized PnL.
 
 ---
 

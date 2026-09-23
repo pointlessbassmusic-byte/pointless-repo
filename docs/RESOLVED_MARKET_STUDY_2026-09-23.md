@@ -139,3 +139,27 @@ not evidence. Do not lower the threshold on the strength of two meetings.
 
 So the rule stands as written, with its regime named: it earns 1–3c per
 meeting when the decision is telegraphed and stands aside when it is not.
+
+## What 18 meetings can and cannot establish
+
+PR #22's power analysis applies here too, and it cuts against the headline.
+The t = 7.3 is the t-statistic of the *mean return given that no loss
+occurred*; it says nothing about how often a loss occurs, which is the only
+number that matters for a trade that wins 2c and loses 100c. Zero losses in
+18 independent meetings bounds the surprise rate at about 16% with 95%
+confidence (rule of three: 3/18). Breakeven is 2.4%. The sample cannot rule
+out a loss rate six times breakeven.
+
+What carries the claim is the mechanism and its longer record, not this
+sample: fed-funds futures have priced the decision at >= 90% the week before
+in the large majority of meetings since the Fed began pre-announcing in the
+1990s, and decision-week reversals of a >= 90% pricing are rare enough (June
+2022 is the recent one) that a surprise rate in the low single digits is the
+defensible prior. That is an argument from outside the data. Treat the 18/18
+as consistent with it, not as proof of it, and size the position accordingly.
+
+The maker variant tested in PR #22 is spread capture against sports flow.
+Exchange-paid liquidity rewards (Polymarket's `clobRewards`, paid for resting
+orders inside `rewardsMaxSpread` regardless of fills) are a different
+mechanism and are untested here; they carry inventory risk and are not an
+edge claim.
