@@ -90,3 +90,75 @@ def test_summary_arithmetic():
     assert s["hit_rate"] == 0.5
     assert s["mean_clv"] == round((0.05 + 0.10) / 2, 4)
     assert s["clv_positive_rate"] == 1.0
+
+
+def _tennis_mkt(ev: str, code: str, player: str, result: str) -> dict:
+    return {"ticker": f"{ev}-{code}", "event_ticker": ev, "yes_sub_title": player,
+            "result": result, "settlement_ts": "2026-09-23T08:02:58Z",
+            "close_time": "2026-09-23T08:00:54Z"}
+
+
+def test_tennis_pairing_prices_a_deterministic_side(monkeypatch):
+    """One MarketGame per event; the priced side is the alphabetically first
+    player so a rerun prices the same market; the anchor is settlement − 3h."""
+    import sportsbot.backtest.kalshi_market as km
+
+    ev = "KXATPMATCH-26SEP23BASCIN"
+    pages = [{"markets": [
+        _tennis_mkt(ev, "CIN", "Federico Cina", "no"),
+        _tennis_mkt(ev, "BAS", "Nikoloz Basilashvili", "yes"),
+    ]}]
+
+    class FakeClient:
+        def _request(self, method, path, params=None):
+            return pages.pop(0) if pages else {"markets": []}
+
+    games = km.fetch_settled_tennis(FakeClient(), series=("KXATPMATCH",))
+    assert len(games) == 1
+    g = games[0]
+    assert g.home == "federico cina" and g.away == "nikoloz basilashvili"
+    assert g.home_ticker.endswith("-CIN")
+    assert g.home_won is False                    # Cina's market settled NO
+    assert g.date.date().isoformat() == "2026-09-23"
+    settle = int(datetime(2026, 9, 23, 8, 2, 58, tzinfo=timezone.utc).timestamp())
+    assert g.start_ts == settle - 3 * 3600
+
+
+def test_tennis_walk_forward_cannot_learn_from_the_same_day(monkeypatch):
+    """Two matches on one day: the prediction for either must be identical
+    whichever is listed first, i.e. neither result reached the model before
+    the day's predictions were made."""
+    import sportsbot.backtest.kalshi_market as km
+    from sportsbot.data.tennis_data import MatchResult
+
+    d = datetime(2026, 9, 23, tzinfo=timezone.utc)
+    hist = [MatchResult(date=d, winner="a", loser="b", surface="", best_of=3,
+                        level="", tourney="t"),
+            MatchResult(date=d, winner="a", loser="c", surface="", best_of=3,
+                        level="", tourney="t")]
+    # a prior month of history so 'a','b','c' clear min_matches
+    for i in range(12):
+        prior = datetime(2026, 8, 1 + i, tzinfo=timezone.utc)
+        hist += [MatchResult(date=prior, winner="a", loser="b", surface="",
+                             best_of=3, level="", tourney="t"),
+                 MatchResult(date=prior, winner="c", loser="a", surface="",
+                             best_of=3, level="", tourney="t")]
+    games = [km.MarketGame(date=d, home="a", away="b", home_ticker="KXATPMATCH-X-A",
+                           close_ts=0, home_won=True, start_ts=0),
+             km.MarketGame(date=d, home="a", away="c", home_ticker="KXATPMATCH-Y-A",
+                           close_ts=0, home_won=True, start_ts=0)]
+    monkeypatch.setattr(km, "quote_at_lead", lambda *a, **k: (0.49, 0.51, 0.50))
+
+    class C:
+        def fee_multiplier(self, t):
+            return 1.0
+
+    def probs(order):
+        r = km.run_tennis_backtest(order, games, C(), min_edge=-1.0,
+                                   max_uncertainty=1.0)
+        return {b.market: b.model_prob for b in r.bets}
+
+    forward = probs(hist)
+    swapped = probs([hist[1], hist[0]] + hist[2:])
+    assert forward == swapped
+    assert len(forward) == 2

@@ -165,9 +165,12 @@ It is a fallback, not a substitute, and the code says so in three places:
   walk-forward result on the real history and a bootstrap has never been
   validated at all. The dashboard shows "provisional ratings (halved)" as the
   binding constraint.
-- There are no surface splits, so the model's surface weight collapses to zero
-  and it prices on overall Elo alone — which it already degrades to cleanly
-  (`w_surf = surface_weight * min(1, n_surf/10)`).
+- There are no surface splits. The bootstrap records every match with
+  `surface=""`, which the model keys as `hard`, so the "hard" engine holds the
+  same matches as the overall engine and the surface blend is a no-op: the
+  prediction is overall Elo. (An earlier revision said the surface weight
+  "collapses to zero"; it does not — `n_surf` is full — the two engines are
+  simply identical.)
 
 What it looks like in practice: of 94 tennis markets scanned, 56 were passed on
 model uncertainty (thin ratings — most players have only a few months of
