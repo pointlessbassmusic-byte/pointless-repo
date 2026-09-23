@@ -25,6 +25,7 @@ import base64
 import logging
 import math
 import os
+import re
 import time
 from decimal import Decimal
 from typing import Any, Optional
@@ -84,6 +85,36 @@ KALSHI_MLB_TEAMS: dict[str, str] = {
     "TB": "tampa bay rays", "TEX": "texas rangers",
     "TOR": "toronto blue jays", "WSH": "washington nationals",
 }
+
+
+_MLB_TICKER = re.compile(r"^KXMLBGAME-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})")
+_MONTHS = {m: i for i, m in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+
+
+def mlb_first_pitch(ticker: str):
+    """Scheduled first pitch from a KXMLBGAME ticker, as an aware UTC time.
+
+    The ticker encodes YYMONDDHHMM in US Eastern (Kalshi's clock).
+    Verified 2026-09-23 on 250 settled markets: occurrence_datetime is this
+    time + 3h exactly, and the tape's first >10c move is a median 15
+    minutes after it. Returns None for anything that does not parse --
+    never a guess.
+    """
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    m = _MLB_TICKER.match(ticker or "")
+    if not m:
+        return None
+    yy, mon, dd, hh, mm = m.groups()
+    try:
+        local = datetime(2000 + int(yy), _MONTHS[mon], int(dd), int(hh), int(mm),
+                         tzinfo=ZoneInfo("America/New_York"))
+    except (KeyError, ValueError):
+        return None
+    return local.astimezone(timezone.utc)
 
 
 def split_mlb_event(event_ticker: str, codes: set[str]) -> tuple[str, str] | None:
@@ -429,22 +460,27 @@ class KalshiClient(ExchangeClient):
     def _to_market_info(self, m: dict, sport: Sport, series: str) -> MarketInfo:
         # occurrence_datetime == expected_expiration_time on every market
         # checked (2026-09-23): it is the expected SETTLE bound, not the
-        # start. On tennis the tape shows in-play price action a median
-        # 2.7h BEFORE it (90% of markets), so using it as the start proxy
-        # points the pre-match guard at the END of the match. Tennis
-        # tickers carry no time of day, so there is no start to be had:
-        # start_time stays None and the risk layer refuses the entry
-        # (fail closed) rather than trade blind into a live match.
+        # start. On MLB it is the ticker time + 3h exactly (250/250
+        # markets); on tennis the tape shows in-play price action a median
+        # 2.7h before it. Using it as the start proxy points the pre-match
+        # guard at the END of the match.
         #
-        # MLB tickers embed the scheduled first pitch (26SEP222210SDLAD ->
-        # 22:10 local; the SD/LAD sample matched occurrence exactly), so
-        # occurrence is kept as the start there, and the price-movement
-        # in-play detector in risk.py backstops it either way.
+        # MLB tickers embed the scheduled first pitch in US EASTERN time
+        # (26SEP222210SDLAD -> Sep 22 22:10 ET). Verified against the tape:
+        # the first >10c move lands a median 15 minutes after it. That is
+        # the only real start Kalshi exposes, so it is parsed as one.
+        # (A single earlier check read the ticker as Pacific and happened
+        # to coincide with occurrence -- a timezone error, now corrected.)
+        #
+        # Tennis tickers carry no time of day: start_time stays None and
+        # the risk layer refuses the entry (fail closed) rather than trade
+        # blind into a live match. The price-movement in-play detector in
+        # risk.py backstops the clock on every venue.
         #
         # close_time / expiration_time are far-future legal bounds (+2
         # weeks) and must never stand in for the start.
         close_time = self._ts(m, "expected_expiration_time", "close_time")
-        start_time = (self._ts(m, "occurrence_datetime")
+        start_time = (mlb_first_pitch(m.get("ticker", ""))
                       if sport is Sport.BASEBALL else None)
         return MarketInfo(
             exchange=Exchange.KALSHI,

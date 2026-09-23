@@ -133,8 +133,43 @@ def test_tennis_has_no_start_time_because_kalshi_gives_none():
     assert mi.close_time is not None          # settle bound still recorded
 
 
-def test_mlb_keeps_the_ticker_backed_start():
+def test_mlb_has_a_start_time():
     from sportsbot.core.types import Sport
     c = KalshiClient(env="prod")
     mi = c._to_market_info(_raw("KXMLBGAME-26SEP222210SDLAD-SD"), Sport.BASEBALL, "KXMLBGAME")
     assert mi.start_time is not None
+
+
+def test_mlb_first_pitch_is_the_ticker_time_in_eastern():
+    """occurrence_datetime is first pitch + 3h on 250/250 settled markets;
+    the ticker's HHMM in US Eastern is the only real start Kalshi gives."""
+    from datetime import datetime, timezone
+    from sportsbot.exchanges.kalshi import mlb_first_pitch
+    fp = mlb_first_pitch("KXMLBGAME-26SEP222210SDLAD-SD")
+    # Sep 22 22:10 EDT == Sep 23 02:10Z; occurrence on that market was 05:10Z
+    assert fp == datetime(2026, 9, 23, 2, 10, tzinfo=timezone.utc)
+
+
+def test_mlb_first_pitch_respects_dst():
+    from datetime import datetime, timezone
+    from sportsbot.exchanges.kalshi import mlb_first_pitch
+    # January is EST (UTC-5): 19:05 ET -> 00:05Z next day
+    assert (mlb_first_pitch("KXMLBGAME-26JAN151905NYYBOS-NYY")
+            == datetime(2026, 1, 16, 0, 5, tzinfo=timezone.utc))
+
+
+def test_mlb_first_pitch_never_guesses():
+    from sportsbot.exchanges.kalshi import mlb_first_pitch
+    assert mlb_first_pitch("KXATPMATCH-26SEP22HARGAL-HAR") is None
+    assert mlb_first_pitch("KXMLBGAME-26XXX222210SDLAD-SD") is None
+    assert mlb_first_pitch("") is None
+
+
+def test_mlb_start_time_comes_from_the_ticker_not_occurrence():
+    from datetime import datetime, timezone
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    raw = _raw("KXMLBGAME-26SEP222210SDLAD-SD")
+    raw["occurrence_datetime"] = "2026-09-23T05:10:00Z"   # end, 3h later
+    mi = c._to_market_info(raw, Sport.BASEBALL, "KXMLBGAME")
+    assert mi.start_time == datetime(2026, 9, 23, 2, 10, tzinfo=timezone.utc)
