@@ -125,6 +125,29 @@ Reference implementation and regression tests:
   offline scoring, not orders — but it is the same mistake as the first bullet
   and should go when that module is next touched.
 
+## What resolved data says about edges (repo-wide)
+
+`docs/RESOLVED_MARKET_STUDY_2026-09-23.md`, rerun with
+`python -m src.calibration_study` in polymarket-edge. Measure horizons from a
+market's **scheduled** end, never from `closedTime`: a "by <date>" market that
+resolves YES closes when the event happens, so time-before-close conditions on
+the outcome and fabricates longshot edge.
+
+- Liquid Polymarket markets are calibrated to within noise. Buying favorites
+  loses 0.5-2% per $1 at every threshold and horizon before spread; buying
+  underdogs loses more. A strategy that uses price alone — mean reversion,
+  momentum, "buy the favorite" — starts from a negative base rate. A backtest
+  that finds edge there is suspect until settled outcomes confirm it.
+- The edges that exist are **reference-price** edges: a public source sharper
+  than the book. FOMC decision buckets paid 50/50 at >= 0.90 within a week
+  (+2.1% at 24h, +3.4% at 168h net of 1c) because fed-funds futures lead the
+  book. The sportsbook-consensus model is the same class. Weather is the
+  reverse class: the book is the sharper source.
+- Favorites in news and geopolitics markets are overpriced (-10% to -37%
+  with real losses). Do not buy certainty there.
+- The Fed trade is short volatility: a surprise costs the stake, and one
+  loss erases ~40 wins. Size it so a total loss changes nothing.
+
 ---
 
 ## Additional modules: polymarket-edge / kalshi-engine / arb-scanner

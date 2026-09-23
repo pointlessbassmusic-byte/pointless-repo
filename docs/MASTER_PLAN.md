@@ -181,3 +181,21 @@ Pipeline per cycle:
       0.0156 against the market's 0.0071 over 1576 estimates on proxy outcomes.
       `python -m src.main` now warns at startup and `python -m src.report` prints the
       arm mix, so a one-armed run is visible instead of inferred.
+- [x] **Resolved-market study** (`polymarket-edge/src/calibration_study.py`,
+      `docs/RESOLVED_MARKET_STUDY_2026-09-23.md`): 1,327 liquid resolved markets, 7,278
+      sampled prices from the data API's trade log, horizons measured from the *scheduled*
+      end (measuring from `closedTime` manufactures fake longshot edge — a "by <date>"
+      market that resolves YES closes when the event happens). Verdict: no price-only
+      taker edge. Favorites lose 0.5-2% per $1 at every threshold and horizon before
+      spread; underdogs are worse. One category is different: FOMC decision buckets,
+      50/50 paid at >=0.90 within a week, +2.1% (24h) to +3.4% (168h) net of 1c, t=7.3,
+      because fed-funds futures are a sharper reference than the book. Geopolitics and
+      news favorites are the opposite (-10% to -37%). The Fed trade is short-vol: one
+      surprise erases ~40 wins; breakeven surprise rate ~2.4%. Kalshi `KXFEDDECISION`
+      carries the same buckets. Oct 2026 is a coin flip today — nothing to buy until the
+      final week.
+- [ ] Operationalise the Fed rule as a scanner arm (both engines): within 7 days of an
+      FOMC date, flag any decision bucket >= 0.90 where the other venue agrees; dry-run
+      first, size as a short-vol position. Needs an FOMC calendar in config and a
+      cross-venue agreement check (arb-scanner already matches these events).
+
