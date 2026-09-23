@@ -121,12 +121,18 @@ def build_exchange(cfg: dict):
         from sportsbot.exchanges.kalshi import KalshiClient, kalshi_taker_fee
 
         data_client = KalshiClient()
-        fee_fn = lambda price, shares: kalshi_taker_fee(price, shares)  # noqa: E731
+
+        def fee_fn(price, shares, market_id=None):
+            """Kalshi's fee multiplier is per series (MLB 0.5, tennis 1.0), so
+            a flat rate is wrong for one of them whichever it picks."""
+            return kalshi_taker_fee(price, shares,
+                                    data_client.fee_multiplier(market_id))
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
         data_client = PolymarketClient()
-        fee_fn = taker_fee
+
+        fee_fn = taker_fee   # already matches the fee_fn contract
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
         return data_client, data_client, fee_fn
     paper = PaperExchange(
@@ -226,6 +232,20 @@ class Runner:
         )
 
     # ------------------------------------------------------------------
+    def maker_fee_fn(self, price: float, market_id: str = "") -> float:
+        """Per-contract cost of a RESTING order on this venue.
+
+        Kalshi reports `fee_type: "quadratic_with_maker_fees"` on both sports
+        series, so a maker fill is not free — and the strategy prefers maker
+        execution, which made this the most-used execution path in the bot
+        and the one whose cost was modelled as zero.
+        """
+        if self.venue != "kalshi":
+            return 0.0          # Polymarket makers pay no taker fee
+        from sportsbot.exchanges.kalshi import kalshi_maker_fee_per_share
+
+        return kalshi_maker_fee_per_share(market_id)
+
     def decision_fee_fn(self, market_id: str):
         """Fee function for EDGE/SIZING/EXIT math on one market.
 
@@ -244,7 +264,11 @@ class Runner:
         )
 
         mult = kalshi_fee_multiplier(market_id)
-        return lambda price, shares: kalshi_fee_per_share(price, mult) * shares
+        # Same (price, shares, market_id=None) shape as `fee_fn`: the
+        # multiplier is already bound to this market, so the third argument
+        # is accepted and ignored rather than making callers special-case it.
+        return lambda price, shares, market_id=None: (
+            kalshi_fee_per_share(price, mult) * shares)
 
     # ------------------------------------------------------------------
     def _mlb_context(self) -> dict[str, dict]:
@@ -607,6 +631,7 @@ class Runner:
             intent, why = evaluate_market_verbose(
                 sm.market, quote, sm.prediction, staking_cfg,
                 strategy_cfg, mkt_fee_fn, exposure,
+                maker_fee_fn=self.maker_fee_fn,
             )
             mid = ((quote.bid + quote.ask) / 2.0
                    if quote.bid is not None and quote.ask is not None else None)

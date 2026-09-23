@@ -136,7 +136,8 @@ def evaluate_exit(
     if sellable <= 0 or exit_avg <= 0:
         return ExitDecision(False, "no exit liquidity")
 
-    fee_per_share = fee_fn(exit_avg, 1.0) if fee_fn else 0.0
+    fee_per_share = (fee_fn(exit_avg, 1.0, agg.get("market_id"))
+                     if fee_fn else 0.0)
     exit_net = exit_avg - fee_per_share - cfg.slippage_buffer
 
     # Hard stop: sellable value vs cost basis — the loss-reactive control,

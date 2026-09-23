@@ -110,19 +110,29 @@ SPORT_FOR_KEY = {
 
 
 FEE_RATE = 0.07
-# Series whose fee schedule carries a multiplier (verified 2026-09; the
-# match is on the SERIES prefix, never a loose substring — a bare "MLB" in
-# a ticker would mis-price unrelated markets).
-FEE_MULTIPLIERS = {"KXMLBGAME": 0.5}
+
+# Per-series fee multipliers, fetched from /series/{ticker} and cached for the
+# process. The fallbacks are what the API returned on 2026-09-23 and are only
+# used if the lookup fails; 1.0 is the conservative default for an unknown
+# series, since overstating a fee costs a skipped bet while understating one
+# books a loser as a winner.
+_FEE_MULTIPLIERS: dict[str, float] = {}
+KNOWN_FEE_MULTIPLIERS: dict[str, float] = {"KXMLBGAME": 0.5}
+
+
+def series_of(market_id: str) -> str:
+    """Series ticker out of a market ticker (KXMLBGAME-26SEP...-SD)."""
+    return str(market_id or "").split("-", 1)[0]
 
 
 def kalshi_fee_multiplier(market_id: str) -> float:
-    """Fee multiplier for a ticker, by series prefix. Unknown series pay
-    full rate — never assume a discount that may not exist."""
-    for series, mult in FEE_MULTIPLIERS.items():
-        if (market_id or "").startswith(series):
-            return mult
-    return 1.0
+    """Cached multiplier without a client. Exact on a series already looked
+    up by `KalshiClient.fee_multiplier`, otherwise the known-values table;
+    unknown series pay full rate rather than assume a discount."""
+    ser = series_of(market_id)
+    if ser in _FEE_MULTIPLIERS:
+        return _FEE_MULTIPLIERS[ser]
+    return KNOWN_FEE_MULTIPLIERS.get(ser, 1.0)
 
 
 def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0) -> float:
@@ -370,6 +380,29 @@ class KalshiClient(ExchangeClient):
                 out.append(m.model_copy(update={
                     "home": mine, "away": theirs, "meta": meta}))
         return out
+
+    def fee_multiplier(self, market_id: Optional[str]) -> float:
+        """Fee multiplier for the market's series.
+
+        MLB runs 0.5 and tennis 1.0, so a single hard-coded rate is wrong for
+        one of them either way: charging tennis's rate on MLB doubles the fee
+        the edge test subtracts, which silently suppresses bets that clear the
+        bar."""
+        ser = series_of(market_id)
+        if not ser:
+            return 1.0
+        if ser in _FEE_MULTIPLIERS:
+            return _FEE_MULTIPLIERS[ser]
+        mult = KNOWN_FEE_MULTIPLIERS.get(ser, 1.0)
+        try:
+            data = self._request("GET", f"{API_ROOT}/series/{ser}")
+            raw = (data.get("series") or data).get("fee_multiplier")
+            if raw is not None:
+                mult = float(raw)
+        except Exception as exc:  # noqa: BLE001 — fall back, never block a scan
+            log.warning("fee multiplier lookup failed for %s: %s", ser, exc)
+        _FEE_MULTIPLIERS[ser] = mult
+        return mult
 
     @staticmethod
     def _dollars(m: dict, field: str) -> Optional[float]:
