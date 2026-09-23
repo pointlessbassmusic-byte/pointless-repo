@@ -99,19 +99,78 @@ slippage. The away side returns −6.7%, which is the spread and fee drag
 showing up as it should. Crossing a ~1.1-point spread and paying ~0.9 points
 of fee to capture a 0.6-point drift does not work.
 
+## Result 4: the maker variant is not measurably better
+
+The spread averages **0.0103 — one tick**. "Maker-first inside the spread",
+which the strategy config assumes, is therefore impossible here: there is no
+room between bid and ask, so the only maker option is joining the best bid and
+waiting for someone to sell into you.
+
+Simulated against real candles (a resting buy at P fills if a later pre-game
+candle traded at or below P on non-zero volume), buying the home side and
+holding to settlement, paying the maker fee (25% of taker on
+`quadratic_with_maker_fees`, so 0.125x the base rate on MLB):
+
+| lead | fill model | filled | hit | ROI | 95% CI | t |
+|---|---|---|---|---|---|---|
+| 24h | optimistic (low ≤ P) | 691/780 (89%) | 0.537 | +0.0191 | [−0.054, +0.092] | +0.51 |
+| 24h | strict (low < P) | 433/780 (56%) | 0.522 | −0.0067 | [−0.099, +0.086] | −0.14 |
+| 6h | optimistic | 750/780 (96%) | 0.540 | +0.0138 | [−0.056, +0.083] | +0.39 |
+| 6h | strict | 243/780 (31%) | 0.572 | +0.0917 | [−0.032, +0.215] | +1.46 |
+
+**Every confidence interval spans zero.** The best-looking cell (+9.2% at 6h
+strict) is also the one with the heaviest selection effect — it only fills
+when the market trades down through the resting bid, which is adverse
+selection by construction — and it still cannot clear t = 2.
+
+The strict model is the honest bound for a retail account: at a one-tick
+spread you sit at the back of the queue, so you are filled mainly when the
+price is moving against you.
+
+## Why a few hundred bets can never settle this
+
+Per-bet return standard deviation on ~50c binaries is about 1.0. That fixes
+how much data any PnL claim needs:
+
+| edge to detect | bets needed (t = 2) |
+|---|---|
+| 5% ROI | 1,600 |
+| 2% ROI | 10,000 (~4 MLB seasons) |
+| 1% ROI | 40,000 (~16 seasons) |
+
+So **any ROI claim from a few hundred sports bets is noise**, including the
+encouraging-looking ones above. This is not a reason to gather more PnL; it
+is a reason to stop using PnL as the decision metric.
+
+Closing-line value is the metric that fits the data we can actually get. Its
+per-observation standard deviation is 0.0222 at a 6h lead against ~1.0 for
+returns, so:
+
+| CLV to detect | observations needed (t = 2) |
+|---|---|
+| +0.005 (half a point) | 79 |
+| +0.002 | 493 |
+
+We have 873. CLV is measurable here, and it says there is no edge — which is
+exactly why the go-live gate in `deploy/DEPLOYMENT.md` is CLV-based rather
+than PnL-based. That choice is now backed by a power calculation rather than
+a principle.
+
 ## What this rules in and out
 
 - **Out: taker betting MLB moneylines on this model.** Three independent
   measurements agree, and the strongest of them (beta = 0.065) says the
   signal is absent rather than small.
 - **Out: threshold tuning.** The edge bar is not what is stopping it.
-- **Untested, and the only live hypothesis left:** capturing that +0.6-point
-  drift as a **maker** rather than a taker, which skips the spread and pays
-  ~25% of the taker fee on Kalshi's `quadratic_with_maker_fees` series. The
-  drift is real (t = 5.4). Whether resting orders actually fill is a
-  different question, and nothing in this repo can answer it — paper fills
-  are simulated against a book that never traded against us. It needs live
-  resting orders at minimum size, recorded, before it is worth a claim.
+- **Out: maker capture of the drift, on the evidence available.** Every
+  variant's confidence interval spans zero, and the one-tick spread means
+  there is nowhere to rest except the back of the touch queue, where fills
+  arrive mainly when the price is moving against you.
+- **Not answerable by simulation:** whether a real resting order fills better
+  than the strict model assumes. Queue position is the one thing candles
+  cannot show. If anything here deserves capital, it is a minimum-size live
+  maker order purely to record fill behaviour — a data-collection exercise
+  with a known cost, not a strategy.
 
 The go-live gate stands: the paper book has produced no settled bets, so
 none of the four criteria is met, and this backtest is a reason to expect
