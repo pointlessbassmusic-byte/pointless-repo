@@ -77,11 +77,16 @@ risk:
 
 scan:
   interval_seconds: 300
-  sports: [baseball, tennis]   # see table_tennis note below
+  sports: [baseball]           # tennis and table_tennis: see notes below
 
 sports:
   tennis:
-    enabled: true
+    # OFF for the sim. The Kalshi-bootstrap ratings measured WORSE than a coin
+    # against the price (Brier 0.2589 vs market 0.2024 on 1,561 settled
+    # matches) and the bets they selected lost ~18% each — see
+    # docs/EDGE_VERDICT_2026-09-23.md, Result 5. Re-enable only once Sackmann
+    # ratings exist AND pass `sportsbot market-backtest tennis`.
+    enabled: false
     best_of_default: 3
     surface_weight: 0.50        # blend: (1-w)*overall + w*surface (Tennis Abstract optimum)
     min_matches: 10             # skip players with fewer rated matches
