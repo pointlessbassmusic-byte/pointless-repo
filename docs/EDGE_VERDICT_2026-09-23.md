@@ -30,27 +30,43 @@ the entry and the closing line are therefore anchored to first pitch (parsed
 from the event ticker, which is stamped in US Eastern), and the candle
 straddling first pitch is discarded.
 
-## Result 1: at the production threshold, it never trades
+## Result 1: at the production threshold it barely trades, and the bets go nowhere
 
-| lead | min edge | bets from 910 games |
+> **Correction (2026-09-23).** The first version of this table was computed
+> with `kalshi_taker_fee` at its default multiplier of 1.0 — the same bug this
+> harness was written to help find, reproduced inside the harness. MLB runs
+> 0.5, so every bet was priced against twice the fee the executor actually
+> pays, which suppressed bets and made the strategy look worse than it is.
+> The numbers below are the corrected run. The conclusion did not change; some
+> of the cells did, and the earlier ones should not be cited.
+
+| lead | min edge | bets from 900 games |
 |---|---|---|
-| 24h | 0.03 | **0** |
-| 6h | 0.03 | **0** |
-| 2h | 0.03 | 1 (lost) |
+| 24h | 0.03 | 2 |
+| 6h | 0.03 | 2 |
+| 2h | 0.03 | 3 |
 
-Lowering the bar does not find a hidden edge, it just finds noise:
+Two or three bets from 900 games is not a strategy. Lowering the bar finds
+volume but no edge — and the sign flips with the lead:
 
-| lead | bar | bets | ROI | hit | mean CLV |
-|---|---|---|---|---|---|
-| 24h | 0.005 | 8 | +0.328 | 0.500 | +0.0106 |
-| 24h | 0.010 | 3 | +0.811 | 0.667 | +0.0067 |
-| 6h | 0.005 | 15 | +0.022 | 0.400 | −0.0040 |
-| 6h | 0.010 | 5 | +0.107 | 0.400 | −0.0040 |
-| 2h | 0.005 | 18 | −0.045 | 0.389 | −0.0036 |
-| 2h | 0.010 | 9 | +0.062 | 0.444 | −0.0044 |
+| lead | bar | bets | ROI | hit | mean CLV | CLV+ |
+|---|---|---|---|---|---|---|
+| 24h | 0.005 | 37 | +0.096 | 0.513 | +0.0097 | 0.703 |
+| 24h | 0.010 | 18 | −0.012 | 0.389 | +0.0058 | 0.667 |
+| 6h | 0.005 | 54 | −0.033 | 0.426 | −0.0025 | 0.333 |
+| 6h | 0.010 | 38 | −0.092 | 0.368 | −0.0041 | 0.316 |
+| 2h | 0.005 | 57 | −0.084 | 0.404 | −0.0040 | 0.210 |
+| 2h | 0.010 | 41 | −0.110 | 0.366 | −0.0044 | 0.195 |
 
-Eight to eighteen bets out of 910 games, with ROIs swinging from −4% to +81%
-on three-bet samples. Those are not results, they are coin flips.
+The cells with real sample size (38–57 bets, at 6h and 2h) are consistently
+**negative**, in ROI and in CLV alike. The one attractive cell — +9.6% at 24h
+on the loosest bar — has n = 37, so its standard error on ROI is about 16
+percentage points: t ≈ 0.6, indistinguishable from zero.
+
+The 24h rows do show positive CLV (+0.010, 70% positive), but that is most
+likely the market's own drift rather than skill: prices drift +0.0059 toward
+the home side from 24h to close (Result 3), so any home-leaning book collects
+it without forecasting anything.
 
 ## Result 2: the model carries no information the price lacks
 
