@@ -156,30 +156,33 @@ which one won.
 matches, 650 players, 103 with the 10+ matches the model requires**, covering
 2026-07-15 to 2026-09-22. That took the scan from 86 markets to **180**.
 
-It is a fallback, not a substitute, and the code says so in three places:
+It is a fallback, not a substitute — and once measured against the price it
+turned out to be worse than no model at all. On 1,561 settled Kalshi matches
+the bootstrap Elo scored Brier 0.2589 against the market's 0.2024 and the
+base rate's 0.2498, and the bets it selected lost about 18% each
+(`docs/EDGE_VERDICT_2026-09-23.md`, Result 5). So:
 
 - The ratings file records `meta.source`, because a bootstrap and a Sackmann
-  fit are not interchangeable and the difference is invisible from the numbers.
-- The allocator halves a sleeve whose ratings are provisional
-  (`PROVISIONAL_RATINGS_FACTOR`), because the 0.35 prior was earned by a
-  walk-forward result on the real history and a bootstrap has never been
-  validated at all. The dashboard shows "provisional ratings (halved)" as the
-  binding constraint.
+  fit are indistinguishable from the numbers alone.
+- The allocator gives a sleeve on provisional ratings **nothing**
+  (`PROVISIONAL_RATINGS_FACTOR = 0.0`; it was 0.5 until the measurement) and
+  the page shows the reason as the binding constraint.
+- Tennis is switched off in `config/sim.yaml`, because allocation is a
+  dashboard view — the runner would otherwise still scan and bet it.
 - There are no surface splits. The bootstrap records every match with
   `surface=""`, which the model keys as `hard`, so the "hard" engine holds the
-  same matches as the overall engine and the surface blend is a no-op: the
-  prediction is overall Elo. (An earlier revision said the surface weight
-  "collapses to zero"; it does not — `n_surf` is full — the two engines are
-  simply identical.)
+  same matches as the overall engine and the surface blend is a no-op.
 
 What it looks like in practice: of 94 tennis markets scanned, 56 were passed on
 model uncertainty (thin ratings — most players have only a few months of
 matches) and 38 had no two-sided book yet. Roughly 40% clear the uncertainty
 bar, so the sport genuinely trades once books appear.
 
-**Running `sportsbot fit tennis` on the laptop or VPS remains the better
-move** — it reaches Sackmann, gets decades of history with surfaces, and the
-sleeve stops being halved.
+**Sackmann ratings are untested and would be a different artifact** — decades
+of history with surfaces. `sportsbot fit tennis` on the laptop or VPS produces
+them; `sportsbot market-backtest tennis` is the test they must pass before the
+sleeve turns on. Nothing measured here rules them out, and nothing supports
+them yet either.
 
 `config/sim.yaml` is a complete standalone config whose dollar knobs are scaled
 to $100 — the $1,000 defaults would put a $50 max stake (half the account) in
