@@ -34,12 +34,13 @@ CLV_GAIN = 8.0
 CLV_FLOOR = 0.4
 CLV_CAP = 1.6
 
-# A sleeve whose ratings came from a market bootstrap rather than a proper
-# history keeps only this share of its prior. The prior was earned by a
-# walk-forward result on the real history; a bootstrap is a different and
-# much thinner artifact (no surface splits, a couple of months of matches)
-# that has never been validated, so it should not inherit the full weight.
-PROVISIONAL_RATINGS_FACTOR = 0.5
+# A sleeve whose ratings came from a market bootstrap gets NOTHING. This was
+# 0.5 until it was measured: on 1,561 settled Kalshi tennis matches the
+# bootstrap Elo scored a Brier of 0.2589 against the market's 0.2024 and the
+# base rate's 0.2498 — worse than a coin — and the bets it selected lost about
+# 18% each (docs/EDGE_VERDICT_2026-09-23.md, Result 5). A model that is the
+# least informed participant in its market should not be sized at all.
+PROVISIONAL_RATINGS_FACTOR = 0.0
 
 
 @dataclass(frozen=True)
@@ -55,20 +56,21 @@ SLEEVES: tuple[Sleeve, ...] = (
         sport="baseball",
         prior_weight=0.55,
         evidence=(
-            "Walk-forward n=11,661: log loss 0.6809 vs always-home 0.689, "
-            "Brier 0.2440, 55.7% acc, calibration bins on the diagonal. The "
-            "only model validated against a real baseline on a large sample."
+            "Calibrated (walk-forward n=11,661, log loss 0.6809 vs always-home "
+            "0.689) but NO edge against the price: on 900 settled Kalshi games "
+            "the market's Brier beats the model's and the regression of market "
+            "error on model disagreement is beta 0.065, t 0.20. Kept on in the "
+            "paper book only to accrue live CLV; not to be funded."
         ),
     ),
     Sleeve(
         sport="tennis",
         prior_weight=0.35,
         evidence=(
-            "Best-developed model (surface-blended Elo + O'Malley/Markov) and "
-            "the sharpest target band in the research (0.60-0.63 log loss). "
-            "Zero until `sportsbot fit tennis` produces ratings; halved while "
-            "those ratings are a Kalshi bootstrap rather than the Sackmann "
-            "history, which has no surface splits and only months of matches."
+            "Best-developed model, but the Kalshi-bootstrap ratings measured "
+            "WORSE than a coin against the price (Brier 0.2589 vs market 0.2024 "
+            "on 1,561 matches; selected bets lost ~18%). Zero until Sackmann "
+            "ratings exist AND pass `sportsbot market-backtest tennis`."
         ),
         needs_ratings=True,
     ),
@@ -137,6 +139,9 @@ def allocate(
             blocked[s.sport] = "disabled in config"
         elif s.needs_ratings and not has_ratings.get(s.sport, False):
             blocked[s.sport] = "0 rated entities — run `sportsbot fit`"
+        elif provisional.get(s.sport) and PROVISIONAL_RATINGS_FACTOR == 0.0:
+            blocked[s.sport] = ("bootstrap ratings measured worse than a coin "
+                                "against the price — see EDGE_VERDICT")
         else:
             eligible.append(s)
 

@@ -368,3 +368,167 @@ def run_backtest(history, games: list[MarketGame], client,
                             edge=round(edge, 4), won=won, pnl=round(pnl, 2)))
         model.update_result(g)
     return res
+
+
+# ---------------------------------------------------------------- tennis
+# Kalshi tennis tickers carry a date but no start time, and the market's
+# `occurrence_datetime` is a scheduled slot the match often finishes BEFORE
+# (a quarter of settled markets in a 400-market sample). Settlement is
+# reliable to the minute, and a best-of-three rarely exceeds three hours, so
+# "three hours before settlement" is the pre-match anchor: conservative for
+# almost every match, and for the rare four-hour one it lands early in play
+# where the price has barely moved rather than at the settlement print.
+TENNIS_PRE_MATCH_MARGIN_H = 3.0
+TENNIS_SERIES = ("KXATPMATCH", "KXWTAMATCH")
+
+
+def fetch_settled_tennis(client, series=TENNIS_SERIES,
+                         max_pages: int = 25) -> list[MarketGame]:
+    """Settled two-sided tennis matches, one MarketGame per event.
+
+    Both markets in an event are complements, so one side's candles price
+    both. The side priced is the alphabetically first player — arbitrary but
+    deterministic, which is what a repeatable backtest needs. `home` is that
+    player, `away` the opponent, `home_won` whether that market settled YES.
+    """
+    from datetime import datetime as _dt
+
+    from sportsbot.data.tennis_data import normalize_player
+    from sportsbot.exchanges.kalshi import API_ROOT
+
+    out: list[MarketGame] = []
+    for ser in series:
+        by_event: dict[str, list[dict]] = {}
+        cursor, pages = None, 0
+        while pages < max_pages:
+            params: dict = {"series_ticker": ser, "status": "settled", "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            data = client._request("GET", f"{API_ROOT}/markets", params=params)
+            markets = data.get("markets", [])
+            for m in markets:
+                ev = m.get("event_ticker")
+                if ev:
+                    by_event.setdefault(ev, []).append(m)
+            cursor = data.get("cursor")
+            pages += 1
+            if not cursor or not markets:
+                break
+
+        for ev, group in by_event.items():
+            if len(group) != 2:
+                continue
+            results = {str(m.get("result", "")).lower() for m in group}
+            if results != {"yes", "no"}:
+                continue
+            names = [normalize_player(m.get("yes_sub_title") or "") for m in group]
+            if not all(names) or names[0] == names[1]:
+                continue
+            first = min(range(2), key=lambda i: names[i])
+            mkt = group[first]
+            when = event_date(ev)
+            try:
+                settle = int(_dt.fromisoformat(
+                    str(mkt.get("settlement_ts")).replace("Z", "+00:00")).timestamp())
+                close_ts = int(_dt.fromisoformat(
+                    str(mkt.get("close_time")).replace("Z", "+00:00")).timestamp())
+            except (TypeError, ValueError):
+                continue
+            if when is None:
+                continue
+            out.append(MarketGame(
+                date=when, home=names[first], away=names[1 - first],
+                home_ticker=mkt["ticker"], close_ts=close_ts,
+                home_won=(str(mkt.get("result")).lower() == "yes"),
+                start_ts=settle - int(TENNIS_PRE_MATCH_MARGIN_H * 3600)))
+    out.sort(key=lambda g: g.date)
+    return out
+
+
+def run_tennis_backtest(history, games: list[MarketGame], client,
+                        lead_hours: float = 6.0,
+                        min_edge: float = 0.03,
+                        model_weight: float = 0.30,
+                        slippage: float = 0.005,
+                        kelly: float = 0.25,
+                        bankroll: float = 100.0,
+                        max_stake: float = 8.0,
+                        surface_weight: float = 0.5,
+                        min_matches: int = 10,
+                        max_uncertainty: float = 0.20) -> Result:
+    """Walk forward through tennis `history` (MatchResults, day-granular).
+
+    Dates come from tickers with no time of day, so matches are batched by
+    day: every match on a date is predicted with the model as it stood at the
+    end of the previous date, and only then are that day's results applied.
+    Nothing from a day can inform a prediction on the same day.
+    """
+    from sportsbot.core.staking import kelly_binary
+    from sportsbot.core.types import Sport
+    from sportsbot.engine.base import EventInput
+    from sportsbot.engine.tennis import TennisModel
+    from sportsbot.exchanges.kalshi import kalshi_taker_fee, series_of
+
+    model = TennisModel(surface_weight=surface_weight, min_matches=min_matches)
+    by_key = {(g.date.date(), frozenset((g.home, g.away))): g for g in games}
+    res = Result()
+    fee_mult: dict[str, float] = {}
+
+    def mult(ticker: str) -> float:
+        ser = series_of(ticker)
+        if ser not in fee_mult:
+            try:
+                fee_mult[ser] = client.fee_multiplier(ticker)
+            except Exception:  # noqa: BLE001 — offline: tennis is 1.0
+                fee_mult[ser] = 1.0
+        return fee_mult[ser]
+
+    by_day: dict = {}
+    for m in history:
+        by_day.setdefault(m.date.date(), []).append(m)
+
+    for day in sorted(by_day):
+        todays = by_day[day]
+        # --- predict every match of the day with yesterday's model --------
+        for m in todays:
+            mg = by_key.get((day, frozenset((m.winner, m.loser))))
+            if mg is None:
+                continue
+            res.considered += 1
+            quote = quote_at_lead(client, series_of(mg.home_ticker), mg.home_ticker,
+                                  mg.close_ts, lead_hours, start_ts=mg.start_ts)
+            if quote is None:
+                continue
+            res.priced += 1
+            bid, ask, closing = quote
+            mid = (bid + ask) / 2.0
+            pred = model.predict(EventInput(sport=Sport.TENNIS, home=mg.home,
+                                            away=mg.away, best_of=3))
+            if pred.uncertainty > max_uncertainty:
+                continue          # the live scanner would not price this one
+            q = (1.0 - model_weight) * mid + model_weight * pred.prob_yes
+            fm = mult(mg.home_ticker)
+            yes_fee = kalshi_taker_fee(ask, 1.0, fm)
+            no_fee = kalshi_taker_fee(1.0 - bid, 1.0, fm)
+            yes_edge = q - ask - yes_fee - slippage
+            no_edge = (1.0 - q) - (1.0 - bid) - no_fee - slippage
+            side, prob, entry, edge, close_px = (
+                ("YES", q, ask, yes_edge, closing) if yes_edge >= no_edge
+                else ("NO", 1.0 - q, 1.0 - bid, no_edge, 1.0 - closing))
+            if edge >= min_edge and 0.0 < entry < 1.0:
+                frac = kelly_binary(prob, entry) * kelly
+                stake = min(max_stake, bankroll * max(0.0, frac))
+                if stake >= 1.0:
+                    won = mg.home_won if side == "YES" else not mg.home_won
+                    size = stake / entry
+                    fee = kalshi_taker_fee(entry, size, fm)
+                    pnl = (size - stake - fee) if won else -(stake + fee)
+                    res.bets.append(Bet(
+                        date=mg.date, market=mg.home_ticker, side=side,
+                        model_prob=prob, entry=round(entry, 4),
+                        close=round(close_px, 4), stake=round(stake, 2),
+                        edge=round(edge, 4), won=won, pnl=round(pnl, 2)))
+        # --- then, and only then, learn from the day --------------------
+        for m in todays:
+            model.update_result(m.winner, m.loser, surface="", when=m.date)
+    return res

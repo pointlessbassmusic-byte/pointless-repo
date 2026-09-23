@@ -252,21 +252,19 @@ def test_settled_bets_filters_mode_before_truncating(tmp_path):
     assert account_equity(store, "real", 100.0)["realized_pnl"] == 25.0
 
 
-def test_bootstrap_ratings_get_half_the_prior():
-    """Ratings from a market bootstrap have never been walk-forward validated
-    and carry no surface splits. They unblock a sport; they do not earn the
-    weight the validated history earned."""
+def test_bootstrap_ratings_get_nothing():
+    """Measured, not assumed: on 1,561 settled matches the bootstrap Elo was
+    worse than a coin against the price and its bets lost ~18%. A sleeve on
+    those ratings is switched off, and the page says why."""
     from sportsbot.bot.allocation import PROVISIONAL_RATINGS_FACTOR, allocate
 
-    full = allocate(100.0, CFG, {}, RATED)
+    assert PROVISIONAL_RATINGS_FACTOR == 0.0
     boot = allocate(100.0, CFG, {}, RATED, provisional={"tennis": True})
-    assert boot["sleeves"]["tennis"]["provisional"] is True
-    assert "provisional" in boot["sleeves"]["tennis"]["bound_by"]
-    # halved relative to its own prior, before renormalisation
-    assert PROVISIONAL_RATINGS_FACTOR == 0.5
-    assert boot["sleeves"]["tennis"]["weight"] < full["sleeves"]["tennis"]["weight"]
-    # and the sleeve is still live, not switched off
-    assert boot["sleeves"]["tennis"]["budget"] > 0
+    t = boot["sleeves"]["tennis"]
+    assert t["active"] is False and t["budget"] == 0.0
+    assert "worse than a coin" in t["bound_by"]
+    # nothing leaks to the other sleeves beyond the caps
+    assert boot["sleeves"]["baseball"]["budget"] <= 100.0 * CFG["bankroll"]["max_fraction_per_sport"] + 1e-9
 
 
 def test_provenance_is_read_from_the_ratings_file(tmp_path):

@@ -393,8 +393,9 @@ def verify_fees(config: str = CONFIG_OPT,
 
 
 @app.command("market-backtest")
-def market_backtest(config: str = CONFIG_OPT,
-                    lead_hours: float = typer.Option(6.0, help="decision point, hours before first pitch"),
+def market_backtest(sport: str = typer.Argument("baseball", help="baseball | tennis"),
+                    config: str = CONFIG_OPT,
+                    lead_hours: float = typer.Option(6.0, help="decision point, hours before the pre-match anchor"),
                     min_edge: float = typer.Option(0.03),
                     max_pages: int = typer.Option(40, help="settled-market pages to pull")):
     """Walk-forward backtest against REAL Kalshi prices and outcomes.
@@ -402,15 +403,42 @@ def market_backtest(config: str = CONFIG_OPT,
     Answers the profitability question `backtest` cannot: not "is the model
     calibrated" but "does it beat the price it would have paid". Candlesticks
     are cached, so repeat runs are offline."""
-    from sportsbot.backtest.kalshi_market import fetch_settled_games, run_backtest
-    from sportsbot.data.mlb_data import MLBStatsClient
+    from sportsbot.backtest.kalshi_market import (
+        fetch_settled_games,
+        fetch_settled_tennis,
+        run_backtest,
+        run_tennis_backtest,
+    )
     from sportsbot.exchanges.kalshi import KalshiClient
 
     cfg = _setup(config)
     bank = cfg.get("bankroll", {})
+    client = KalshiClient(env="prod")
+    if sport == "tennis":
+        from sportsbot.data.tennis_data import results_from_kalshi
+
+        console.print("fetching settled Kalshi tennis markets…")
+        games = fetch_settled_tennis(client, max_pages=min(max_pages, 25))
+        history = results_from_kalshi(max_pages=min(max_pages, 25))
+        console.print(f"{len(history)} matches, {len(games)} settled markets")
+        res = run_tennis_backtest(
+            history, games, client, lead_hours=lead_hours, min_edge=min_edge,
+            model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
+            slippage=float(cfg.get("execution", {}).get("slippage_buffer", 0.005)),
+            kelly=float(bank.get("kelly_multiplier", 0.25)),
+            bankroll=float(bank.get("amount", 100.0)),
+            max_stake=float(bank.get("max_stake_per_market", 8.0)),
+            surface_weight=float(cfg["sports"]["tennis"].get("surface_weight", 0.5)),
+            min_matches=int(cfg["sports"]["tennis"].get("min_matches", 10)),
+        )
+        console.print(res.summary())
+        return
+    if sport != "baseball":
+        raise typer.BadParameter("sport must be baseball | tennis")
+    from sportsbot.data.mlb_data import MLBStatsClient
+
     console.print("fetching MLB history + settled Kalshi markets…")
     history = MLBStatsClient().history(seasons=2)
-    client = KalshiClient(env="prod")
     games = fetch_settled_games(client, max_pages=max_pages)
     console.print(f"{len(history)} games, {len(games)} settled markets")
     res = run_backtest(
