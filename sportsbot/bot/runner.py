@@ -117,12 +117,18 @@ def build_exchange(cfg: dict):
         from sportsbot.exchanges.kalshi import KalshiClient, kalshi_taker_fee
 
         data_client = KalshiClient()
-        fee_fn = lambda price, shares: kalshi_taker_fee(price, shares)  # noqa: E731
+
+        def fee_fn(price, shares, market_id=None):
+            """Kalshi's fee multiplier is per series (MLB 0.5, tennis 1.0), so
+            a flat rate is wrong for one of them whichever it picks."""
+            return kalshi_taker_fee(price, shares,
+                                    data_client.fee_multiplier(market_id))
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
         data_client = PolymarketClient()
-        fee_fn = taker_fee
+
+        fee_fn = taker_fee   # already matches the fee_fn contract
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
         return data_client, data_client, fee_fn
     paper = PaperExchange(

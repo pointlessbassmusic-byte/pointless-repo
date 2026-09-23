@@ -392,6 +392,40 @@ def verify_fees(config: str = CONFIG_OPT,
     console.print(f"[green]fees verified[/green]: {note}")
 
 
+@app.command("market-backtest")
+def market_backtest(config: str = CONFIG_OPT,
+                    lead_hours: float = typer.Option(6.0, help="decision point, hours before first pitch"),
+                    min_edge: float = typer.Option(0.03),
+                    max_pages: int = typer.Option(40, help="settled-market pages to pull")):
+    """Walk-forward backtest against REAL Kalshi prices and outcomes.
+
+    Answers the profitability question `backtest` cannot: not "is the model
+    calibrated" but "does it beat the price it would have paid". Candlesticks
+    are cached, so repeat runs are offline."""
+    from sportsbot.backtest.kalshi_market import fetch_settled_games, run_backtest
+    from sportsbot.data.mlb_data import MLBStatsClient
+    from sportsbot.exchanges.kalshi import KalshiClient
+
+    cfg = _setup(config)
+    bank = cfg.get("bankroll", {})
+    console.print("fetching MLB history + settled Kalshi markets…")
+    history = MLBStatsClient().history(seasons=2)
+    client = KalshiClient(env="prod")
+    games = fetch_settled_games(client, max_pages=max_pages)
+    console.print(f"{len(history)} games, {len(games)} settled markets")
+    res = run_backtest(
+        history, games, client, lead_hours=lead_hours, min_edge=min_edge,
+        model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
+        slippage=float(cfg.get("execution", {}).get("slippage_buffer", 0.005)),
+        kelly=float(bank.get("kelly_multiplier", 0.25)),
+        bankroll=float(bank.get("amount", 100.0)),
+        max_stake=float(bank.get("max_stake_per_market", 8.0)),
+        home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)),
+        prob_shrink=float(cfg["sports"]["baseball"].get("prob_shrink", 0.8)),
+    )
+    console.print(res.summary())
+
+
 def _write_ops_json(cfg: dict, store, path: str) -> None:
     """Bot-operations summary (mirrors `sportsbot status`) for the dashboard's
     ops panel."""

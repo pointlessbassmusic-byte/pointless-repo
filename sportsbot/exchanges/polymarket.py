@@ -94,8 +94,15 @@ def _parse_dt(value: Any) -> Optional[datetime]:
         return None
 
 
-def taker_fee(price: float, shares: float, base_fee_bps: float = 1000.0) -> float:
+def taker_fee(price: float, shares: float, market_id: str | None = None,
+              base_fee_bps: float = 1000.0) -> float:
     """Estimated taker fee in dollars: rate × min(p, 1-p) × shares.
+
+    `market_id` is accepted (and ignored — Polymarket does not vary the rate
+    by market) so this matches the `fee_fn(price, shares, market_id=None)`
+    contract and can be handed straight to the strategy. Without it, a caller
+    passing a market id would land it in `base_fee_bps` and silently compute a
+    nonsense fee.
 
     With the observed sports taker_base_fee of 1000 bps this peaks at 5% of
     notional at p=0.5 and falls toward the extremes. Makers pay 0. Verify

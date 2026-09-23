@@ -76,7 +76,8 @@ def evaluate_market_verbose(
     missing half: which filter rejected the market, with the numbers.
 
     `prediction.prob_yes` = P(market YES side / outcomes[0] wins).
-    `fee_fn(price, shares)` -> taker fee dollars (0 for pure maker venues).
+    `fee_fn(price, shares, market_id=None)` -> taker fee dollars (0 for pure
+    maker venues); the market id lets venues with per-series fees price it.
     `exposure` = {"total": $, "by_sport": {}, "by_market": {}, "open_positions": n}.
     """
     if prediction.uncertainty > cfg.max_uncertainty:
@@ -140,7 +141,7 @@ def evaluate_market_verbose(
         if not (0.0 < entry < 1.0) or fill_cap <= 0:
             miss(-1.0, "no depth on that side")
             continue
-        fee_per_share = 0.0 if is_maker else fee_fn(entry, 1.0)
+        fee_per_share = 0.0 if is_maker else fee_fn(entry, 1.0, market.market_id)
         eff_edge = prob - entry - fee_per_share - cfg.slippage_buffer
 
         local = StakingConfig(**{**staking.__dict__,
@@ -167,7 +168,8 @@ def evaluate_market_verbose(
             # Verify the walked average fill price still clears the edge bar.
             avg_price, fillable = walk_book(levels, entry, size)
             size = min(size, fillable)
-            if size <= 0 or prob - avg_price - fee_fn(avg_price, 1.0) - cfg.slippage_buffer < min_edge:
+            walked_fee = fee_fn(avg_price, 1.0, market.market_id)
+            if size <= 0 or prob - avg_price - walked_fee - cfg.slippage_buffer < min_edge:
                 miss(eff_edge, f"{side.value} edge gone after walking the book")
                 continue
         if size * entry < staking.min_stake or size < market.min_order_size:

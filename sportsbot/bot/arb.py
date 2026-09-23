@@ -54,7 +54,8 @@ def find_bundle_arb(
         return None
     yes_ask = quote.ask
     no_ask = round(1.0 - quote.bid, 6)
-    fees = fee_fn(yes_ask, 1.0) + fee_fn(no_ask, 1.0)
+    fees = (fee_fn(yes_ask, 1.0, market.market_id)
+            + fee_fn(no_ask, 1.0, market.market_id))
     cost = yes_ask + no_ask + fees
     profit = 1.0 - cost
     if profit < min_profit:

@@ -156,7 +156,7 @@ def test_category_report_reflects_adaptive_state():
 
 def test_paper_close_position_realizes_pnl():
     ex = PaperExchange(starting_balance=1000.0,
-                       fee_fn=lambda price, size: 0.0)
+                       fee_fn=lambda price, size, market_id=None: 0.0)
     q_entry = quote(0.48, 0.50)
     from sportsbot.core.types import Order
     order = ex.place_order(Order(client_id="c1", market_id="m1",
@@ -206,7 +206,7 @@ def test_runner_exit_pass_wiring(tmp_path):
     from sportsbot.core.types import Order
 
     store = Store(str(tmp_path / "t.sqlite"))
-    ex = PaperExchange(starting_balance=1000.0, fee_fn=lambda p, s: 0.0)
+    ex = PaperExchange(starting_balance=1000.0, fee_fn=lambda p, s, market_id=None: 0.0)
     ex.place_order(Order(client_id="c1", market_id="m1", side=Side.YES,
                          price=0.50, size=100.0), quote=quote(0.48, 0.50))
     store.record_bet("m1", "tennis", "yes", 0.6, 0.5, 50.0, 100.0,
@@ -214,7 +214,7 @@ def test_runner_exit_pass_wiring(tmp_path):
 
     stub = SimpleNamespace(
         positions=PositionConfig(min_hold_minutes=0.0),
-        exchange=ex, store=store, fee_fn=lambda p, s: 0.0,
+        exchange=ex, store=store, fee_fn=lambda p, s, market_id=None: 0.0,
         mode="paper", account="sim", _record_exit=lambda *a, **k: None)
     # market collapsed to a 0.20 bid: hard stop (value 19.5 < 50% of 50)
     exits = Runner._manage_positions(
@@ -274,7 +274,7 @@ def test_runner_partial_close_banks_proceeds(tmp_path):
               "fee": 0.0}]
     ex = SimpleNamespace(close_position=lambda *a, **k: fills.pop(0))
     stub = SimpleNamespace(positions=PositionConfig(min_hold_minutes=0.0),
-                           exchange=ex, store=store, fee_fn=lambda p, s: 0.0,
+                           exchange=ex, store=store, fee_fn=lambda p, s, market_id=None: 0.0,
                            mode="paper", account="sim",
                            _record_exit=lambda *a, **k: None)
     quoted = {"m1": (None, quote(0.20, 0.24))}  # hard-stop territory
