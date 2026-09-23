@@ -197,6 +197,41 @@ allocator now treats provisional ratings as untradeable rather than halved.
 decades of history with surfaces. Nothing in this section rules them out.
 Nothing supports them either until the same measurement is run on them.
 
+## Result 6: no favorite–longshot bias to trade either
+
+The best-documented inefficiency in betting markets is model-free: longshots
+overpriced, favorites underpriced. Tested on every cached market, bucketed by
+the pre-match closing mid, both sides of each market counted (2,477 markets,
+4,682 side-observations), taker entry at the 6h ask with real fees.
+
+Tennis, the large sample, is calibrated to within three points everywhere:
+
+| closing mid | n | implied | actual | taker ROI (±95%) |
+|---|---|---|---|---|
+| 0.05–0.15 | 155 | 0.104 | 0.103 | −0.263 ± 0.411 |
+| 0.15–0.25 | 287 | 0.204 | 0.213 | −0.106 ± 0.220 |
+| 0.25–0.35 | 387 | 0.303 | 0.292 | −0.118 ± 0.150 |
+| 0.35–0.45 | 525 | 0.400 | 0.419 | −0.008 ± 0.105 |
+| 0.45–0.55 | 369 | 0.500 | 0.501 | −0.052 ± 0.101 |
+| 0.55–0.65 | 526 | 0.599 | 0.580 | −0.062 ± 0.071 |
+| 0.65–0.75 | 386 | 0.696 | 0.705 | −0.008 ± 0.067 |
+| 0.75–0.85 | 289 | 0.795 | 0.789 | −0.018 ± 0.060 |
+| 0.85–0.95 | 156 | 0.895 | 0.897 | +0.009 ± 0.056 |
+
+Pooled favorites (mid ≥ 0.65, n = 852): implied 0.773, actual 0.776, taker
+ROI **−0.4% [−4.2%, +3.5%]**, t −0.19. Pooled longshots (n = 850): −16.3%,
+t −2.53 — significant, and not a bias: it is the fee and spread as a share of
+a small stake (at p = 0.20 the taker fee alone is 5.6% of stake). You cannot
+earn that; you can only stop paying it.
+
+MLB has almost all its mass in 0.35–0.65 (the games are close). Its favorite
+bucket looks better — 0.65–0.75, n = 78, implied 0.680, actual 0.731 — and
+pooled favorites (n = 83) return +8.3%, but the interval is [−5.6%, +22.2%],
+t 1.17. At that sample size a +5-point calibration gap is inside one standard
+error of the win rate. It is the kind of cell that would be cherry-picked and
+should not be: with nine buckets across two sports, one at t ≈ 1.2 is
+expected by chance.
+
 ## Why a few hundred bets can never settle this
 
 Per-bet return standard deviation on ~50c binaries is about 1.0. That fixes
@@ -232,6 +267,9 @@ a principle.
   measurements agree, and the strongest of them (beta = 0.065) says the
   signal is absent rather than small.
 - **Out: threshold tuning.** The edge bar is not what is stopping it.
+- **Out: favorite–longshot bias.** Tennis is calibrated within three points
+  in every bucket on 3,122 observations; MLB's one attractive bucket is
+  n = 83 at t 1.2.
 - **Out: maker capture of the drift, on the evidence available.** Every
   variant's confidence interval spans zero, and the one-tick spread means
   there is nowhere to rest except the back of the touch queue, where fills
