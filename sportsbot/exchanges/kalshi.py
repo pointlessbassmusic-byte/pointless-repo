@@ -139,6 +139,46 @@ def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0
     return math.ceil(round(raw * 100.0, 6)) / 100.0
 
 
+# Kalshi reports a per-series `fee_type` on /series/<ticker>. Both sports
+# series this bot trades return "quadratic_with_maker_fees" (verified live
+# 2026-09-23, KXATPMATCH and KXMLBGAME), i.e. RESTING ORDERS ARE NOT FREE.
+# The strategy layer prefers maker execution (`post_inside_spread`), so
+# modelling maker fills at zero understates the cost of the bot's own
+# preferred path on every quote it posts.
+#
+# The per-contract rate is NOT verified here: kalshi.com returned 429 on
+# every fee-schedule URL when this was written, and guessing a rate the
+# venue will actually charge is worse than making the gap explicit. Set
+# KALSHI_MAKER_FEE_PER_CONTRACT from the live fee schedule before trusting
+# any maker-side PnL. The default is deliberately non-zero so an unset
+# environment errs toward over-costing rather than toward a free lunch.
+MAKER_FEE_ENV = "KALSHI_MAKER_FEE_PER_CONTRACT"
+DEFAULT_MAKER_FEE = 0.0025
+
+
+def kalshi_maker_fee_per_share(market_id: str = "",
+                               fee_multiplier: Optional[float] = None) -> float:
+    """Per-contract fee for a RESTING order, in dollars.
+
+    Flat per contract, not quadratic: the venue's maker charge does not
+    shape with p(1-p) the way the taker fee does, so it bites hardest on
+    the cheap contracts where the taker fee is smallest.
+    """
+    raw = os.environ.get(MAKER_FEE_ENV)
+    if raw not in (None, ""):
+        try:
+            rate = float(raw)
+        except ValueError:
+            log.warning("%s=%r is not a number; using %.4f",
+                        MAKER_FEE_ENV, raw, DEFAULT_MAKER_FEE)
+            rate = DEFAULT_MAKER_FEE
+    else:
+        rate = DEFAULT_MAKER_FEE
+    mult = (kalshi_fee_multiplier(market_id) if fee_multiplier is None
+            else fee_multiplier)
+    return max(0.0, rate * mult)
+
+
 def kalshi_fee_per_share(price: float, fee_multiplier: float = 1.0) -> float:
     """MARGINAL fee per contract — linear, no rounding.
 
