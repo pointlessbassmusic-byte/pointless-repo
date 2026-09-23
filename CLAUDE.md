@@ -137,7 +137,11 @@ the outcome and fabricates longshot edge.
   loses 0.5-2% per $1 at every threshold and horizon before spread; buying
   underdogs loses more. A strategy that uses price alone — mean reversion,
   momentum, "buy the favorite" — starts from a negative base rate. A backtest
-  that finds edge there is suspect until settled outcomes confirm it.
+  that finds edge there is suspect until settled outcomes confirm it. Kalshi
+  is the same (PR #25, `docs/EDGE_VERDICT_2026-09-23.md`): tennis calibrated
+  within three points in every bucket on 3,122 side-observations, favorites
+  -0.4% as taker, longshots -16% — which is the fee and spread on a small
+  stake, not a bias anyone can earn.
 - The edges that exist are **reference-price** edges: a public source sharper
   than the book. FOMC decision buckets paid every time at >= 0.90 within a
   week across 18 meetings (+2.1% at 24h, +3.4% at 168h net of 1c) because
