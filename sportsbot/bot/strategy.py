@@ -68,6 +68,7 @@ def evaluate_market_verbose(
     cfg: StrategyConfig,
     fee_fn: Callable[[float, float], float],
     exposure: dict,
+    maker_fee_fn: Optional[Callable[[float, str], float]] = None,
 ) -> tuple[Optional[BetIntent], str]:
     """Same decision as `evaluate_market`, plus the reason it came out that way.
 
@@ -76,10 +77,19 @@ def evaluate_market_verbose(
     missing half: which filter rejected the market, with the numbers.
 
     `prediction.prob_yes` = P(market YES side / outcomes[0] wins).
+    `maker_fee_fn(price, market_id)` -> cost of a RESTING contract. It
+    defaults to zero for venues whose makers pay nothing, but Kalshi's sports
+    series charge makers, and this strategy prefers maker entries — so a
+    default of zero there would under-cost its own favourite path.
+
     `fee_fn(price, shares, market_id=None)` -> taker fee dollars (0 for pure
     maker venues); the market id lets venues with per-series fees price it.
     `exposure` = {"total": $, "by_sport": {}, "by_market": {}, "open_positions": n}.
     """
+    if maker_fee_fn is None:
+        def maker_fee_fn(price, market_id=""):   # noqa: ARG001 — venue default
+            return 0.0
+
     if prediction.uncertainty > cfg.max_uncertainty:
         return None, (f"model uncertainty {prediction.uncertainty:.3f} over "
                       f"{cfg.max_uncertainty:.2f} — not confident enough to price")
@@ -141,7 +151,8 @@ def evaluate_market_verbose(
         if not (0.0 < entry < 1.0) or fill_cap <= 0:
             miss(-1.0, "no depth on that side")
             continue
-        fee_per_share = 0.0 if is_maker else fee_fn(entry, 1.0, market.market_id)
+        fee_per_share = (maker_fee_fn(entry, market.market_id) if is_maker
+                         else fee_fn(entry, 1.0, market.market_id))
         eff_edge = prob - entry - fee_per_share - cfg.slippage_buffer
 
         local = StakingConfig(**{**staking.__dict__,

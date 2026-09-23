@@ -41,6 +41,10 @@ from sportsbot.engine.tennis import TennisModel
 
 log = logging.getLogger(__name__)
 
+# How many distinct drop reasons to name per feed row before
+# collapsing the rest into a count.
+_DROP_EXAMPLES = 3
+
 SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
               "table_tennis": Sport.TABLE_TENNIS}
 
@@ -204,6 +208,7 @@ class Runner:
                 max_drawdown=float(risk_cfg.get("max_drawdown", 250.0)),
                 stale_quote_seconds=float(risk_cfg.get("stale_quote_seconds", 120.0)),
                 min_minutes_before_start=float(risk_cfg.get("min_minutes_before_start", 10.0)),
+                max_pre_match_move=float(risk_cfg.get("max_pre_match_move", 0.08)),
                 calibration_min_bets=int(risk_cfg.get("calibration_min_bets", 50)),
                 calibration_max_brier=float(risk_cfg.get("calibration_max_brier", 0.26)),
                 bankroll=self.staking.bankroll,
@@ -220,11 +225,51 @@ class Runner:
             slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
         )
         self.adaptive = cfg.get("adaptive", {})
+        self.venue = cfg.get("exchange", "polymarket")
         self.scanner = Scanner(self.models)
         self.executor = Executor(
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
         )
+
+    # ------------------------------------------------------------------
+    def maker_fee_fn(self, price: float, market_id: str = "") -> float:
+        """Per-contract cost of a RESTING order on this venue.
+
+        Kalshi reports `fee_type: "quadratic_with_maker_fees"` on both sports
+        series, so a maker fill is not free — and the strategy prefers maker
+        execution, which made this the most-used execution path in the bot
+        and the one whose cost was modelled as zero.
+        """
+        if self.venue != "kalshi":
+            return 0.0          # Polymarket makers pay no taker fee
+        from sportsbot.exchanges.kalshi import kalshi_maker_fee_per_share
+
+        return kalshi_maker_fee_per_share(market_id)
+
+    def decision_fee_fn(self, market_id: str):
+        """Fee function for EDGE/SIZING/EXIT math on one market.
+
+        `self.fee_fn` is the venue's actual charge (Kalshi ceils the whole
+        order to the cent), which is right for accounting but wrong as a
+        marginal rate: calling it with shares=1.0 quantises the per-share
+        fee to a whole cent and overstates cost by up to ~2x inside the
+        entry band. Decision paths get the linear marginal instead, with
+        the market's own series multiplier (KXMLBGAME pays half).
+        """
+        if self.venue != "kalshi":
+            return self.fee_fn
+        from sportsbot.exchanges.kalshi import (
+            kalshi_fee_multiplier,
+            kalshi_fee_per_share,
+        )
+
+        mult = kalshi_fee_multiplier(market_id)
+        # Same (price, shares, market_id=None) shape as `fee_fn`: the
+        # multiplier is already bound to this market, so the third argument
+        # is accepted and ignored rather than making callers special-case it.
+        return lambda price, shares, market_id=None: (
+            kalshi_fee_per_share(price, mult) * shares)
 
     # ------------------------------------------------------------------
     def _mlb_context(self) -> dict[str, dict]:
@@ -376,7 +421,7 @@ class Runner:
             _market, quote = pair
             decision = evaluate_exit(agg, quote, self.positions,
                                      model_weight=strategy.model_weight,
-                                     fee_fn=self.fee_fn)
+                                     fee_fn=self.decision_fee_fn(market_id))
             if not decision.close:
                 continue
             if decision.sellable < agg["size"] * 0.999:
@@ -459,10 +504,61 @@ class Runner:
         except Exception:
             log.exception("decision record failed")
 
+    def _record_scan_drops(self, drops: list) -> None:
+        """Put the scanner's funnel loss in the decision feed, AGGREGATED.
+
+        One row per (sport, category), never one per market. The dashboard
+        renders the most recent decisions, and the drop counts here are
+        large: an unfit model loses every market in its sport, and a slate
+        whose players are mostly unrated loses two markets per player.
+        Written individually those would evict every real bet and skip from
+        the feed within a single cycle, breaking the view this exists to
+        improve.
+
+        Grouping is on `category` rather than `reason` because the reason
+        names the specific player or market — grouping on it would put a
+        row per unrated player back in the feed. The specifics are not lost:
+        a few are carried as examples, with a count for the rest.
+        """
+        if not drops:
+            return
+        grouped: dict[tuple[str, str], list] = {}
+        for d in drops:
+            sport = d.market.sport.value if d.market.sport else "unknown"
+            grouped.setdefault((sport, d.category), []).append(d)
+        for (sport, category), group in sorted(grouped.items(),
+                                               key=lambda kv: -len(kv[1])):
+            n = len(group)
+            seen: list[str] = []
+            for d in group:
+                if d.reason not in seen:
+                    seen.append(d.reason)
+                if len(seen) == _DROP_EXAMPLES:
+                    break
+            detail = "; ".join(seen)
+            extra = len({d.reason for d in group}) - len(seen)
+            if extra > 0:
+                detail += f"; and {extra} more"
+            try:
+                self.store.record_decision(
+                    account=self.account,
+                    # Not a venue ticker: this row stands for a group of
+                    # markets, so it is labelled as one rather than
+                    # impersonating a market that could be looked up.
+                    market_id=f"({n} {sport} markets)",
+                    sport=sport,
+                    title=f"{n} {sport} market{'s' if n != 1 else ''} not scanned",
+                    action="skip",
+                    reason=f"dropped before pricing — {category}: {detail}",
+                )
+            except Exception:
+                log.exception("scan-drop record failed")
+
     def cycle(self) -> dict:
         """One scan cycle. Returns a summary dict."""
-        summary = {"markets": 0, "scanned": 0, "intents": 0, "orders": 0,
-                   "arbs": 0, "settled": 0, "exits": 0, "blocked": None}
+        summary = {"markets": 0, "scanned": 0, "dropped": 0, "intents": 0,
+                   "orders": 0, "arbs": 0, "settled": 0, "exits": 0,
+                   "blocked": None}
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
         ok, reason = self.risk.check_global()
@@ -501,8 +597,10 @@ class Runner:
                 if best and similarity(m.home, best[0][0]) > 0.85:
                     extra_context[m.market_id] = best[1]
 
-        scanned = self.scanner.scan(markets, extra_context)
+        scanned, drops = self.scanner.scan_verbose(markets, extra_context)
         summary["scanned"] = len(scanned)
+        summary["dropped"] = len(drops)
+        self._record_scan_drops(drops)
 
         exposure = self.store.exposure_by()
         quoted: dict[str, tuple] = {}
@@ -523,7 +621,8 @@ class Runner:
 
             # Arb sweep runs for every quoted market, independent of whether
             # the model produces a bet.
-            arb = find_bundle_arb(sm.market, quote, self.fee_fn)
+            mkt_fee_fn = self.decision_fee_fn(sm.market.market_id)
+            arb = find_bundle_arb(sm.market, quote, mkt_fee_fn)
             if arb:
                 summary["arbs"] += 1
                 log.info("ARB FOUND (log-only): %s profit=%.3f/pair x %.0f",
@@ -532,7 +631,8 @@ class Runner:
 
             intent, why = evaluate_market_verbose(
                 sm.market, quote, sm.prediction, staking_cfg,
-                strategy_cfg, self.fee_fn, exposure,
+                strategy_cfg, mkt_fee_fn, exposure,
+                maker_fee_fn=self.maker_fee_fn,
             )
             mid = ((quote.bid + quote.ask) / 2.0
                    if quote.bid is not None and quote.ask is not None else None)

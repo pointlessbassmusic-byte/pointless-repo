@@ -25,12 +25,18 @@ import base64
 import logging
 import math
 import os
+import re
 import time
 from decimal import Decimal
 from typing import Any, Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from sportsbot.core.books import sell_levels, walk_sell
 from sportsbot.core.types import (
@@ -81,6 +87,36 @@ KALSHI_MLB_TEAMS: dict[str, str] = {
 }
 
 
+_MLB_TICKER = re.compile(r"^KXMLBGAME-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})")
+_MONTHS = {m: i for i, m in enumerate(
+    ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+
+
+def mlb_first_pitch(ticker: str):
+    """Scheduled first pitch from a KXMLBGAME ticker, as an aware UTC time.
+
+    The ticker encodes YYMONDDHHMM in US Eastern (Kalshi's clock).
+    Verified 2026-09-23 on 250 settled markets: occurrence_datetime is this
+    time + 3h exactly, and the tape's first >10c move is a median 15
+    minutes after it. Returns None for anything that does not parse --
+    never a guess.
+    """
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    m = _MLB_TICKER.match(ticker or "")
+    if not m:
+        return None
+    yy, mon, dd, hh, mm = m.groups()
+    try:
+        local = datetime(2000 + int(yy), _MONTHS[mon], int(dd), int(hh), int(mm),
+                         tzinfo=ZoneInfo("America/New_York"))
+    except (KeyError, ValueError):
+        return None
+    return local.astimezone(timezone.utc)
+
+
 def split_mlb_event(event_ticker: str, codes: set[str]) -> tuple[str, str] | None:
     """(away_code, home_code) from an event ticker whose tail concatenates the
     two, given the codes its markets actually carry.
@@ -104,6 +140,8 @@ SPORT_FOR_KEY = {
 }
 
 
+FEE_RATE = 0.07
+
 # Per-series fee multipliers, fetched from /series/{ticker} and cached for the
 # process. The fallbacks are what the API returned on 2026-09-23 and are only
 # used if the lookup fails; 1.0 is the conservative default for an unknown
@@ -118,15 +156,89 @@ def series_of(market_id: str) -> str:
     return str(market_id or "").split("-", 1)[0]
 
 
-def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0) -> float:
-    """ceil-to-cent(0.07 × mult × C × P × (1−P)); P in dollars.
+def kalshi_fee_multiplier(market_id: str) -> float:
+    """Cached multiplier without a client. Exact on a series already looked
+    up by `KalshiClient.fee_multiplier`, otherwise the known-values table;
+    unknown series pay full rate rather than assume a discount."""
+    ser = series_of(market_id)
+    if ser in _FEE_MULTIPLIERS:
+        return _FEE_MULTIPLIERS[ser]
+    return KNOWN_FEE_MULTIPLIERS.get(ser, 1.0)
 
-    KXMLBGAME runs fee_multiplier 0.5. Maker fee is 25% of taker on
-    quadratic_with_maker_fees series — prefer resting orders.
+
+def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0) -> float:
+    """TOTAL settled fee for one order: ceil-to-cent(0.07 × mult × C × P × (1−P)).
+
+    The ceil applies ONCE PER ORDER, so this is NOT linear in `contracts`:
+    calling it with contracts=1.0 does not yield the marginal per-share fee
+    (at P=0.20 it returns $0.02 against a true marginal of $0.0112). Use it
+    for what the venue actually charges — execution and accounting — and use
+    `kalshi_fee_per_share` for edge/sizing/exit math.
     """
-    raw = 0.07 * fee_multiplier * contracts * price * (1.0 - price)
+    raw = FEE_RATE * fee_multiplier * contracts * price * (1.0 - price)
     # round() guards against FP noise (e.g. 1.7500000000000002) inflating the ceil
     return math.ceil(round(raw * 100.0, 6)) / 100.0
+
+
+# Kalshi reports a per-series `fee_type` on /series/<ticker>. Both sports
+# series this bot trades return "quadratic_with_maker_fees" (verified live
+# 2026-09-23, KXATPMATCH and KXMLBGAME), i.e. RESTING ORDERS ARE NOT FREE.
+# The strategy layer prefers maker execution (`post_inside_spread`), so
+# modelling maker fills at zero understates the cost of the bot's own
+# preferred path on every quote it posts.
+#
+# The per-contract rate is NOT verified here: kalshi.com returned 429 on
+# every fee-schedule URL when this was written, and guessing a rate the
+# venue will actually charge is worse than making the gap explicit. Set
+# KALSHI_MAKER_FEE_PER_CONTRACT from the live fee schedule before trusting
+# any maker-side PnL. The default is deliberately non-zero so an unset
+# environment errs toward over-costing rather than toward a free lunch.
+MAKER_FEE_ENV = "KALSHI_MAKER_FEE_PER_CONTRACT"
+DEFAULT_MAKER_FEE = 0.0025
+
+
+def kalshi_maker_fee_per_share(market_id: str = "",
+                               fee_multiplier: Optional[float] = None) -> float:
+    """Per-contract fee for a RESTING order, in dollars.
+
+    Flat per contract, not quadratic: the venue's maker charge does not
+    shape with p(1-p) the way the taker fee does, so it bites hardest on
+    the cheap contracts where the taker fee is smallest.
+    """
+    raw = os.environ.get(MAKER_FEE_ENV)
+    if raw not in (None, ""):
+        try:
+            rate = float(raw)
+        except ValueError:
+            log.warning("%s=%r is not a number; using %.4f",
+                        MAKER_FEE_ENV, raw, DEFAULT_MAKER_FEE)
+            rate = DEFAULT_MAKER_FEE
+    else:
+        rate = DEFAULT_MAKER_FEE
+    mult = (kalshi_fee_multiplier(market_id) if fee_multiplier is None
+            else fee_multiplier)
+    return max(0.0, rate * mult)
+
+
+def kalshi_fee_per_share(price: float, fee_multiplier: float = 1.0) -> float:
+    """MARGINAL fee per contract — linear, no rounding.
+
+    This is the number every decision path needs (edge thresholds, Kelly
+    sizing, exit value, arb cost). Quantising it to whole cents by way of
+    `kalshi_taker_fee(price, 1.0)` inflates modelled cost by up to ~2x
+    inside the bot's [0.15, 0.85] entry band, which silently suppresses
+    real trades and can trip the exit hard stop on phantom cost.
+    """
+    return FEE_RATE * fee_multiplier * price * (1.0 - price)
+
+
+class KalshiClientError(httpx.HTTPStatusError):
+    """A 4xx that is not a rate limit: the request itself is wrong (bad
+    ticker, bad signature, no permission). Retrying cannot change the
+    answer, so `_request` must not — five backed-off attempts per settled
+    ticker would stall the trading loop for half a minute apiece. Subclasses
+    HTTPStatusError so existing `except httpx.HTTPError` handlers still
+    catch it and keep `.response`."""
 
 
 class KalshiClient(ExchangeClient):
@@ -193,16 +305,30 @@ class KalshiClient(ExchangeClient):
         if resp.status_code == 429:
             # Kalshi sends no Retry-After; let tenacity back off.
             raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+        if 400 <= resp.status_code < 500:
+            raise KalshiClientError(
+                f"kalshi {resp.status_code} on {method.upper()} {path}: "
+                f"{resp.text[:200]}",
+                request=resp.request,
+                response=resp,
+            )
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 
-    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, max=10), reraise=True)
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, max=10),
+        retry=retry_if_not_exception_type(KalshiClientError),
+        reraise=True,
+    )
     def _request(self, method: str, path: str, params: dict | None = None,
                  json_body: dict | None = None, auth: bool = False) -> Any:
         """Retrying path for reads and idempotent writes (cancel). Five
         attempts: the public market endpoints 429 in bursts, and on the
         weather snapshot service a dropped series means a market's max-lead
-        first sighting is lost for good (the protocol forbids backfilling)."""
+        first sighting is lost for good (the protocol forbids backfilling).
+        4xx responses are raised straight through — they are answers, not
+        transient failures."""
         return self._request_once(method, path, params=params,
                                   json_body=json_body, auth=auth)
 
@@ -332,22 +458,44 @@ class KalshiClient(ExchangeClient):
         return None
 
     def _to_market_info(self, m: dict, sport: Sport, series: str) -> MarketInfo:
-        # Kalshi sports match markets close at (or just after) game start, so
-        # close_time is the best available start proxy for the pre-match
-        # cutoff; the risk layer falls back to it when start_time is unknown.
-        close_time = self._ts(m, "close_time", "expected_expiration_time")
+        # occurrence_datetime == expected_expiration_time on every market
+        # checked (2026-09-23): it is the expected SETTLE bound, not the
+        # start. On MLB it is the ticker time + 3h exactly (250/250
+        # markets); on tennis the tape shows in-play price action a median
+        # 2.7h before it. Using it as the start proxy points the pre-match
+        # guard at the END of the match.
+        #
+        # MLB tickers embed the scheduled first pitch in US EASTERN time
+        # (26SEP222210SDLAD -> Sep 22 22:10 ET). Verified against the tape:
+        # the first >10c move lands a median 15 minutes after it. That is
+        # the only real start Kalshi exposes, so it is parsed as one.
+        # (A single earlier check read the ticker as Pacific and happened
+        # to coincide with occurrence -- a timezone error, now corrected.)
+        #
+        # Tennis tickers carry no time of day: start_time stays None and
+        # the risk layer refuses the entry (fail closed) rather than trade
+        # blind into a live match. The price-movement in-play detector in
+        # risk.py backstops the clock on every venue.
+        #
+        # close_time / expiration_time are far-future legal bounds (+2
+        # weeks) and must never stand in for the start.
+        close_time = self._ts(m, "expected_expiration_time", "close_time")
+        start_time = (mlb_first_pitch(m.get("ticker", ""))
+                      if sport is Sport.BASEBALL else None)
         return MarketInfo(
             exchange=Exchange.KALSHI,
             market_id=m.get("ticker", ""),
             question=m.get("title", ""),
             slug=m.get("ticker", ""),
             sport=sport,
-            # yes_sub_title names the outcome the YES contract pays on.
+            # yes_sub_title names the player the YES contract pays on;
+            # no_sub_title MIRRORS it (verified live), so the true opponent
+            # is recovered by _pair_event_opponents after discovery.
             home=m.get("yes_sub_title") or m.get("subtitle") or None,
             # Kalshi repeats the same team in no_sub_title on MLB markets;
-            # _pair_mlb_opponents replaces this with the real opponent.
+            # _pair_event_opponents replaces this with the real opponent.
             away=m.get("no_sub_title") or None,
-            start_time=None,
+            start_time=start_time,
             close_time=close_time,
             active=m.get("status") in ("active", "open"),
             tick_size=0.01,
@@ -490,7 +638,7 @@ class KalshiClient(ExchangeClient):
             return None
         avg, _ = walk_sell(sell_levels(quote, side), min_price, placed.filled)
         fee = kalshi_taker_fee(avg, placed.filled,
-                               fee_multiplier=0.5 if "MLB" in market_id else 1.0)
+                               fee_multiplier=kalshi_fee_multiplier(market_id))
         return {"closed_size": placed.filled, "avg_price": round(avg, 4),
                 "proceeds": round(avg * placed.filled - fee, 4),
                 "fee": round(fee, 4)}
@@ -503,6 +651,31 @@ class KalshiClient(ExchangeClient):
             log.error("kalshi cancel failed: %s", exc)
             return False
 
+    @staticmethod
+    def _num(o: dict, *fields: str) -> Optional[float]:
+        """First present numeric field, Decimal-parsed. The 2026 surface
+        serves counts as `*_fp` decimal strings ("330.35"), so never float()
+        the raw value and never treat a missing field as zero."""
+        for f in fields:
+            v = o.get(f)
+            if v not in (None, ""):
+                try:
+                    return float(Decimal(str(v)))
+                except Exception:
+                    continue
+        return None
+
+    @staticmethod
+    def _order_outcome(o: dict) -> str:
+        """Which contract the order is long. Create Order V2 books in YES
+        terms with side "bid"/"ask"; some payloads still carry the outcome
+        directly as "yes"/"no". Reading a literal "yes" through the bid/ask
+        branch would invert the side, so match the vocabulary first."""
+        raw = str(o.get("outcome_side") or o.get("side") or "").lower()
+        if raw in ("yes", "no"):
+            return raw
+        return "yes" if raw == "bid" else "no"
+
     def get_open_orders(self) -> list[Order]:
         try:
             data = self._request(
@@ -513,7 +686,37 @@ class KalshiClient(ExchangeClient):
             return []
         orders = []
         for o in data.get("orders", []):
-            outcome = o.get("outcome_side") or ("yes" if o.get("side") == "bid" else "no")
+            outcome = self._order_outcome(o)
+            size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
+            remaining = self._num(o, "remaining_count_fp", "remaining_count")
+            explicit = self._num(o, "fill_count_fp", "fill_count")
+            if explicit is None:
+                taker = self._num(o, "taker_fill_count_fp", "taker_fill_count")
+                maker = self._num(o, "maker_fill_count_fp", "maker_fill_count")
+                if taker is not None or maker is not None:
+                    explicit = (taker or 0.0) + (maker or 0.0)
+            if explicit is not None:
+                filled = explicit
+            elif size is not None and remaining is not None:
+                filled = max(0.0, size - remaining)
+            else:
+                # The executor books a maker fill only when the venue reports
+                # MORE filled than it already knows, so a silent 0.0 here
+                # means a partially filled resting order is never booked:
+                # untracked exposure in live mode. Say so loudly instead.
+                filled = 0.0
+                log.warning(
+                    "kalshi order %s: no fill count in payload (keys=%s); "
+                    "fills on this resting order cannot be reconciled",
+                    o.get("order_id"), sorted(o),
+                )
+            # Price of the side we are long, in that side's own terms.
+            price = self._num(o, "yes_price_dollars" if outcome == "yes"
+                              else "no_price_dollars")
+            if price is None:
+                yes_px = self._num(o, "yes_price_dollars")
+                if yes_px is not None:
+                    price = round(1.0 - yes_px, 4)
             orders.append(
                 Order(
                     order_id=str(o.get("order_id", "")),
@@ -521,9 +724,10 @@ class KalshiClient(ExchangeClient):
                     exchange=Exchange.KALSHI,
                     market_id=o.get("ticker", ""),
                     side=Side.YES if outcome == "yes" else Side.NO,
-                    price=0.0,
-                    size=0.0,
-                    status=OrderStatus.OPEN,
+                    price=price or 0.0,
+                    size=size or 0.0,
+                    filled=filled,
+                    status=OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN,
                     raw=o,
                 )
             )
@@ -541,11 +745,17 @@ class KalshiClient(ExchangeClient):
             qty = float(Decimal(str(qty)))
             if qty == 0:
                 continue
+            # market_exposure is what the contracts cost; without it
+            # Position.cost reads 0 and any PnL derived from venue state
+            # would silently look like pure profit.
+            exposure = self._num(p, "market_exposure_dollars", "total_traded_dollars")
+            avg = round(abs(exposure) / abs(qty), 4) if exposure else 0.0
             positions.append(
                 Position(
                     market_id=p.get("ticker", ""),
                     side=Side.YES if qty > 0 else Side.NO,
                     size=abs(qty),
+                    avg_price=avg,
                 )
             )
         return positions

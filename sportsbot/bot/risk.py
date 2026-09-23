@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Optional
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -34,6 +35,13 @@ class RiskConfig:
     max_drawdown: float = 250.0
     stale_quote_seconds: float = 120.0
     min_minutes_before_start: float = 10.0
+    # In-play detector, independent of venue timestamps: refuse an entry
+    # once the mid has moved this far from the first mid the bot recorded
+    # for the market. Kalshi's occurrence_datetime turned out to be the
+    # expected END on tennis, so a clock-based guard alone can pass a live
+    # match; a pre-match line rarely moves 8c (MLB mean move 24h->3h was
+    # 2.2c), while a live one moves that in minutes.
+    max_pre_match_move: float = 0.08
     calibration_min_bets: int = 50
     calibration_max_brier: float = 0.26
     bankroll: float = 1000.0
@@ -107,20 +115,39 @@ class RiskManager:
             return False, f"risk check error: {exc}"
 
     # ------------------------------------------------------------------
+    def _pre_match_move(self, market_id: str, quote: MarketQuote) -> Optional[float]:
+        """|mid now - mid when first seen|, persisted so a restart does not
+        forget where a market opened. None when there is no two-sided book
+        to measure against; the caller treats that as no evidence, and the
+        book check upstream already refuses one-sided markets."""
+        if quote.bid is None or quote.ask is None:
+            return None
+        mid = (quote.bid + quote.ask) / 2.0
+        key = f"first_mid:{market_id}"
+        first = self.store.get_kv(key)
+        if not isinstance(first, dict) or "mid" not in first:
+            self.store.set_kv(key, {"mid": mid, "ts": _now_iso()})
+            return 0.0
+        return abs(mid - float(first["mid"]))
+
     def check_intent(self, intent: BetIntent, quote: MarketQuote) -> tuple[bool, str]:
         try:
             age = (datetime.now(timezone.utc) - quote.ts).total_seconds()
             if age > self.cfg.stale_quote_seconds:
                 return False, f"stale quote ({age:.0f}s)"
-            # close_time is the fallback start proxy (Kalshi sports markets
-            # close at game start); with neither known we refuse the bet
-            # rather than trade blind into a possibly-live match.
-            start = intent.market.start_time or intent.market.close_time
+            # No fallback to close_time: on Kalshi it is the expected SETTLE
+            # bound, so it would pass a match that is already live. An
+            # unknown start is refused, not guessed.
+            start = intent.market.start_time
             if start is None:
-                return False, "no start/close time known"
+                return False, "start time unknown — refusing rather than risk in-play"
             mins = (start - datetime.now(timezone.utc)).total_seconds() / 60.0
             if mins < self.cfg.min_minutes_before_start:
                 return False, f"too close to start ({mins:.0f}m)"
+            moved = self._pre_match_move(intent.market.market_id, quote)
+            if moved is not None and moved > self.cfg.max_pre_match_move:
+                return False, (f"price moved {moved:.2f} since first seen "
+                               f"(> {self.cfg.max_pre_match_move:.2f}) — possibly in play")
             if not (0.0 < intent.price < 1.0) or intent.size <= 0:
                 return False, "malformed intent"
             return True, "ok"
