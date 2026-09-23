@@ -108,3 +108,34 @@ the pattern: the edge does not exist a month out.
   price alone; this study says the base rate for those is zero or negative.
   Treat any backtest that finds edge there as suspect until it survives
   settled outcomes.
+
+## Addendum, same day: out-of-sample checks and the regime caveat
+
+**More meetings.** The volume-ranked pull started at Sep 2024. Polymarket's
+per-meeting decision markets begin at Mar 2024; the three earlier meetings
+(Mar, Jun, Jul 2024 — all holds at 0.95–0.985 the day before) paid +2.45% at
+24h and +1.9% at 168h with no losses. The sample is now **18 meetings, 0
+losses at >= 0.90 within a week**. There is no earlier public history on
+either venue: Kalshi's legacy `FED` series is not served by its API, and no
+Fed-like market appears in windows around any 2022–2025 meeting. June 2022,
+the one known decision-week surprise, is therefore unobservable here; the
+tail-risk estimate stays an argument, not a measurement.
+
+**Kalshi, at real bid/ask and fees.** `KXFEDDECISION` and `KXFED` serve two
+settled meetings (Jul and Sep 2026), hourly candlesticks. Both decision
+buckets paid — no-change at 0.80 ask a day before July (+25%), hike-25 at
+0.87 a day before September (+14%) — and both were priced by Polymarket within
+a cent of Kalshi. That is confirmation of direction, and of cross-venue
+agreement, and nothing more: two events.
+
+**The caveat those two events expose.** In 2024–25 the decision was
+telegraphed and the bucket sat at 0.95–0.99 a day out: a certain 1–3c. In
+2026's contested hiking cycle the favorite sat at 0.80–0.88 a day out and a
+coin flip a week out, so the >= 0.90 rule would not have fired on either
+venue, and the 14–25% it left on the table came from a bucket that was
+*genuinely* uncertain. Whether Fed favorites in the 0.80–0.90 band are also
+underpriced is untested — six rows across both venues, all winners, which is
+not evidence. Do not lower the threshold on the strength of two meetings.
+
+So the rule stands as written, with its regime named: it earns 1–3c per
+meeting when the decision is telegraphed and stands aside when it is not.

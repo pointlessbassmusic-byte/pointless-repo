@@ -139,10 +139,15 @@ the outcome and fabricates longshot edge.
   momentum, "buy the favorite" — starts from a negative base rate. A backtest
   that finds edge there is suspect until settled outcomes confirm it.
 - The edges that exist are **reference-price** edges: a public source sharper
-  than the book. FOMC decision buckets paid 50/50 at >= 0.90 within a week
-  (+2.1% at 24h, +3.4% at 168h net of 1c) because fed-funds futures lead the
-  book. The sportsbook-consensus model is the same class. Weather is the
-  reverse class: the book is the sharper source.
+  than the book. FOMC decision buckets paid every time at >= 0.90 within a
+  week across 18 meetings (+2.1% at 24h, +3.4% at 168h net of 1c) because
+  fed-funds futures lead the book. Regime matters: that is 1-3c when the
+  decision is telegraphed (2024-25); in a contested cycle (2026) the bucket
+  sits at 0.80-0.88 and the rule does not fire — the 0.80-0.90 band is
+  untested, do not lower the threshold on two meetings. No public history
+  reaches June 2022, so the surprise tail is unmeasured. The
+  sportsbook-consensus model is the same class. Weather is the reverse class:
+  the book is the sharper source.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
