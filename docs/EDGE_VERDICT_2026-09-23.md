@@ -1,9 +1,10 @@
-# Does the MLB strategy make money? Measured on 910 real Kalshi games
+# Does the strategy make money? MLB and tennis, measured on real Kalshi games
 
 _2026-09-23. Reproduce with `sportsbot market-backtest`._
 
-**No. The model has no measurable edge against Kalshi's price, and the
-current strategy places almost no bets. Do not put real money on it.**
+**No. The MLB model has no measurable edge against Kalshi's price and barely
+trades; the bootstrapped tennis model has a *negative* edge and loses about
+18% per bet. Do not put real money on either.**
 
 ## Method
 
@@ -142,6 +143,59 @@ selection by construction — and it still cannot clear t = 2.
 The strict model is the honest bound for a retail account: at a one-tick
 spread you sit at the back of the queue, so you are filled mainly when the
 price is moving against you.
+
+## Result 5: tennis — the bootstrap model is worse than a coin, and its bets lose
+
+Same method on Kalshi tennis (`sportsbot market-backtest tennis`): 1,577
+settled ATP/WTA matches, 2026-07-18 → 2026-09-23, ratings bootstrapped from
+the same settled markets and walked forward day by day. Pre-match anchor is
+settlement − 3h (tickers carry no start time and `occurrence_datetime` is a
+slot a quarter of matches finish before).
+
+Every cell of the threshold sweep is negative, and not marginally:
+
+| lead | bar | bets | ROI | hit | mean CLV | CLV+ |
+|---|---|---|---|---|---|---|
+| 12h | 0.03 | 110 | −0.205 | 0.291 | −0.0055 | 0.382 |
+| 6h | 0.03 | 105 | −0.236 | 0.276 | −0.0045 | 0.248 |
+| 2h | 0.03 | 109 | −0.204 | 0.284 | −0.0074 | 0.193 |
+| 6h | 0.005 | 168 | −0.178 | 0.316 | −0.0105 | 0.250 |
+
+At n ≈ 150 the standard error on ROI is about 8 points, so −18% is roughly
+t = −2.2. This is not "no edge"; it is a **negative** edge — the bets the
+model selects lose at a rate well beyond fees.
+
+The threshold-free test says why (n = 1,561; the 307 rows the live scanner
+would actually price, at uncertainty ≤ 0.20, in parentheses):
+
+| arm | Brier |
+|---|---|
+| market mid | **0.2024** (0.1891) |
+| blend 0.30 | 0.2081 (0.1960) |
+| base rate | 0.2498 (0.2455) |
+| model alone | **0.2589** (0.2422) |
+
+The model scores *worse than the base rate* — worse than always picking the
+side that wins 51% of the time. And the regression of the market's error on
+the model's disagreement is **negative**: beta −0.027 over everything, −0.119
+on the priceable subset. When this model disagrees with the price, the price
+is right more often than not. The blend does not rescue it: 0.30 model weight
+makes the forecast worse than the market alone by 0.006.
+
+Maker on the priced side, held to settlement, at the tennis maker fee (0.25×
+base): −2.1%, −1.9%, −2.7%, −6.9% across lead × fill model, every interval
+spanning zero. Drift is −0.0001 (t −0.09): nothing to capture.
+
+The mechanism is not mysterious. Two months of match results with no surface,
+no head-to-head, no form, no injury news, on a tour where a third of the
+field turns over — the bootstrap Elo is the *least* informed participant in
+that market. Its "disagreements" are mostly the things it does not know.
+That is exactly the adverse selection a thin model should expect, and the
+allocator now treats provisional ratings as untradeable rather than halved.
+
+**Sackmann ratings are untested here and would be a different artifact** —
+decades of history with surfaces. Nothing in this section rules them out.
+Nothing supports them either until the same measurement is run on them.
 
 ## Why a few hundred bets can never settle this
 
