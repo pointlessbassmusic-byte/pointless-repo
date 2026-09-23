@@ -158,6 +158,12 @@ the outcome and fabricates longshot edge.
   A reference must LEAD the market (fed-funds futures do); a consensus of the
   books the crowd already reads does not. `ODDS_API_KEY` is not an unlock.
   US sports are unmeasured; measure with the same script before assuming.
+- Polymarket is not a leading reference for Kalshi either
+  (`docs/VENUE_LEAD_LAG_2026-09-23.md`, `python -m src.venue_study`): on 148
+  matches listed on both venues the quotes sit 0.5c apart at the median,
+  inside Kalshi's 1c spread, Brier identical, and from a day out it is
+  Polymarket's price that moves toward Kalshi's (beta 1.07, t 7.6), not the
+  reverse. Cross-venue gaps on the same event are suspect matches, not edges.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on

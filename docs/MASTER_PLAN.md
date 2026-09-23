@@ -180,6 +180,15 @@ Pipeline per cycle:
       leads the market, and a retail-book consensus does not. The item below is therefore
       no longer the unlock it was written up as — the key would switch on a model with no
       measured edge. US sports remain unmeasured; the script is the template.
+- [x] **Polymarket as a leading reference for Kalshi: measured, no**
+      (`docs/VENUE_LEAD_LAG_2026-09-23.md`, `python -m src.venue_study`). 148 soccer
+      matches on both venues since Kalshi's game series launched in August: quotes 0.5c
+      apart at the median inside a 1c Kalshi spread, Brier identical at every horizon,
+      three rows in 444 with a 2c gap (all lost), and the lead-lag regression says
+      Polymarket's price converges on Kalshi's from a day out, not the reverse (part of
+      that is last-trade staleness on Polymarket, which biases one way). The
+      reference-price class is one confirmed member (fed-funds futures) and three measured
+      non-members; measure the next candidate the same way before writing engine code.
 - [ ] **polymarket-edge's headline model has never run.** Its 2090 recorded estimates
       are 100% weather: five sports are configured but `ODDS_API_KEY` is unset, so the
       odds client returns nothing and sportsbook-consensus fair value produces zero
