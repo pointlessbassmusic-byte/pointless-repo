@@ -145,6 +145,11 @@ the outcome and fabricates longshot edge.
   reverse class: the book is the sharper source.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
+- In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
+  910 settled Kalshi games at real quotes and fees, has no information the
+  price lacks (`docs/EDGE_VERDICT_2026-09-23.md`: beta 0.065, t 0.2; market
+  Brier 0.2399 vs model 0.2422). Calibrated is not the same as profitable:
+  score a model against the price it would have paid, not against outcomes.
 - The Fed trade is short volatility: a surprise costs the stake, and one
   loss erases ~40 wins. Size it so a total loss changes nothing.
 

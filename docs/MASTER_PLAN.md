@@ -194,6 +194,11 @@ Pipeline per cycle:
       surprise erases ~40 wins; breakeven surprise rate ~2.4%. Kalshi `KXFEDDECISION`
       carries the same buckets. Oct 2026 is a coin flip today — nothing to buy until the
       final week.
+- [x] Cross-check: sportsbot's market-aware MLB backtest (PR #21, 910 games) reached the
+      same verdict independently — the model carries no information the Kalshi price
+      lacks. Two studies, two venues, two methods: the price is the sharper source unless
+      an external reference beats it. That leaves reference-price edges (Fed decisions,
+      sportsbook consensus) as the only class with evidence behind it.
 - [ ] Operationalise the Fed rule as a scanner arm (both engines): within 7 days of an
       FOMC date, flag any decision bucket >= 0.90 where the other venue agrees; dry-run
       first, size as a short-vol position. Needs an FOMC calendar in config and a
