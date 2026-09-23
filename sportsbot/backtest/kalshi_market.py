@@ -287,7 +287,8 @@ def run_backtest(history, games: list[MarketGame], client,
                  bankroll: float = 100.0,
                  max_stake: float = 8.0,
                  home_advantage: float = 24.0,
-                 prob_shrink: float = 0.8) -> Result:
+                 prob_shrink: float = 0.8,
+                 fee_multiplier: Optional[float] = None) -> Result:
     """Walk forward through `history` (MLB GameResults, chronological).
 
     Every game is predicted with ratings built only from earlier games, then
@@ -298,7 +299,18 @@ def run_backtest(history, games: list[MarketGame], client,
     from sportsbot.core.types import Sport
     from sportsbot.engine.base import EventInput
     from sportsbot.engine.baseball import BaseballModel
-    from sportsbot.exchanges.kalshi import kalshi_taker_fee
+    from sportsbot.exchanges.kalshi import KNOWN_FEE_MULTIPLIERS, kalshi_taker_fee
+
+    # Charge the series' real rate. MLB runs 0.5, and defaulting to 1.0 here
+    # would price every bet against a fee twice the one the live executor
+    # pays — which suppresses bets and makes the strategy look worse than it
+    # is, the same way it did in the live path before it was fixed.
+    if fee_multiplier is None:
+        fee_multiplier = KNOWN_FEE_MULTIPLIERS.get(series, 1.0)
+        try:
+            fee_multiplier = client.fee_multiplier(f"{series}-x")
+        except Exception:  # noqa: BLE001 — offline: keep the known value
+            pass
 
     model = BaseballModel(home_advantage=home_advantage, prob_shrink=prob_shrink)
     by_key = {_match_key(g.date, g.home, g.away): g for g in games}
@@ -333,8 +345,8 @@ def run_backtest(history, games: list[MarketGame], client,
                 )).prob_yes
                 q = (1.0 - model_weight) * mid + model_weight * p_home
 
-                yes_fee = kalshi_taker_fee(ask, 1.0)
-                no_fee = kalshi_taker_fee(1.0 - bid, 1.0)
+                yes_fee = kalshi_taker_fee(ask, 1.0, fee_multiplier)
+                no_fee = kalshi_taker_fee(1.0 - bid, 1.0, fee_multiplier)
                 yes_edge = q - ask - yes_fee - slippage
                 no_edge = (1.0 - q) - (1.0 - bid) - no_fee - slippage
 
@@ -347,7 +359,7 @@ def run_backtest(history, games: list[MarketGame], client,
                     if stake >= 1.0:
                         won = mg.home_won if side == "YES" else not mg.home_won
                         size = stake / entry
-                        fee = kalshi_taker_fee(entry, size)
+                        fee = kalshi_taker_fee(entry, size, fee_multiplier)
                         pnl = (size - stake - fee) if won else -(stake + fee)
                         res.bets.append(Bet(
                             date=g.date, market=mg.home_ticker, side=side,
