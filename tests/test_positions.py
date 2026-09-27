@@ -324,3 +324,88 @@ def test_aggregate_open_bets():
     assert a["size"] == 100.0 and a["stake"] == 50.0
     assert abs(a["model_prob"] - 0.58) < 1e-9         # stake-weighted
     assert a["last_ts"].startswith("2026-09-17T01")   # newest for hold timer
+
+
+
+def test_event_of_groups_kalshi_sides_and_leaves_polymarket_alone():
+    from sportsbot.data.store import event_of
+
+    assert event_of("KXMLBGAME-26SEP271505LADSF-SF") == "KXMLBGAME-26SEP271505LADSF"
+    assert event_of("KXMLBGAME-26SEP271505LADSF-LAD") == "KXMLBGAME-26SEP271505LADSF"
+    assert event_of("KXATPMATCH-26SEP23BASCIN-CIN") == "KXATPMATCH-26SEP23BASCIN"
+    assert event_of("KXHIGHNY-26SEP21-T75") == "KXHIGHNY-26SEP21"      # a day's strikes
+    hexid = "0x53ffaa9fece37c18cef3952bfc57042f95c793"
+    assert event_of(hexid) == hexid
+
+
+def test_same_game_on_two_tickers_is_one_position(tmp_path):
+    """The bot bought Giants-to-win twice on 2026-09-27 — YES on the SF ticker
+    and NO on the LAD ticker — because exposure was keyed per ticker. Both
+    must count against the same event cap and as one open position."""
+    store = Store(str(tmp_path / "t.sqlite"))
+    store.record_bet("KXMLBGAME-26SEP271505LADSF-SF", "baseball", "yes", 0.31,
+                     0.27, 1.18, 4.37, 0.03, "kalshi", "paper")
+    exp = store.exposure_by()
+    ev = "KXMLBGAME-26SEP271505LADSF"
+    assert exp["by_event"][ev] == 1.18
+    assert exp["open_positions"] == 1
+    store.record_bet("KXMLBGAME-26SEP271505LADSF-LAD", "baseball", "no", 0.69,
+                     0.28, 1.15, 4.11, 0.03, "kalshi", "paper")
+    exp = store.exposure_by()
+    assert exp["by_event"][ev] == 2.33
+    assert exp["open_positions"] == 1            # still one game
+
+
+def test_strategy_caps_the_sibling_ticker_by_event_exposure():
+    """With the per-market cap already consumed on the SF ticker, an intent on
+    the LAD ticker for the same game must be sized against that exposure."""
+    from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
+    from sportsbot.core.staking import StakingConfig
+    from sportsbot.core.types import Exchange, MarketInfo, Prediction, Sport
+
+    def mk(ticker):
+        # min_order_size=1.0 as the real Kalshi client sets it; the type's
+        # default is Polymarket's larger share minimum.
+        return MarketInfo(exchange=Exchange.KALSHI, market_id=ticker, slug=ticker,
+                          question="x", sport=Sport.BASEBALL, home="a", away="b",
+                          min_order_size=1.0)
+    staking = StakingConfig(bankroll=100.0, min_edge=0.0, min_stake=1.0,
+                            max_stake_per_market=8.0, max_fraction_per_market=0.08)
+    cfg = StrategyConfig(post_inside_spread=False, slippage_buffer=0.0)
+    pred = Prediction(market_id="", sport=Sport.BASEBALL, model="m",
+                      prob_yes=0.60, prob_raw=0.60, uncertainty=0.05)
+    q = quote(0.49, 0.50)
+    fee = lambda p, s, m=None: 0.0  # noqa: E731
+    # fresh: full stake allowed
+    fresh, _ = evaluate_market_verbose(mk("KXMLBGAME-X-LAD"), q, pred, staking, cfg,
+                                       fee, {"by_market": {}, "by_event": {}})
+    assert fresh is not None
+    # the sibling ticker already holds the whole event cap
+    ex = {"by_market": {}, "by_event": {"KXMLBGAME-X": 8.0}, "total": 8.0,
+          "by_sport": {"baseball": 8.0}, "open_positions": 1}
+    capped, why = evaluate_market_verbose(mk("KXMLBGAME-X-LAD"), q, pred, staking, cfg,
+                                          fee, ex)
+    assert capped is None and "market cap exhausted" in why
+
+
+def test_reject_reason_names_the_venue_minimum_not_the_dollar_minimum():
+    """2.6 contracts at $0.50 is $1.30 — above a $1 minimum stake. If the
+    venue's contract minimum is what binds, the feed must say so."""
+    from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
+    from sportsbot.core.staking import StakingConfig
+    from sportsbot.core.types import Exchange, MarketInfo, Prediction, Sport
+
+    m = MarketInfo(exchange=Exchange.KALSHI, market_id="KXMLBGAME-X-LAD", slug="x",
+                   question="x", sport=Sport.BASEBALL, home="a", away="b",
+                   min_order_size=5.0)
+    staking = StakingConfig(bankroll=100.0, min_edge=0.0, min_stake=1.0,
+                            max_stake_per_market=8.0, max_fraction_per_market=0.08)
+    pred = Prediction(market_id="", sport=Sport.BASEBALL, model="m",
+                      prob_yes=0.60, prob_raw=0.60, uncertainty=0.05)
+    intent, why = evaluate_market_verbose(
+        m, quote(0.49, 0.50), pred, staking,
+        StrategyConfig(post_inside_spread=False, slippage_buffer=0.0),
+        lambda p, s, mm=None: 0.0, {"by_market": {}, "by_event": {}})
+    assert intent is None
+    assert "venue minimum of 5 contracts" in why
+    assert "minimum stake" not in why

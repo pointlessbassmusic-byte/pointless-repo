@@ -101,6 +101,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def event_of(market_id: str) -> str:
+    """The event a market belongs to, for exposure purposes.
+
+    Kalshi lists one market per competitor — KXMLBGAME-26SEP271505LADSF-SF and
+    …-LAD are the same game — so a per-market cap lets the bot buy the same
+    outcome twice (YES on one side, NO on the other). The event ticker is the
+    market ticker without its trailing competitor code. Polymarket ids carry
+    no dashes, so they map to themselves and nothing changes there."""
+    mid = str(market_id or "")
+    head, sep, tail = mid.rpartition("-")
+    if sep and head and 1 <= len(tail) <= 4 and tail.isalnum():
+        return head
+    return mid
+
+
 class Store:
     def __init__(self, path: str = "data/sportsbot.sqlite") -> None:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -324,8 +339,14 @@ class Store:
         total = sum(r["stake"] or 0.0 for r in rows)
         by_sport: dict[str, float] = {}
         by_market: dict[str, float] = {}
+        by_event: dict[str, float] = {}
         for r in rows:
-            by_sport[r["sport"]] = by_sport.get(r["sport"], 0.0) + (r["stake"] or 0.0)
-            by_market[r["market_id"]] = by_market.get(r["market_id"], 0.0) + (r["stake"] or 0.0)
+            stake = r["stake"] or 0.0
+            by_sport[r["sport"]] = by_sport.get(r["sport"], 0.0) + stake
+            by_market[r["market_id"]] = by_market.get(r["market_id"], 0.0) + stake
+            ev = event_of(r["market_id"])
+            by_event[ev] = by_event.get(ev, 0.0) + stake
         return {"total": total, "by_sport": by_sport, "by_market": by_market,
-                "open_positions": len(rows)}
+                "by_event": by_event,
+                # positions are events: two tickers on one game are one bet
+                "open_positions": len(by_event)}
