@@ -385,7 +385,9 @@ def test_strategy_caps_the_sibling_ticker_by_event_exposure():
           "by_sport": {"baseball": 8.0}, "open_positions": 1}
     capped, why = evaluate_market_verbose(mk("KXMLBGAME-X-LAD"), q, pred, staking, cfg,
                                           fee, ex)
-    assert capped is None and "market cap exhausted" in why
+    # rejected before the cap is even consulted: the event already holds far
+    # more than this intent's Kelly target, so there is nothing to top up
+    assert capped is None and "at Kelly target" in why
 
 
 def test_reject_reason_names_the_venue_minimum_not_the_dollar_minimum():

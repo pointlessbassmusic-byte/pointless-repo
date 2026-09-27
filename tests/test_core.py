@@ -153,3 +153,27 @@ class TestCalibration:
     def test_blend(self):
         assert blend_with_market(0.6, 0.5, 0.3) == pytest.approx(0.53)
         assert blend_with_market(0.6, None, 0.3) == 0.6
+
+
+
+def test_kelly_sizes_the_position_not_each_order():
+    """A persisting edge must not be bought again every cycle. The Kelly
+    fraction is a target for what is held; the order is the top-up."""
+    from sportsbot.core.staking import StakingConfig, decide_stake
+
+    cfg = StakingConfig(bankroll=100.0, kelly_multiplier=0.25, min_edge=0.0,
+                        min_stake=1.0, max_stake_per_market=50.0,
+                        max_fraction_per_market=0.50)
+    # prob 0.60 at 0.50: full Kelly 0.20, quarter 0.05 -> $5 target
+    fresh = decide_stake(0.60, 0.50, cfg)
+    assert fresh.approved and abs(fresh.stake - 5.0) < 1e-9
+
+    partial = decide_stake(0.60, 0.50, cfg, current_market_exposure=3.0)
+    assert partial.approved and abs(partial.stake - 2.0) < 1e-9   # top up, not +5
+
+    held = decide_stake(0.60, 0.50, cfg, current_market_exposure=5.0)
+    assert not held.approved
+    assert "at Kelly target" in held.reasons[0]
+
+    over = decide_stake(0.60, 0.50, cfg, current_market_exposure=7.0)
+    assert not over.approved                                        # never sells here
