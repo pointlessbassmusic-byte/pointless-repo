@@ -44,13 +44,10 @@ def test_pairing_fills_the_opponent_from_the_sibling_market():
         _mkt(f"{ev}-SD", ev, "San Diego", "SD"),
         _mkt(f"{ev}-LAD", ev, "Los Angeles D", "LAD"),
     ], Sport.BASEBALL)
-    assert len(out) == 2
-    by_id = {m.market_id: m for m in out}
-    sd = by_id[f"{ev}-SD"]
-    assert sd.home == "san diego padres"          # YES side stays `home`
-    assert sd.away == "los angeles dodgers"
-    assert sd.meta["home_field"] == "los angeles dodgers"   # true home field
-    lad = by_id[f"{ev}-LAD"]
+    # ONE market per event: the home-field team's ticker, so YES = home wins.
+    assert len(out) == 1
+    lad = out[0]
+    assert lad.market_id == f"{ev}-LAD"
     assert lad.home == "los angeles dodgers" and lad.away == "san diego padres"
     assert lad.meta["home_field"] == "los angeles dodgers"
 
@@ -83,14 +80,18 @@ def test_scanner_models_the_true_home_team_and_restates_for_the_yes_side(tmp_pat
         _mkt(f"{ev}-LAD", ev, "Los Angeles D", "LAD"),
     ], Sport.BASEBALL)
     scanned = {s.market.market_id: s for s in scanner.scan(markets)}
-    assert len(scanned) == 2
-
+    assert len(scanned) == 1 and f"{ev}-LAD" in scanned
     p_lad = scanned[f"{ev}-LAD"].prediction.prob_yes   # Dodgers = home field
-    p_sd = scanned[f"{ev}-SD"].prediction.prob_yes     # Padres = visitor
-    # Equal Elo, so the only asymmetry is home advantage: the home team is
-    # favoured, the visitor is not, and the two sides sum to one.
-    assert p_lad > 0.5 > p_sd
-    assert abs((p_lad + p_sd) - 1.0) < 1e-9
+    # Equal Elo, so the only asymmetry is home advantage: home is favoured.
+    assert p_lad > 0.5
+
+    # The visitor's ticker, if it is ever the one kept, must be restated so
+    # prob_yes is still P(that ticker's YES side wins) — the two sum to one.
+    sd_only = [m for m in KalshiClient._pair_event_opponents([
+        _mkt(f"{ev}-SD", ev, "San Diego", "SD"),
+        _mkt(f"{ev}-LAD", ev, "Los Angeles D", "LAD"),
+    ], Sport.BASEBALL)]
+    assert sd_only[0].market_id.endswith("-LAD")   # home-field ticker is kept
 
 
 def test_tennis_markets_pair_on_player_names_without_home_field():
@@ -108,8 +109,9 @@ def test_tennis_markets_pair_on_player_names_without_home_field():
                    meta={"event_ticker": ev}),
     ]
     out = KalshiClient._pair_event_opponents(mkts, Sport.TENNIS)
-    assert len(out) == 2
-    cina = next(m for m in out if m.market_id.endswith("-CIN"))
+    assert len(out) == 1                                   # one per event
+    cina = out[0]
+    assert cina.market_id.endswith("-CIN")                 # alphabetical first
     assert cina.home == "Federico Cina"
     assert cina.away == "Nikoloz Basilashvili"
     assert "home_field" not in cina.meta

@@ -249,6 +249,16 @@ class KalshiClient(ExchangeClient):
         P(home wins) repo-wide. For baseball the real home team additionally
         goes in meta["home_field"], so the model can put home advantage on the
         right side — tennis has no such asymmetry.
+
+        ONE market is returned per event, not two. The two tickers are exact
+        complements — YES on one is NO on the other — and the strategy already
+        prices both sides of every market it sees. Returning both let the bot
+        buy the same outcome twice, on two tickers, paying two fees, with
+        per-market caps none the wiser (it did: Giants-to-win four times on
+        2026-09-27). For baseball the kept ticker is the one whose YES is the
+        home-field team, so prob_yes is P(home wins) in the model's natural
+        orientation; otherwise the alphabetically first competitor, which is
+        arbitrary but deterministic.
         """
         if sport not in (Sport.BASEBALL, Sport.TENNIS, Sport.TABLE_TENNIS):
             return markets
@@ -270,6 +280,7 @@ class KalshiClient(ExchangeClient):
                     continue
                 split = split_mlb_event(event_ticker, codes)
                 home_code = split[1] if split else None
+            paired: list[MarketInfo] = []
             for m in group:
                 other = next(x for x in group if x is not m)
                 if is_mlb:
@@ -282,8 +293,18 @@ class KalshiClient(ExchangeClient):
                 meta = dict(m.meta)
                 if home_code is not None:
                     meta["home_field"] = KALSHI_MLB_TEAMS.get(home_code)
-                out.append(m.model_copy(update={
+                paired.append(m.model_copy(update={
                     "home": mine, "away": theirs, "meta": meta}))
+            if len(paired) != 2:
+                continue
+            if is_mlb and home_code is not None:
+                keep = next((x for x in paired
+                             if str(x.meta.get("team_code")) == home_code), None)
+            else:
+                keep = None
+            if keep is None:
+                keep = min(paired, key=lambda x: x.home)
+            out.append(keep)
         return out
 
     def fee_multiplier(self, market_id: Optional[str]) -> float:

@@ -83,7 +83,17 @@ def decide_stake(
 
     f_full = kelly_binary(prob, price)
     f = f_full * cfg.kelly_multiplier
-    stake = f * cfg.bankroll
+    target = f * cfg.bankroll
+    # Kelly sizes the POSITION, not the order. What is already at risk on this
+    # market (or, for a venue that lists one ticker per side, on this event)
+    # counts toward the target; the order only tops it up. Without this the
+    # loop re-bought a full Kelly stake every cycle while an edge persisted,
+    # so every position filled to its cap regardless of how much edge it had.
+    stake = target - current_market_exposure
+    if stake < cfg.min_stake:
+        return StakeDecision(0.0, 0.0, f, edge,
+                             [f"at Kelly target (held {current_market_exposure:.2f}"
+                              f" of {target:.2f})"])
 
     # Apply caps, tightest wins.
     cap_market = cfg.max_stake_per_market - current_market_exposure
