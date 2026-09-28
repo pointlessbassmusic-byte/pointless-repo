@@ -232,6 +232,14 @@ error of the win rate. It is the kind of cell that would be cherry-picked and
 should not be: with nine buckets across two sports, one at t ≈ 1.2 is
 expected by chance.
 
+## Live paper record so far (for the record, not for inference)
+
+After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
+MLB games: realized +$0.63, **mean CLV −0.0017**. n = 9 says nothing about
+edge in either direction; it is logged here so the running tally has a
+starting point, and because a CLV of zero on the first nine is exactly what
+Results 1–3 predict.
+
 ## Why a few hundred bets can never settle this
 
 Per-bet return standard deviation on ~50c binaries is about 1.0. That fixes

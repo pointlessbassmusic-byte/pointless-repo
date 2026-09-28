@@ -17,6 +17,7 @@ from typing import Callable, Optional
 
 from sportsbot.core.books import walk_book
 from sportsbot.core.calibration import blend_with_market
+from sportsbot.data.store import event_of
 from sportsbot.core.staking import StakingConfig, decide_stake
 from sportsbot.core.types import BetIntent, MarketInfo, MarketQuote, Prediction, Side
 
@@ -152,7 +153,12 @@ def evaluate_market_verbose(
             price=entry + fee_per_share + cfg.slippage_buffer,
             cfg=local,
             side=side,
-            current_market_exposure=exposure.get("by_market", {}).get(market.market_id, 0.0),
+            # Cap by EVENT, not market: on Kalshi the two sides of a game are
+            # two tickers, and a per-ticker cap would let the same outcome be
+            # bought twice (YES on one, NO on the other).
+            current_market_exposure=max(
+                exposure.get("by_market", {}).get(market.market_id, 0.0),
+                exposure.get("by_event", {}).get(event_of(market.market_id), 0.0)),
             current_sport_exposure=exposure.get("by_sport", {}).get(sport_key, 0.0),
             current_total_exposure=exposure.get("total", 0.0),
             open_positions=exposure.get("open_positions", 0),
@@ -172,9 +178,15 @@ def evaluate_market_verbose(
             if size <= 0 or prob - avg_price - walked_fee - cfg.slippage_buffer < min_edge:
                 miss(eff_edge, f"{side.value} edge gone after walking the book")
                 continue
-        if size * entry < staking.min_stake or size < market.min_order_size:
+        if size * entry < staking.min_stake:
             miss(eff_edge, (f"{side.value} size {size:.1f} @ {entry:.3f} under the "
                             f"${staking.min_stake:.0f} minimum stake"))
+            continue
+        if size < market.min_order_size:
+            # Say which limit bound: this is the venue's contract minimum, not
+            # our dollar minimum, and the feed should not blame the wrong one.
+            miss(eff_edge, (f"{side.value} size {size:.1f} under the venue minimum "
+                            f"of {market.min_order_size:g} contracts"))
             continue
 
         intent = BetIntent(
