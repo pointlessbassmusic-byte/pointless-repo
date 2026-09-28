@@ -23,11 +23,13 @@ volatility (one surprise costs the stake and erases ~40 wins), and Kelly on a
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .feeds import BinaryMarket
 
@@ -321,6 +323,26 @@ def state_lines(markets: list[BinaryMarket], now: datetime | None = None) -> lis
     return lines
 
 
+EXPORT_FIELDS = ["detected_at", "meeting", "bucket", "platform", "market_id", "kalshi_ticker",
+                 "ask", "other_mid", "lead_days", "net_return", "stake_usd", "result",
+                 "settled_at"]
+
+
+def export_csv(conn: sqlite3.Connection, path: Path) -> int:
+    """Write the whole signal table to a CSV so the record outlives the SQLite
+    file (the sandbox that runs this is ephemeral; the repo is not)."""
+    ensure_schema(conn)
+    rows = conn.execute(
+        f"SELECT {', '.join(EXPORT_FIELDS)} FROM fed_signals ORDER BY meeting, bucket, platform"
+    ).fetchall()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(EXPORT_FIELDS)
+        w.writerows(rows)
+    return len(rows)
+
+
 def run_cycle(conn: sqlite3.Connection, watcher: FedWatcher,
               markets: list[BinaryMarket], settled: dict[str, str]) -> tuple[int, int]:
     """Evaluate, record first fires, settle. Returns (new rows, settled rows)."""
@@ -336,6 +358,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fed decision rule watcher (records, never trades)")
     parser.add_argument("--report", action="store_true",
                         help="print the settled record and current state without recording")
+    parser.add_argument("--export", default="docs/fed_signals.csv",
+                        help="CSV copy of the signal table, written after every recording run")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     with open(ROOT / "config.yaml") as f:
@@ -347,7 +371,8 @@ def main() -> None:
     settled = kalshi.series_results(KALSHI_SERIES)
     if not args.report:
         new, done = run_cycle(conn, watcher, markets, settled)
-        print(f"recorded {new} new fire(s), settled {done} row(s)")
+        n = export_csv(conn, ROOT / args.export)
+        print(f"recorded {new} new fire(s), settled {done} row(s); {n} row(s) exported to {args.export}")
     print("\n".join(state_lines(markets)) or "no open Fed decision markets on either venue")
     rec = scorecard(conn)
     print(f"\nrecord: fired {rec.n_fired}, settled {rec.n_settled}, paid {rec.n_paid}, "

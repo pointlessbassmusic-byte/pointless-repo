@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from src.feeds import BinaryMarket
 from src.fed_watch import (
-    FedWatcher, group_buckets, parse_kalshi, parse_polymarket, record, scorecard,
+    EXPORT_FIELDS, FedWatcher, export_csv, group_buckets, parse_kalshi, parse_polymarket, record, scorecard,
     settle, state_lines,
 )
 
@@ -145,3 +145,19 @@ def test_state_lines_show_both_venues_per_bucket():
     assert lines[0].startswith("2026-10") and "3.2d out" in lines[0]
     assert any("hike_25" in ln and "0.51" in ln and "0.53" in ln for ln in lines)
     assert any("hold" in ln and "0.47" in ln and "0.46" in ln for ln in lines)
+
+
+def test_export_csv_round_trips_the_signal_table(tmp_path):
+    import csv
+    conn = sqlite3.connect(":memory:")
+    w = FedWatcher({"min_price": 0.90, "agree_min": 0.85})
+    record(conn, w.evaluate([kalshi("H25", 0.90, 0.91), poly(HIKE_Q, 0.90, 0.92)], now=NOW))
+    settle(conn, {"KXFEDDECISION-26OCT-H25": "yes"})
+    out = tmp_path / "fed_signals.csv"
+    assert export_csv(conn, out) == 2
+    rows = list(csv.DictReader(out.open()))
+    assert list(rows[0].keys()) == EXPORT_FIELDS
+    assert {r["platform"] for r in rows} == {"kalshi", "polymarket"}
+    assert all(r["result"] == "yes" and r["meeting"] == "2026-10" for r in rows)
+    assert export_csv(sqlite3.connect(":memory:"), out) == 0      # empty table still writes a header
+    assert out.read_text().strip() == ",".join(EXPORT_FIELDS)
