@@ -232,6 +232,45 @@ error of the win rate. It is the kind of cell that would be cherry-picked and
 should not be: with nine buckets across two sports, one at t ≈ 1.2 is
 expected by chance.
 
+## Result 7: the weather market already contains the forecast
+
+The NWS arm is the strongest signal in the stack — it beats climatology on
+4 of 5 dates (`docs/SIGNALS_2026-09-17.md`) — and it loses to the market on
+Brier (0.1408 vs 0.0802). The question that matters for trading is not
+whether it loses but whether it carries *anything the price has not
+absorbed*. Same threshold-free regression as Results 2 and 5, on 168 settled
+strike-band rows across 28 station-days, with significance clustered by
+station-day because the six bands of a day share one temperature:
+
+```
+beta of (outcome − market) on (NWS − market) = +0.036
+cluster-bootstrap 95% CI [−0.106, +0.222]      t = 0.43
+control, climatology in place of NWS          = −0.004
+```
+
+| arm | Brier |
+|---|---|
+| market | 0.0802 |
+| market + β·(NWS − market) | 0.0801 |
+| 0.9 market + 0.1 NWS | 0.0804 |
+| 0.8 market + 0.2 NWS | 0.0819 |
+| NWS | 0.1408 |
+
+Adding the forecast to the price is worth 0.0001 of Brier. Any fixed blend
+is worse than the price alone. **The market already contains the forecast.**
+
+The mechanism is visible by price bucket. Where the market prices a band at
+0.012 (87 bands), NWS says 0.147 and the actual rate is 0.000; where the
+market says 0.995, NWS says 0.300 and the actual is 1.000. The forecast arm
+points the right way with far too wide a sigma: it beats climatology on
+direction and loses to a market that is already well calibrated in exactly
+the places NWS is not. Tightening sigma on these 28 station-days would be
+fitting the test set, and is not done.
+
+So the weather arm's standing is now exact: a genuine, measured
+*conventional baseline* for the substrate, and not a source of bets. That is
+the role the protocol always assigned it.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
@@ -275,6 +314,9 @@ a principle.
   measurements agree, and the strongest of them (beta = 0.065) says the
   signal is absent rather than small.
 - **Out: threshold tuning.** The edge bar is not what is stopping it.
+- **Out: trading the weather forecast.** Beta 0.036 (t 0.43) against the
+  price; the market already contains it. It remains the substrate's
+  conventional baseline, which it beats climatology for.
 - **Out: favorite–longshot bias.** Tennis is calibrated within three points
   in every bucket on 3,122 observations; MLB's one attractive bucket is
   n = 83 at t 1.2.
