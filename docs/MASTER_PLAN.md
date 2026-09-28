@@ -228,6 +228,10 @@ Pipeline per cycle:
       mean net return, breakeven surprise rate and a rule-of-three bound. Not wired to
       any executor: the settled record it builds is what pre-live-gate requires first.
       Live 2026-09-23: Oct hike-25 0.51/0.54, hold 0.47/0.46 at 35 days — not firing.
+      2026-09-28: hike-25 0.69/0.69 at 30 days, still below the bar. The watcher now runs
+      daily at 13:00 UTC from a session routine and exports its signal table to
+      `arb-scanner/docs/fed_signals.csv` after every run, so the record survives the
+      ephemeral sandbox; a fire or settlement is committed the same day.
 - [ ] Decide, on the first settled fires, whether the Kalshi leg goes to kalshi-engine's
       executor in dry-run. Blocked on the record above; the generic ensemble dilutes a
       2-3c edge below `min_edge` and `max_price: 0.95` excludes the buckets, so it needs
