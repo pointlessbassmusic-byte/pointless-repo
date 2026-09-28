@@ -282,3 +282,25 @@ class TestKalshiFee:
         assert kalshi_taker_fee(0.5, 100, 1.0) == 1.75
         assert kalshi_taker_fee(0.5, 100, 0.5) == 0.88  # MLB half fees
         assert kalshi_taker_fee(0.05, 100, 1.0) == pytest.approx(0.34, abs=0.01)
+
+
+
+def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_games(monkeypatch):
+    """A game day lists dozens of inning-winner events sharing the game's
+    startDate. Ordered by startDate they filled the page ahead of the game and
+    the moneyline filter then emptied it — the venue looked dead. The client
+    must ask Gamma for volume order and walk every page."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+
+    calls = []
+
+    def fake_get(self, url, params=None):
+        calls.append(dict(params or {}))
+        return []            # no events; we only check the request shape
+
+    monkeypatch.setattr(PolymarketClient, "_get", fake_get)
+    PolymarketClient().list_sports_markets("mlb")
+    assert calls, "discovery made no request"
+    p = calls[0]
+    assert p["order"] == "volume24hr" and p["ascending"] == "false"
+    assert "start_date_min" in p           # the stale-event floor stays

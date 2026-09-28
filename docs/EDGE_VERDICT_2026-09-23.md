@@ -1,5 +1,26 @@
 # Does the strategy make money? MLB and tennis, measured on real Kalshi games
 
+> **Correction, 2026-09-28.** Every result below was measured on **Kalshi**.
+> The repo's architecture puts sports on **Polymarket** (Kalshi is the
+> substrate venue), and the reason the sim was moved to Kalshi on 2026-09-22
+> — "Polymarket has nothing tradeable for these sports" — was **wrong for
+> tennis and MLB**. It came from a discovery bug: `list_sports_markets`
+> ordered Gamma events by `startDate`, so a game day's dozens of
+> inning-winner derivatives filled the page ahead of the games, the
+> moneyline filter then discarded them, and the slate looked empty. Measured
+> on the markets Polymarket actually trades (2026-09-28): tennis moneylines
+> median spread **0.010**, 22 of 25 ≤ 0.03, $2.25M 24h volume across 100
+> events; MLB moneylines median spread **0.010**, 9 of 9 ≤ 0.03. As tight as
+> Kalshi. The table-tennis finding stands: Setka Cup on Polymarket does $34
+> a day across 100 events.
+>
+> So the Kalshi results are Kalshi results. They say nothing about
+> Polymarket, and the Polymarket measurement is being built
+> (`backtest/polymarket_market.py`). One number already known: Polymarket
+> sports moneylines carry a **1000 bps base fee** — 5 points at p = 0.5, six
+> times Kalshi's MLB taker rate — on both sides of the book per Gamma's
+> `makerBaseFee`/`takerBaseFee`.
+
 _2026-09-23. Reproduce with `sportsbot market-backtest`._
 
 **No. The MLB model has no measurable edge against Kalshi's price and barely
@@ -31,7 +52,7 @@ the entry and the closing line are therefore anchored to first pitch (parsed
 from the event ticker, which is stamped in US Eastern), and the candle
 straddling first pitch is discarded.
 
-## Result 1: at the production threshold it barely trades, and the bets go nowhere
+## Result 1 (Kalshi): at the production threshold it barely trades, and the bets go nowhere
 
 > **Correction (2026-09-23).** The first version of this table was computed
 > with `kalshi_taker_fee` at its default multiplier of 1.0 — the same bug this
@@ -69,7 +90,7 @@ likely the market's own drift rather than skill: prices drift +0.0059 toward
 the home side from 24h to close (Result 3), so any home-leaning book collects
 it without forecasting anything.
 
-## Result 2: the model carries no information the price lacks
+## Result 2 (Kalshi): the model carries no information the price lacks
 
 Threshold-free, 873 games with both a model prediction and a pre-game quote:
 
@@ -99,7 +120,7 @@ disagreement is ~93% noise, and t = 0.20 cannot distinguish it from zero.
 **No threshold, blend weight, or stake rule recovers an edge that is not
 there.**
 
-## Result 3: no model-free drift to trade either
+## Result 3 (Kalshi): no model-free drift to trade either
 
 Prices do drift toward the home side as the game approaches — small but
 statistically real, and it shrinks monotonically as the spread tightens:
@@ -116,7 +137,7 @@ slippage. The away side returns −6.7%, which is the spread and fee drag
 showing up as it should. Crossing a ~1.1-point spread and paying ~0.9 points
 of fee to capture a 0.6-point drift does not work.
 
-## Result 4: the maker variant is not measurably better
+## Result 4 (Kalshi): the maker variant is not measurably better
 
 The spread averages **0.0103 — one tick**. "Maker-first inside the spread",
 which the strategy config assumes, is therefore impossible here: there is no
@@ -144,7 +165,7 @@ The strict model is the honest bound for a retail account: at a one-tick
 spread you sit at the back of the queue, so you are filled mainly when the
 price is moving against you.
 
-## Result 5: tennis — the bootstrap model is worse than a coin, and its bets lose
+## Result 5 (Kalshi): tennis — the bootstrap model is worse than a coin, and its bets lose
 
 Same method on Kalshi tennis (`sportsbot market-backtest tennis`): 1,577
 settled ATP/WTA matches, 2026-07-18 → 2026-09-23, ratings bootstrapped from
@@ -197,7 +218,7 @@ allocator now treats provisional ratings as untradeable rather than halved.
 decades of history with surfaces. Nothing in this section rules them out.
 Nothing supports them either until the same measurement is run on them.
 
-## Result 6: no favorite–longshot bias to trade either
+## Result 6 (Kalshi): no favorite–longshot bias to trade either
 
 The best-documented inefficiency in betting markets is model-free: longshots
 overpriced, favorites underpriced. Tested on every cached market, bucketed by

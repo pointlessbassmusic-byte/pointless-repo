@@ -152,6 +152,14 @@ class PolymarketClient(ExchangeClient):
         # Some long-stale events stay active=true; ask only for events starting
         # from yesterday onward (yesterday, not today, to keep live matches).
         start_min = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        # Order by volume, NOT start date. A game day lists dozens of derivative
+        # events per game (inning winners, first-five) that share the game's
+        # startDate; ordered by startDate they fill the page ahead of the game
+        # itself, and after the moneyline filter drops them the slate looks
+        # empty. Measured 2026-09-28: by startDate this returned inning
+        # winners and a finale six days out; by volume the first three rows
+        # were that day's games at $59k, $33k and $13k. The empty-slate
+        # conclusion in EDGE_VERDICT's venue section came from this bug.
         while True:
             events = self._get(
                 f"{GAMMA_BASE}/events",
@@ -160,8 +168,8 @@ class PolymarketClient(ExchangeClient):
                     "active": "true",
                     "closed": "false",
                     "start_date_min": start_min,
-                    "order": "startDate",
-                    "ascending": "true",
+                    "order": "volume24hr",
+                    "ascending": "false",
                     "limit": page_size,
                     "offset": offset,
                 },
