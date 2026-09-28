@@ -111,9 +111,11 @@ Reference implementation and regression tests:
   needing settled evidence, not a temperature call.
 - That evidence now exists and it goes against us. Two independent lines agree
   the book's weather distribution beats ours: the live sigma ratios above, and
-  settled Brier scores — market 0.0121 vs an NWS arm's 0.1431 on the first
-  NWS-covered cohort, 0.0690 vs climatology 0.1813 over 186 rows
-  (`docs/SIGNALS_2026-09-17.md`, `sportsbot weather-score`). sportsbot already
+  settled Brier scores — on the five-date NWS cohort (168 rows, PR #27) coin
+  0.2500 > climatology 0.1954 > NWS 0.1408 > market 0.0802; the NWS arm beats
+  climatology (paired per-date +0.049, t 2.9, 4 of 5 dates) and the market
+  beats NWS by more (station-day -0.061, t -4.0), a gap that widened as dates
+  were added (`docs/SIGNALS_2026-09-17.md`, `sportsbot weather-score`). sportsbot already
   keeps weather out of trading for this reason (`bot/allocation.py`). The
   engine suite still takes these bets in **dry run**, deliberately, because
   that is how its own settled record gets built — but treat a weather signal
