@@ -120,7 +120,14 @@ def build_exchange(cfg: dict):
     if venue == "kalshi":
         from sportsbot.exchanges.kalshi import KalshiClient, kalshi_taker_fee
 
-        data_client = KalshiClient()
+        # Market DATA always comes from prod. KalshiClient() defaults to the
+        # demo exchange when KALSHI_ENV is unset, and demo's books are a
+        # mirror at best and synthetic at worst — a paper book quoting them
+        # is not trading real-time events, and a settled market may show up
+        # late or not at all. Orders (live mode only) still honour KALSHI_ENV,
+        # so demo remains the place to test order placement.
+        data_client = KalshiClient(env="prod")
+        exec_client = KalshiClient()
 
         def fee_fn(price, shares, market_id=None):
             """Kalshi's fee multiplier is per series (MLB 0.5, tennis 1.0), so
@@ -134,7 +141,7 @@ def build_exchange(cfg: dict):
 
         fee_fn = taker_fee   # already matches the fee_fn contract
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
-        return data_client, data_client, fee_fn
+        return (exec_client if venue == "kalshi" else data_client), data_client, fee_fn
     paper = PaperExchange(
         data_client=data_client,
         starting_balance=float(cfg.get("bankroll", {}).get("amount", 1000.0)),
