@@ -282,3 +282,53 @@ class TestKalshiFee:
         assert kalshi_taker_fee(0.5, 100, 1.0) == 1.75
         assert kalshi_taker_fee(0.5, 100, 0.5) == 0.88  # MLB half fees
         assert kalshi_taker_fee(0.05, 100, 1.0) == pytest.approx(0.34, abs=0.01)
+
+
+class TestInPlayGuard:
+    """The clock is not enough: Kalshi's occurrence_datetime is the expected
+    END, so the guard must refuse an unknown start and catch a live market
+    by its price."""
+
+    def _mgr(self, tmp_path):
+        from sportsbot.bot.risk import RiskConfig, RiskManager
+        from sportsbot.data.store import Store
+        store = Store(str(tmp_path / "t.db"))
+        return RiskManager(RiskConfig(), store), store
+
+    def _intent(self, m):
+        from sportsbot.core.types import BetIntent
+        return BetIntent(market=m, side=Side.YES, prob=0.6, price=0.5,
+                         size=10, edge=0.1, kelly_fraction=0.01)
+
+    def test_unknown_start_is_refused_even_with_a_close_time(self, tmp_path):
+        mgr, _ = self._mgr(tmp_path)
+        m = _market(start_time=None,
+                    close_time=datetime.now(timezone.utc) + timedelta(days=14))
+        ok, reason = mgr.check_intent(self._intent(m), _quote())
+        assert not ok and "unknown" in reason
+
+    def test_first_sighting_is_recorded_and_allowed(self, tmp_path):
+        mgr, store = self._mgr(tmp_path)
+        ok, _ = mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))
+        assert ok
+        assert store.get_kv("first_mid:m1")["mid"] == 0.49
+
+    def test_a_large_move_since_first_sighting_is_refused(self, tmp_path):
+        mgr, _ = self._mgr(tmp_path)
+        assert mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))[0]
+        ok, reason = mgr.check_intent(self._intent(_market()), _quote(0.62, 0.64))
+        assert not ok and "in play" in reason
+
+    def test_a_small_move_is_still_allowed(self, tmp_path):
+        mgr, _ = self._mgr(tmp_path)
+        assert mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))[0]
+        assert mgr.check_intent(self._intent(_market()), _quote(0.51, 0.53))[0]
+
+    def test_first_mid_survives_a_restart(self, tmp_path):
+        from sportsbot.bot.risk import RiskConfig, RiskManager
+        from sportsbot.data.store import Store
+        mgr, store = self._mgr(tmp_path)
+        mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))
+        fresh = RiskManager(RiskConfig(), Store(str(tmp_path / "t.db")))
+        ok, reason = fresh.check_intent(self._intent(_market()), _quote(0.70, 0.72))
+        assert not ok and "in play" in reason
