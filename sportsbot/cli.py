@@ -370,6 +370,34 @@ def board(config: str = CONFIG_OPT,
         _time.sleep(max(5, loop))
 
 
+@app.command("twobook-log")
+def twobook_log(config: str = CONFIG_OPT,
+                minutes: float = typer.Option(30.0, help="how long to sample"),
+                interval: float = typer.Option(20.0, help="seconds between passes"),
+                sports: str = typer.Option("tennis,mlb"),
+                max_pairs: int = typer.Option(40, help="pairs per sport, highest Polymarket volume first"),
+                db: str = typer.Option("data/twobook.sqlite")):
+    """Log both order books for matches listed on Kalshi AND Polymarket.
+    Data only (substrate_bridge): public reads, no orders, nothing wired to
+    the strategy. Answers whether Polymarket's book lags Kalshi's."""
+    _setup(config)
+    from sportsbot.substrate_bridge.twobook import TwoBookLogger
+
+    res = TwoBookLogger(db).run(interval=interval, minutes=minutes,
+                                sports=tuple(s.strip() for s in sports.split(",") if s.strip()),
+                                max_pairs=max_pairs)
+    console.print(res)
+
+
+@app.command("twobook-report")
+def twobook_report(db: str = typer.Option("data/twobook.sqlite"),
+                   step: float = typer.Option(20.0, help="grid step in seconds (= the log interval)")):
+    """Lead-lag and executable mark-out from the two-book log."""
+    from sportsbot.substrate_bridge.twobook import format_report, report
+
+    console.print(format_report(report(db, step=step)))
+
+
 @app.command("verify-fees")
 def verify_fees(config: str = CONFIG_OPT,
                 note: str = typer.Option(..., help="what you traded and the fee you saw")):
