@@ -15,8 +15,8 @@
 > a day across 100 events.
 >
 > So the Kalshi results are Kalshi results. They say nothing about
-> Polymarket. The Polymarket measurement is Result 8 (MLB) below, built on
-> `backtest/polymarket_market.py`; tennis follows as Result 9. Fees, from the documentation's "Sports
+> Polymarket. The Polymarket measurements are Results 8 (MLB) and 9
+> (tennis) below, built on `backtest/polymarket_market.py`. Fees, from the documentation's "Sports
 > Market Fees" page rather than Gamma's raw fields: **taker only**,
 > fee = C × 0.05 × p × (1 − p), so 1.25 points at p = 0.5 (100 shares at
 > $0.50 → $1.25); **makers pay nothing and receive a 15% rebate.** That is
@@ -366,6 +366,82 @@ games and is not informative either way; judge by CLV.
 
 Reproduce: `sportsbot market-backtest baseball --exchange polymarket`
 (needs the CLOB histories; `data/cache/polymarket_prices/`).
+
+## Result 9 (Polymarket): tennis — the model loses to the price; the one "bias" is a look-ahead
+
+_2026-09-29. Data: every resolved Polymarket tennis moneyline with a CLOB
+price history, 2026-09-01 → 09-28: 7,132 matches (ITF 3,476 priced, ATP
+1,416, WTA 680; median market volume $1.6k, a quarter under $20),
+4,864–5,881 priceable at the lead. Anchor = `gameStartTime` (see the
+correction below). Fee = the documented 0.05 × p × (1 − p), taker only.
+Model = the production TennisModel bootstrapped from settled matches
+(1,577 Kalshi + 7,001 Polymarket, deduplicated), day-batched walk-forward,
+the live scanner's uncertainty gate (≤ 0.20) applied for the "priceable"
+rows._
+
+**Correction first.** The first tennis sweep anchored on `closedTime − 3h`,
+the Kalshi tennis anchor. On Polymarket `closedTime` trails `gameStartTime`
+by a median **14 hours** (p10 3.7h, p90 20.7h; 300 markets) — resolution
+lag, not match length — so that anchor sat after most matches and scored
+in-play and post-result prints as the closing line (closes of 1.000 from
+entries of 0.045; "+18% ROI"). That sweep is discarded. Everything below
+uses `gameStartTime`, skips the 6% of markets whose start is not before
+their close, and refuses a closing print at the rail (outside 0.03–0.97).
+MLB Result 8 re-run under the same guard: identical.
+
+**Model vs price, priceable rows (what the scanner would trade):**
+
+| lead | n | Brier model | Brier mid | blend 0.30 | beta | t | taker CLV at bar 0.03 | n bets |
+|---|---|---|---|---|---|---|---|---|
+| 12h | 599 | 0.2453 | **0.2047** | 0.2064 | +0.10 | +1.2 | +0.0059 | 257 |
+| 6h | 619 | 0.2440 | **0.2029** | 0.2041 | +0.12 | +1.5 | −0.0018 | 275 |
+| 2h | 622 | 0.2438 | **0.2018** | 0.2032 | +0.11 | +1.4 | −0.0028 | 273 |
+
+Kalshi Result 5 again: the bootstrapped model is far worse than the price
+(four Brier points), blending it in makes the mid worse, the slope on
+model disagreement is a tenth with t ≤ 1.5, and the bets it would place
+have negative CLV at 6h and 2h (positive-CLV rate 20–27%: they pay the
+spread and get nothing back). Across all 5,590 rows at 6h the slope is
++0.002 (t 0.07). Taker ROI in the sweep runs +4% to +17% with hit rates of
+0.31–0.37 and per-bet return se of 0.11–0.14 — t ≈ 1, and CLV says no.
+Maker cells (+11% to +23%, fills assumed) inherit the bid-versus-mid half
+tick by construction and are not evidence.
+
+**Model-free drift:** close − decision mid on priceable rows +0.0028
+(t 1.0) at 12h, +0.0012 (t 1.0) at 6h, −0.0002 (t −0.3) at 2h. Nothing.
+
+**The favorite–longshot bias that isn't.** Binned by decision mid, the
+0.7–0.8 bin wins 0.79–0.80 against a mean mid of 0.747 at every lead
+(t +2.6 to +3.7), and a model-free "buy the favourite ≥ 0.70" looked like
++6% ROI after fees in markets under $10k (t 4–7). Two things kill it:
+
+1. *Look-ahead.* "Under $10k" is total volume at resolution. A favourite
+   that cruises draws no in-play trading; an upset draws a lot. Bucketing
+   by final volume selects on the result: in the 0.7–0.8 bin the win rate
+   runs **0.917 → 0.793 → 0.746 → 0.683** across final-volume buckets
+   (< $1k, ≥ $1k, ≥ $10k, ≥ $100k). Bucketed by a decision-time variable —
+   trade prints before the decision — the gap is flat (+0.05, +0.06,
+   +0.05, +0.04) and the strategy is **0 to +1% with t < 1** in every
+   bucket (n 133–1,027). By tour, T ≥ 0.70 with the median live spread:
+   ITF +0.4% ± 1.2, ATP +1.0% ± 2.2, WTA +1.0% ± 3.0.
+2. *Spreads.* The backtest assumed one tick. Live books (483 open tennis
+   moneylines, 2026-09-29 00:40Z): markets under $10k are **3 points wide
+   at the median, 7 at p75, 29 at p90**; ITF 4 / 10 / 43. WTA 1 / 3 / 4,
+   the liquid $10k–100k tier 1 / 1 / 2. The thin-market return is gone by
+   a 7-point spread even before the look-ahead is removed.
+
+The one cell left standing is the ITF 0.7–0.8 bin alone (+4.9% ± 2.0,
+n 655) with the bins either side of it negative — one of twelve cells, not
+a finding. The liquid-market *reverse* bias in the same table (favourites
+over $100k winning less than priced, t −2 to −3.5) is the same look-ahead
+in the other direction; the underdog strategy it implies is +5.7% ± 5.5%.
+
+**Verdict:** no model edge, no drift, no favorite–longshot edge that
+survives decision-time variables and real spreads. Tennis stays disabled in
+the sim. The CLOB keeps ~30 days of history, so the next month is a free
+out-of-sample test of the ITF cell: refresh the caches daily
+(`market-backtest tennis --exchange polymarket` does) and re-run this
+section at the end of October before believing anything.
 
 ## Live paper record so far (for the record, not for inference)
 

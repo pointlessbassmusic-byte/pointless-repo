@@ -80,11 +80,13 @@ scan:
 
 sports:
   tennis:
-    # OFF for the sim. The Kalshi-bootstrap ratings measured WORSE than a coin
-    # against the price (Brier 0.2589 vs market 0.2024 on 1,561 settled
-    # matches) and the bets they selected lost ~18% each — see
-    # docs/EDGE_VERDICT_2026-09-23.md, Result 5. Re-enable only once Sackmann
-    # ratings exist AND pass `sportsbot market-backtest tennis`.
+    # OFF for the sim, on both venues. Kalshi: the bootstrap ratings measured
+    # worse than a coin against the price (Result 5). Polymarket, 2026-09-29:
+    # model Brier 0.244 vs the mid's 0.203 on the rows the scanner would
+    # price, negative taker CLV, and the apparent favourite-longshot edge
+    # was a look-ahead (final volume) plus one-tick spreads that thin books
+    # do not offer (Result 9). Re-enable only once Sackmann ratings exist AND
+    # pass `sportsbot market-backtest tennis --exchange polymarket`.
     enabled: false
     best_of_default: 3
     surface_weight: 0.50        # blend: (1-w)*overall + w*surface (Tennis Abstract optimum)
