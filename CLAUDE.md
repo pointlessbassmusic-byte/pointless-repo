@@ -169,7 +169,12 @@ the outcome and fabricates longshot edge.
   matches listed on both venues the quotes sit 0.5c apart at the median,
   inside Kalshi's 1c spread, Brier identical, and from a day out it is
   Polymarket's price that moves toward Kalshi's (beta 1.07, t 7.6), not the
-  reverse. Cross-venue gaps on the same event are suspect matches, not edges.
+  reverse. PR #31 (Result 10) reaches the same verdict independently on 294
+  MLB games and 215 tennis matches at hourly resolution: gap sd 0.8-2.1
+  points, Briers equal to the fourth decimal, Polymarket closing 37-71% of
+  the gap toward Kalshi per hour with the same last-trade staleness caveat,
+  and the gap trade at -10% to +6% with t under 1. Cross-venue gaps on the
+  same event are suspect matches, not edges.
 - The Cleveland Fed inflation nowcast is not a leading reference for
   Polymarket's CPI buckets either (`docs/CPI_NOWCAST_VS_POLYMARKET_2026-09-29.md`,
   `python -m src.cpi_study`): with the nowcast's own error sigma fitted on
