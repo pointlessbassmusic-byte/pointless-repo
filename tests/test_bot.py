@@ -262,7 +262,9 @@ class TestArb:
         assert find_bundle_arb(_market(), _quote(bid=0.48, ask=0.50), NO_FEE) is None
 
     def test_fees_kill_thin_bundle(self):
-        q = _quote(bid=0.52, ask=0.47)  # 1% gross
+        # YES 0.50 + NO 0.49 = 0.99: 1 point gross; the documented sports fee
+        # (0.05 x p x (1-p) per share, each leg) costs ~2.5 points.
+        q = _quote(bid=0.51, ask=0.50)
         assert find_bundle_arb(_market(), q, taker_fee) is None
 
     def test_cross_venue_arb(self):
@@ -282,6 +284,39 @@ class TestKalshiFee:
         assert kalshi_taker_fee(0.5, 100, 1.0) == 1.75
         assert kalshi_taker_fee(0.5, 100, 0.5) == 0.88  # MLB half fees
         assert kalshi_taker_fee(0.05, 100, 1.0) == pytest.approx(0.34, abs=0.01)
+
+
+
+def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_games(monkeypatch):
+    """A game day lists dozens of inning-winner events sharing the game's
+    startDate. Ordered by startDate they filled the page ahead of the game and
+    the moneyline filter then emptied it — the venue looked dead. The client
+    must ask Gamma for volume order and walk every page."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+
+    calls = []
+
+    def fake_get(self, url, params=None):
+        calls.append(dict(params or {}))
+        return []            # no events; we only check the request shape
+
+    monkeypatch.setattr(PolymarketClient, "_get", fake_get)
+    PolymarketClient().list_sports_markets("mlb")
+    assert calls, "discovery made no request"
+    p = calls[0]
+    assert p["order"] == "volume24hr" and p["ascending"] == "false"
+    assert "start_date_min" in p           # the stale-event floor stays
+
+
+
+def test_polymarket_taker_fee_matches_the_documented_worked_example():
+    """docs.polymarket.com, Sports Market Fees: fee = C x 0.05 x p x (1-p);
+    100 shares at $0.50 -> $1.25. Symmetric about 0.5: 0.30 and 0.70 cost the
+    same. The old 0.10 x min(p,1-p) charged $5.00 for the same trade."""
+    assert abs(taker_fee(0.50, 100) - 1.25) < 1e-9
+    assert abs(taker_fee(0.30, 100) - taker_fee(0.70, 100)) < 1e-12
+    assert abs(taker_fee(0.30, 100) - 1.05) < 1e-9
+    assert taker_fee(0.50, 100, "any-market") == taker_fee(0.50, 100)
 
 
 class TestInPlayGuard:
@@ -332,3 +367,22 @@ class TestInPlayGuard:
         fresh = RiskManager(RiskConfig(), Store(str(tmp_path / "t.db")))
         ok, reason = fresh.check_intent(self._intent(_market()), _quote(0.70, 0.72))
         assert not ok and "in play" in reason
+
+
+def test_polymarket_mlb_lists_the_visitor_first_so_home_field_is_outcomes_1():
+    """981 of 981 resolved MLB moneylines (2026-07-16..09-27) list the away
+    team as outcomes[0]. The scanner's home-field restatement keys on
+    meta["home_field"]; without it the home advantage goes to the visitor."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+    _moneyline_markets_from_event = PolymarketClient()._moneyline_markets_from_event
+    ev = {"slug": "mlb-wsh-det-2026-09-22", "markets": [{
+        "sportsMarketType": "moneyline", "conditionId": "c1",
+        "outcomes": '["Washington Nationals","Detroit Tigers"]',
+        "clobTokenIds": '["t0","t1"]', "gameStartTime": "2026-09-22 22:40:00+00",
+        "acceptingOrders": True, "enableOrderBook": True}]}
+    (mlb,) = _moneyline_markets_from_event(ev, Sport.BASEBALL)
+    assert mlb.home == "Washington Nationals"          # YES side = outcomes[0]
+    assert mlb.meta["home_field"] == "Detroit Tigers"  # the real home team
+    (ten,) = _moneyline_markets_from_event(
+        {**ev, "markets": [{**ev["markets"][0], "outcomes": '["A","B"]'}]}, Sport.TENNIS)
+    assert "home_field" not in ten.meta

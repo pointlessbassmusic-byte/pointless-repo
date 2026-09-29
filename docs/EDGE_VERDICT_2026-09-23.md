@@ -1,5 +1,29 @@
 # Does the strategy make money? MLB and tennis, measured on real Kalshi games
 
+> **Correction, 2026-09-28.** Every result below was measured on **Kalshi**.
+> The repo's architecture puts sports on **Polymarket** (Kalshi is the
+> substrate venue), and the reason the sim was moved to Kalshi on 2026-09-22
+> — "Polymarket has nothing tradeable for these sports" — was **wrong for
+> tennis and MLB**. It came from a discovery bug: `list_sports_markets`
+> ordered Gamma events by `startDate`, so a game day's dozens of
+> inning-winner derivatives filled the page ahead of the games, the
+> moneyline filter then discarded them, and the slate looked empty. Measured
+> on the markets Polymarket actually trades (2026-09-28): tennis moneylines
+> median spread **0.010**, 22 of 25 ≤ 0.03, $2.25M 24h volume across 100
+> events; MLB moneylines median spread **0.010**, 9 of 9 ≤ 0.03. As tight as
+> Kalshi. The table-tennis finding stands: Setka Cup on Polymarket does $34
+> a day across 100 events.
+>
+> So the Kalshi results are Kalshi results. They say nothing about
+> Polymarket. The Polymarket measurement is Result 8 (MLB) below, built on
+> `backtest/polymarket_market.py`; tennis follows as Result 9. Fees, from the documentation's "Sports
+> Market Fees" page rather than Gamma's raw fields: **taker only**,
+> fee = C × 0.05 × p × (1 − p), so 1.25 points at p = 0.5 (100 shares at
+> $0.50 → $1.25); **makers pay nothing and receive a 15% rebate.** That is
+> comparable to Kalshi (0.875 MLB / 1.75 tennis), not six times worse as an
+> earlier draft of this note said — and the repo's `taker_fee` had charged
+> 0.10 × min(p, 1−p), four times the documented fee at the middle. Fixed.
+
 _2026-09-23. Reproduce with `sportsbot market-backtest`._
 
 **No. The MLB model has no measurable edge against Kalshi's price and barely
@@ -31,7 +55,7 @@ the entry and the closing line are therefore anchored to first pitch (parsed
 from the event ticker, which is stamped in US Eastern), and the candle
 straddling first pitch is discarded.
 
-## Result 1: at the production threshold it barely trades, and the bets go nowhere
+## Result 1 (Kalshi): at the production threshold it barely trades, and the bets go nowhere
 
 > **Correction (2026-09-23).** The first version of this table was computed
 > with `kalshi_taker_fee` at its default multiplier of 1.0 — the same bug this
@@ -69,7 +93,7 @@ likely the market's own drift rather than skill: prices drift +0.0059 toward
 the home side from 24h to close (Result 3), so any home-leaning book collects
 it without forecasting anything.
 
-## Result 2: the model carries no information the price lacks
+## Result 2 (Kalshi): the model carries no information the price lacks
 
 Threshold-free, 873 games with both a model prediction and a pre-game quote:
 
@@ -99,7 +123,7 @@ disagreement is ~93% noise, and t = 0.20 cannot distinguish it from zero.
 **No threshold, blend weight, or stake rule recovers an edge that is not
 there.**
 
-## Result 3: no model-free drift to trade either
+## Result 3 (Kalshi): no model-free drift to trade either
 
 Prices do drift toward the home side as the game approaches — small but
 statistically real, and it shrinks monotonically as the spread tightens:
@@ -116,7 +140,7 @@ slippage. The away side returns −6.7%, which is the spread and fee drag
 showing up as it should. Crossing a ~1.1-point spread and paying ~0.9 points
 of fee to capture a 0.6-point drift does not work.
 
-## Result 4: the maker variant is not measurably better
+## Result 4 (Kalshi): the maker variant is not measurably better
 
 The spread averages **0.0103 — one tick**. "Maker-first inside the spread",
 which the strategy config assumes, is therefore impossible here: there is no
@@ -144,7 +168,7 @@ The strict model is the honest bound for a retail account: at a one-tick
 spread you sit at the back of the queue, so you are filled mainly when the
 price is moving against you.
 
-## Result 5: tennis — the bootstrap model is worse than a coin, and its bets lose
+## Result 5 (Kalshi): tennis — the bootstrap model is worse than a coin, and its bets lose
 
 Same method on Kalshi tennis (`sportsbot market-backtest tennis`): 1,577
 settled ATP/WTA matches, 2026-07-18 → 2026-09-23, ratings bootstrapped from
@@ -197,7 +221,7 @@ allocator now treats provisional ratings as untradeable rather than halved.
 decades of history with surfaces. Nothing in this section rules them out.
 Nothing supports them either until the same measurement is run on them.
 
-## Result 6: no favorite–longshot bias to trade either
+## Result 6 (Kalshi): no favorite–longshot bias to trade either
 
 The best-documented inefficiency in betting markets is model-free: longshots
 overpriced, favorites underpriced. Tested on every cached market, bucketed by
@@ -270,6 +294,78 @@ fitting the test set, and is not done.
 So the weather arm's standing is now exact: a genuine, measured
 *conventional baseline* for the substrate, and not a source of bets. That is
 the role the protocol always assigned it.
+
+## Result 8 (Polymarket): MLB — same answer as Kalshi, measured to a third of a point
+
+_2026-09-29. Data: every resolved Polymarket MLB moneyline whose CLOB price
+history still exists. The CLOB keeps hourly trade prices for about 30 days
+(empty for games before 2026-08-28, populated from then on), so the sample is
+2026-08-28 → 2026-09-27: 418 games, 416 with a history, 392–408 priceable
+at the lead. Fee charged: the documented 0.05 × p × (1 − p) per share, taker
+only. Decision price = last hourly print at the lead before first pitch
+(`gameStartTime`), one-tick spread applied; closing line = last print
+strictly before first pitch. Same BaseballModel, same walk-forward
+(7,386 MLB Stats games, ratings only from earlier games)._
+
+**Convention found and fixed:** Polymarket lists the **visitor** first on
+MLB moneylines — 981 of 981 resolved games matched MLB Stats with
+`outcomes[0]` = away (slug `mlb-{away}-{home}-{date}`). The client set no
+`home_field`, so the live scanner was modelling `outcomes[0]` as the home
+side and giving the home advantage (24 Elo points plus the starting-pitcher
+overlay) to the wrong team on every Polymarket MLB game. Fixed in
+`exchanges/polymarket.py` (`meta["home_field"] = outcomes[1]` for
+baseball), with a test. The backtest oriented every game by MLB Stats'
+real home team, so the numbers below are unaffected.
+
+**Threshold-free (model vs the price it would pay, same games, same time):**
+
+| lead | n | Brier model | Brier mid | Brier close | blend 0.30 | beta | t |
+|---|---|---|---|---|---|---|---|
+| 24h | 392 | 0.2403 | **0.2344** | 0.2343 | 0.2357 | −0.95 | −1.76 |
+| 6h | 404 | 0.2403 | **0.2343** | 0.2347 | 0.2356 | −0.67 | −1.40 |
+| 2h | 408 | 0.2400 | **0.2344** | 0.2347 | 0.2355 | −0.62 | −1.28 |
+
+The mid beats the model at every lead; blending the model in makes the mid
+worse; and the slope of (outcome − mid) on (model − mid) is negative at
+every lead — when the model disagrees with Polymarket's price, the price is
+the one that is right, if anything (none of the three slopes is
+significant, but every one has the wrong sign). This is the Kalshi Result 2
+(beta +0.065) again, on the other venue, on a fresh month of games.
+
+**Model-free drift (close − decision mid, on the visitor's contract):**
+
+| lead | mean | sd | t | n |
+|---|---|---|---|---|
+| 24h | −0.0047 | 0.0328 | −2.82 | 392 |
+| 6h | −0.0022 | 0.0154 | −2.82 | 404 |
+| 2h | −0.0008 | 0.0067 | −2.51 | 408 |
+
+The home side gains about half a point over the last day before first
+pitch. It is real (t −2.8), and it is the same direction as Kalshi's Result
+3 (+0.0059 on the home ticker). It is also untradeable as a taker: the fee
+at p = 0.5 is 1.25 points a side, 2.5 for the round trip, against 0.47 of
+drift. As a maker the fee is zero and the one-tick spread would add a point
+— **if** both legs fill. Kalshi's Result 4 measured adverse selection
+taking the whole spread; that has not been measured on Polymarket and
+cannot be from price histories. It needs fills (the minimum-size live
+maker order that is still on the user's side).
+
+**Threshold sweep (for completeness; nothing here is citable):** taker cells
+place 0–17 bets in the month; maker cells place 83–98 and lose 3–22% of
+stake with "positive CLV" in 74–86% of bets — the CLV there is the
+bid-versus-mid entry the maker assumption grants, not information.
+
+**Favorite–longshot:** mid 0.2–0.3 won 0 of 11; 0.3–0.4 won 21 of 63
+(0.333 vs 0.362 mid, t −0.5); 0.6–0.7 won 24 of 37 (0.649 vs 0.633). Same
+sign as the classic bias, nowhere near significance. Nothing to trade.
+
+**Precision:** CLV at 24h has sd 0.033, so 392 games pin the model's mean
+CLV to ±0.0017 (one se). A strategy that cleared the 1.25-point taker fee
+would show up here. It does not. ROI, by contrast, has se ≈ 5% on 400
+games and is not informative either way; judge by CLV.
+
+Reproduce: `sportsbot market-backtest baseball --exchange polymarket`
+(needs the CLOB histories; `data/cache/polymarket_prices/`).
 
 ## Live paper record so far (for the record, not for inference)
 

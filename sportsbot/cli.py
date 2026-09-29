@@ -395,14 +395,22 @@ def verify_fees(config: str = CONFIG_OPT,
 @app.command("market-backtest")
 def market_backtest(sport: str = typer.Argument("baseball", help="baseball | tennis"),
                     config: str = CONFIG_OPT,
+                    exchange: str = typer.Option("kalshi", help="kalshi | polymarket"),
                     lead_hours: float = typer.Option(6.0, help="decision point, hours before the pre-match anchor"),
                     min_edge: float = typer.Option(0.03),
+                    maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee (fills assumed)"),
+                    days: int = typer.Option(32, help="polymarket: resolved-market lookback (CLOB keeps ~30 days of prices)"),
                     max_pages: int = typer.Option(40, help="settled-market pages to pull")):
-    """Walk-forward backtest against REAL Kalshi prices and outcomes.
+    """Walk-forward backtest against REAL exchange prices and outcomes.
 
     Answers the profitability question `backtest` cannot: not "is the model
-    calibrated" but "does it beat the price it would have paid". Candlesticks
-    are cached, so repeat runs are offline."""
+    calibrated" but "does it beat the price it would have paid". Price
+    histories are cached, so repeat runs are offline."""
+    if exchange == "polymarket":
+        _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days)
+        return
+    if exchange != "kalshi":
+        raise typer.BadParameter("exchange must be kalshi | polymarket")
     from sportsbot.backtest.kalshi_market import (
         fetch_settled_games,
         fetch_settled_tennis,
@@ -451,6 +459,46 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
         home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)),
         prob_shrink=float(cfg["sports"]["baseball"].get("prob_shrink", 0.8)),
     )
+    console.print(res.summary())
+
+
+def _polymarket_market_backtest(sport: str, cfg: dict, lead_hours: float,
+                                min_edge: float, maker: bool, days: int) -> None:
+    from sportsbot.backtest import polymarket_market as pm
+
+    bank = cfg.get("bankroll", {})
+    common = dict(
+        lead_hours=lead_hours, min_edge=min_edge, maker=maker,
+        model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
+        slippage=float(cfg.get("execution", {}).get("slippage_buffer", 0.005)),
+        kelly=float(bank.get("kelly_multiplier", 0.25)),
+        bankroll=float(bank.get("amount", 100.0)),
+        max_stake=float(bank.get("max_stake_per_market", 8.0)),
+    )
+    console.print(f"fetching resolved Polymarket {sport} markets ({days} days)…")
+    games = pm.fetch_resolved(sport, days=days)
+    if sport == "tennis":
+        from sportsbot.data.tennis_data import results_from_kalshi
+
+        history = pm.tennis_history_with(games, results_from_kalshi())
+        console.print(f"{len(history)} matches, {len(games)} resolved markets")
+        res = pm.run_tennis_backtest(
+            history, games,
+            surface_weight=float(cfg["sports"]["tennis"].get("surface_weight", 0.5)),
+            min_matches=int(cfg["sports"]["tennis"].get("min_matches", 10)),
+            **common)
+    elif sport == "baseball":
+        from sportsbot.data.mlb_data import MLBStatsClient
+
+        history = MLBStatsClient().history(seasons=2)
+        console.print(f"{len(history)} games, {len(games)} resolved markets")
+        res = pm.run_mlb_backtest(
+            history, games,
+            home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)),
+            prob_shrink=float(cfg["sports"]["baseball"].get("prob_shrink", 0.8)),
+            **common)
+    else:
+        raise typer.BadParameter("sport must be baseball | tennis")
     console.print(res.summary())
 
 
