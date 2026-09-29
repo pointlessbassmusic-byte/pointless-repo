@@ -174,11 +174,18 @@ the outcome and fabricates longshot edge.
   points, Briers equal to the fourth decimal, Polymarket closing 37-71% of
   the gap toward Kalshi per hour with the same last-trade staleness caveat,
   and the gap trade at -10% to +6% with t under 1. PR #33 then sampled both
-  order books every 20s for 40 tennis matches: neither book closes the
-  other's gap at 30s-450s, and the hourly "convergence" was the stale
-  last-trade print updating. Cross-venue gaps on the same event are suspect
-  matches, not edges; a lead-lag reading from last-trade prints is not
-  evidence of anything until fresh prints or books say the same.
+  order books every 20s for 40 tennis matches in a quiet session: neither
+  book closes the other's gap at 30s-450s, and the hourly "convergence" was
+  the stale last-trade print updating. PR #34's second sample (62 matches,
+  European daytime) finds Polymarket's book does follow Kalshi's, closing a
+  third of the gap in 7.5 minutes (t 2.1-2.6 pair-clustered, one half hour),
+  and Kalshi follows nothing — but the gap is 0.6 points mean, so hitting
+  the lagging ask marks out at -1.2 to -2.2 points at every horizon. Not a
+  taker trade; the open question is the maker version (rest inside the gap
+  in Kalshi's direction), which needs real minimum-size orders to answer.
+  Cross-venue gaps on the same event are suspect matches, not edges; a
+  lead-lag reading from last-trade prints is not evidence of anything until
+  fresh prints or books say the same.
 - The Cleveland Fed inflation nowcast is not a leading reference for
   Polymarket's CPI buckets either (`docs/CPI_NOWCAST_VS_POLYMARKET_2026-09-29.md`,
   `python -m src.cpi_study`): with the nowcast's own error sigma fitted on
