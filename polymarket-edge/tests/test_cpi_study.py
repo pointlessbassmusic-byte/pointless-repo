@@ -37,6 +37,8 @@ def test_classify_and_target_month():
     assert classify("Core CPI (ex food and energy) MoM - May 2026") == ("core", "mom")
     assert classify("November Inflation U.K. - Annual") is None
     assert classify("December Inflation Argentina - Annual") is None
+    assert classify("December Inflation Canada - Monthly") is None
+    assert classify("July Inflation China - Annual") is None
     end = datetime(2026, 1, 13, tzinfo=timezone.utc)
     assert target_month("December Inflation US - Annual", end) == "2025-12"   # December data lands in January
     assert target_month("March Inflation US - Annual", datetime(2026, 4, 10, tzinfo=timezone.utc)) == "2026-03"

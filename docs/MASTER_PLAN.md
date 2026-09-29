@@ -189,6 +189,14 @@ Pipeline per cycle:
       that is last-trade staleness on Polymarket, which biases one way). The
       reference-price class is one confirmed member (fed-funds futures) and three measured
       non-members; measure the next candidate the same way before writing engine code.
+- [x] **CPI nowcast as a leading reference: measured, no**
+      (`docs/CPI_NOWCAST_VS_POLYMARKET_2026-09-29.md`, `python -m src.cpi_study`). The
+      Cleveland Fed's chart files hold every daily nowcast vintage since 2013 with actuals;
+      sigma fitted 2013-2024, bucket probabilities with no free parameter, 279 settled US
+      buckets across 37 events. Polymarket beats the nowcast by 0.018 Brier at 24h and
+      0.029 at 1h (CIs exclude zero), the regression weight is all on the price, taking the
+      nowcast's side loses. Fourth measured non-member of the reference class; the Fed
+      reference is a market pricing the same event, which is the property to look for next.
 - [ ] **polymarket-edge's headline model has never run.** Its 2090 recorded estimates
       are 100% weather: five sports are configured but `ODDS_API_KEY` is unset, so the
       odds client returns nothing and sportsbook-consensus fair value produces zero

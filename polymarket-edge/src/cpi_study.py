@@ -197,7 +197,10 @@ def parse_bucket(question: str) -> tuple[float, float] | None:
 def classify(title: str) -> tuple[str, str] | None:
     """(series, kind) from an event title, or None for non-US / unknown."""
     t = title.lower()
-    if "uk" in t.split() or "u.k." in t or "argentina" in t or "euro" in t:
+    foreign = ("uk", "u.k.", "argentina", "euro", "canada", "china", "japan", "india", "brazil",
+               "mexico", "australia", "germany", "france", "turkey", "russia", "korea")
+    words = set(re.findall(r"[a-z.]+", t))
+    if any(f in words or f in t.replace("u.k.", "u.k. ") and " " not in f for f in foreign):
         return None
     series = "core" if "core" in t else "cpi"
     if "annual" in t or "yoy" in t:

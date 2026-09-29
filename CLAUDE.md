@@ -170,6 +170,15 @@ the outcome and fabricates longshot edge.
   inside Kalshi's 1c spread, Brier identical, and from a day out it is
   Polymarket's price that moves toward Kalshi's (beta 1.07, t 7.6), not the
   reverse. Cross-venue gaps on the same event are suspect matches, not edges.
+- The Cleveland Fed inflation nowcast is not a leading reference for
+  Polymarket's CPI buckets either (`docs/CPI_NOWCAST_VS_POLYMARKET_2026-09-29.md`,
+  `python -m src.cpi_study`): with the nowcast's own error sigma fitted on
+  137 months out-of-sample, the price beats the nowcast-implied bucket
+  probabilities by 0.018 Brier a day out and 0.029 an hour out (CIs exclude
+  zero) on 279 buckets across 37 events, the regression puts all the weight
+  on the price, and taking the nowcast's side loses. One confirmed member of
+  the reference class, four measured non-members: the Fed reference is a
+  deep market pricing the identical event, not a model the crowd already reads.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
