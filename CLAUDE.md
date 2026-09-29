@@ -179,8 +179,16 @@ the outcome and fabricates longshot edge.
   1,577 settled Kalshi matches it scores below the base rate (Brier 0.2589
   vs market 0.2024), its bets lose ~18% per bet (t ~ -2.2), and the market
   is right when they disagree (PR #24; sleeve zeroed, provisional ratings
-  untradeable). Calibrated is not the same as profitable: score a model
-  against the price it would have paid, not against outcomes.
+  untradeable). The same MLB model against Polymarket's price (PR #29,
+  Result 8: 392-408 games, model Brier 0.2403 vs mid 0.2344, beta -0.95,
+  t -1.8) gives the same answer on the second venue. Calibrated is not the
+  same as profitable: score a model against the price it would have paid,
+  not against outcomes.
+- The weather market already contains the forecast (PR #28, Result 7): the
+  regression of (outcome - market) on (NWS - market) over 168 settled
+  strike-band rows, clustered by station-day, gives beta +0.036 with a 95%
+  CI of [-0.106, +0.222]. Beating climatology is not carrying anything the
+  price has not absorbed.
 - The Fed rule runs as a recorder, not a trader: `arb-scanner/src/fed_watch.py`
   fires on a decision bucket at >= 0.90 within 7 days when the other venue
   agrees, stores the first price it saw as the entry, and scores rows from
@@ -257,6 +265,10 @@ python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues
 - The Odds API free tier is 500 requests/month — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
+- Polymarket sports markets charge a taker fee of 0.05 x p x (1 - p) per
+  share (1.25c at 0.50; makers pay nothing and get a 15% rebate), per the
+  "Sports Market Fees" page and Gamma's `feeSchedule`. Gamma's raw
+  `takerBaseFee` is not the fee. Cost it in any Polymarket sports strategy.
 - Live orders use the official `polymarket-client` py-sdk (same SDK as
   sportsbot), lazily imported so dry-run needs nothing installed. The old
   `py-clob-client` is archived/dead — never reintroduce it.

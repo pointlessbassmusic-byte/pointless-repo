@@ -121,8 +121,11 @@ longshots slightly overpriced (bucket 0.0-0.1 trades 6.5c and hits 5.9%;
   second-exact; the pre-weekend line is collected days out. Both are stated
   as what they are above and the two bound the live case.
 - Polymarket's price is the last trade, not the ask; the strategy charges
-  1c for the spread and nothing for fees. Polymarket charges no maker/taker
-  fee on these markets today.
+  1c for the spread and nothing for fees. That understates the cost: sports
+  markets carry a documented taker fee of 0.05 x p x (1 - p) per share
+  (1.25c at p = 0.5, PR #29 / `sportsbot/exchanges/polymarket.py`), so every
+  strategy return above is roughly 1-2 points too generous. The Brier and
+  regression comparisons do not depend on fees.
 - The Pinnacle subset (185 matches) is the sharp-book comparison and the
   smallest; it is also the one where Polymarket wins with an interval
   excluding zero.
