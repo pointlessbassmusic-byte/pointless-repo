@@ -37,8 +37,9 @@ def test_quote_refuses_when_nothing_traded_near_the_decision_point():
 
 
 def test_fetch_resolved_skips_voids_and_anchors_by_sport(monkeypatch):
-    """A ["0.5","0.5"] resolution is a void and must not become a game; MLB
-    anchors on gameStartTime, tennis on closedTime minus three hours."""
+    """A ["0.5","0.5"] resolution is a void and must not become a game; every
+    sport anchors on gameStartTime, and a market whose gameStartTime is not
+    before its closedTime (rescheduled / closed early) is skipped."""
     import sportsbot.backtest.polymarket_market as pm
 
     import time as _time
@@ -69,7 +70,31 @@ def test_fetch_resolved_skips_voids_and_anchors_by_sport(monkeypatch):
     assert mlb[0].start_ts == pm._ts(f"{day} 11:30:00")
 
     ten = pm.fetch_resolved("tennis", days=6, window_days=3, http=FakeHTTP(), pause=0)
-    assert ten[0].start_ts == pm._ts(f"{day} 14:00:00") - 3 * 3600
+    assert ten[0].start_ts == pm._ts(f"{day} 11:30:00")
+
+    class LateStart(FakeHTTP):
+        def get(self, url, params=None):
+            class R:
+                status_code = 200
+                def raise_for_status(self): pass
+                def json(self):
+                    return [{"slug": "ev", "markets": [
+                        mkt("closed-first", '["1","0"]', start=f"{day} 15:00:00",
+                            closed=f"{day} 14:00:00")]}]
+            return R()
+    assert pm.fetch_resolved("tennis", days=6, window_days=3, http=LateStart(), pause=0) == []
+
+
+def test_price_at_lead_refuses_a_closing_print_at_the_rail():
+    """If the last print before the anchor is 1.0 the market had already
+    resolved by then — the anchor was late — and the row must be dropped,
+    not scored as a 95-point CLV."""
+    import sportsbot.backtest.polymarket_market as pm
+    t0 = 1_800_000_000
+    hist = [{"t": t0 - h * 3600, "p": 0.40} for h in range(30, 2, -1)] + [{"t": t0 - 3600, "p": 1.0}]
+    assert pm.price_at_lead(hist, t0, 12.0) is None
+    hist[-1]["p"] = 0.55
+    assert pm.price_at_lead(hist, t0, 12.0) is not None
 
 
 def test_mlb_backtest_orients_the_prediction_to_polymarkets_visitor_first_listing(monkeypatch):

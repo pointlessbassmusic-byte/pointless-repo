@@ -14,8 +14,10 @@ What Polymarket gives, and what it does not:
 * Resolution comes from Gamma's `outcomePrices` (["1","0"] / ["0","1"]);
   ["0.5","0.5"] is a void and is skipped.
 * MLB markets carry a reliable `gameStartTime`. Tennis's is a scheduled slot
-  the match often closes BEFORE, so tennis anchors on `closedTime` minus
-  three hours, exactly as the Kalshi harness does.
+  the match sometimes closes BEFORE (6% of markets); those are skipped and
+  the rest anchor on it. `closedTime` is NOT a usable anchor: it trails the
+  start by a median 14 hours (resolution lag), so "closedTime minus three
+  hours", the Kalshi tennis anchor, lands after most Polymarket matches.
 * Fees are taker-only: fee = C x 0.05 x p x (1 - p) per the documentation's
   "Sports Market Fees" page (100 shares at 0.50 -> $1.25), makers pay nothing
   and earn a 15% rebate. Gamma's raw takerBaseFee=1000 is not the formula.
@@ -35,10 +37,10 @@ from sportsbot.backtest.kalshi_market import Bet, Result
 
 log = logging.getLogger(__name__)
 
+POST_RESULT_RAIL = 0.03    # closing prints outside (rail, 1-rail) are refused
 GAMMA = "https://gamma-api.polymarket.com"
 CLOB = "https://clob.polymarket.com"
 CACHE_DIR = "data/cache/polymarket_prices"
-TENNIS_PRE_MATCH_MARGIN_H = 3.0
 SPORT_TAGS = {"baseball": 100381, "tennis": 864}
 
 
@@ -96,12 +98,18 @@ def _games_from_events(events, sport: str, cutoff: float,
             close_ts = _ts(m.get("closedTime")) or _ts(m.get("umaEndDate"))
             if close_ts is None or close_ts < cutoff:
                 continue
-            if sport == "baseball":
-                start_ts = _ts(m.get("gameStartTime"))
-                if start_ts is None:
-                    continue
-            else:
-                start_ts = close_ts - int(TENNIS_PRE_MATCH_MARGIN_H * 3600)
+            # Anchor on gameStartTime for every sport. The earlier tennis
+            # anchor, closedTime minus three hours, assumed resolution
+            # followed the match promptly; measured 2026-09-29 on 300
+            # resolved tennis markets, closedTime trails gameStartTime by a
+            # median 14 hours (p10 3.7h, p90 20.7h), so that anchor sat
+            # after most matches and the "closing line" was an in-play or
+            # post-result print. gameStartTime precedes closedTime on 94% of
+            # tennis markets; the rest (rescheduled or closed early) are
+            # skipped rather than guessed — fail closed.
+            start_ts = _ts(m.get("gameStartTime"))
+            if start_ts is None or start_ts >= close_ts:
+                continue
             token = str(tokens[0])
             if token in seen:
                 continue
@@ -220,8 +228,14 @@ def price_at_lead(hist: list[dict], start_ts: int, lead_hours: float,
     mid = entry[1]
     if not (0.02 < mid < 0.98):
         return None
+    closing = pre[-1][1]
+    # A closing print at the rail is a resolved or nearly-resolved market:
+    # the anchor was late (a start time that slipped, a match already
+    # decided). Refuse it rather than book a CLV that is really the result.
+    if not (POST_RESULT_RAIL < closing < 1.0 - POST_RESULT_RAIL):
+        return None
     half = spread / 2.0
-    return round(mid - half, 4), round(mid + half, 4), pre[-1][1]
+    return round(mid - half, 4), round(mid + half, 4), closing
 
 
 def _fee(price: float, shares: float, rate: float) -> float:
