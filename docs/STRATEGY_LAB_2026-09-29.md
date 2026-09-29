@@ -123,26 +123,51 @@ Fade beats momentum everywhere, so there is mild real mean reversion — but
 it is smaller than the round trip. Fade's train half was negative (MLB
 −2.1%, t −2.1). Tennis is the same shape on n = 16–30.
 
-## 6. Endgame: buy the near-certain in-play leader — pending confirmation
+## 6. Endgame: buy the near-certain in-play leader — no
 
 The popular Polymarket "high-probability" trade: buy the in-play leader once
-it trades at ≥ 0.90–0.97 and hold for the last few cents. Exploratory run
-on the 250-game MLB tape: **+7.0% on the test half (t 4.35) but −0.5% on the
-train half** — one striking cell among roughly twelve tested, which is what
-chance produces. Tennis showed t-values of 36–70, which are artifacts: n =
-15–22 with zero losses, which at p ≈ 0.96 happens about half the time by luck.
+it trades at ≥ 0.90–0.97 and hold for the last few cents.
 
-**Status: confirmation in progress.** The rule was written down before any
-new data was looked at (`endgame_confirm` in the session scratchpad,
-mirrored by `strategy_lab.endgame`): first in-game print with max(p, 1−p) ≥
-X, buy the leader as a taker, hold. Pass requires ROI > 0 with t ≥ 2 at
-0.5¢ slippage **and** still positive at 1¢. It runs on 641 independent MLB
-games (July 17 onward) that were not in the exploratory tape. This section
-will be replaced with the result.
+The exploratory run on the 250-game MLB tape looked strong on one half —
+**+7.0% (t 4.35)** — and flat on the other (−0.5%). One striking cell among
+roughly twelve is what chance produces, so the rule was written down before
+any new data was opened, with a pass bar of ROI > 0 at t ≥ 2 with 0.5¢
+slippage *and* still positive at 1¢. It was then run on **639 independent
+MLB games** (July 23 – Sep 27) that were not in the exploratory tape:
+
+| buy leader at ≥ | wins | price paid | ROI/contract | t (0.5¢ slip) | t (2¢ slip) |
+|---|---|---|---|---|---|
+| 0.90 | 89.8% | 91.4% | −1.8% | −1.5 | −2.7 |
+| 0.95 | 94.2% | 95.7% | −1.6% | −1.7 | −3.3 |
+| 0.97 | 95.9% | 97.6% | −1.8% | −2.3 | −4.0 |
+
+Negative in every cell and worse with every cent of slippage. The
+"near-certain" leader wins **less** often than its price says; at 0.95 its
+37 losses at ~96¢ each outweigh 602 wins of ~4¢. The exploratory +7% was the
+lucky half. This is the reason the rule was fixed in advance: without it,
+the good half is the one that gets reported.
+
+The tennis t-values of 36–70 from exploration were artifacts: n = 15–22 with
+zero losses, which at p ≈ 0.96 happens about half the time by luck.
+`strategy_lab.Outcome.t` now reports 0 for a zero-variance sample rather
+than a huge number.
+
+**The inversion — buy the trailer — is noise (post-hoc, labelled as such):**
+
+| trailer at ≤ | wins | paid (0.5¢ slip) | ROI | t | at 1¢ slip |
+|---|---|---|---|---|---|
+| 0.10 | 10.2% | 9.6% | +2.6% | +0.21 | −2.6% |
+| 0.05 | 5.8% | 5.3% | +5.1% | +0.29 | −4.2% |
+| 0.03 | 4.1% | 3.4% | +17.8% | +0.76 | +2.1% |
+
+It rests on 26–65 wins, never reaches t 1, and mostly turns negative with
+one more half-cent of slippage. On a 3–5¢ contract one tick of spread is
+20–30% of the stake, so the fill assumption decides the answer. The leader
+loses ~1.7¢ a contract, the trailer gains ~0.3¢ at best: the toll again.
 
 ## Where that leaves the book
 
-Sixteen hypotheses on real venue data (one pending). The ten from before, plus six here:
+Sixteen hypotheses on real venue data. The ten from before, plus six here:
 
 | strategy | verdict |
 |---|---|
@@ -151,7 +176,7 @@ Sixteen hypotheses on real venue data (one pending). The ten from before, plus s
 | Sibling overround arb | cheapest lock 1.0103 after fees |
 | Cross-venue (Kalshi ↔ Polymarket) | equally sharp; gaps < 2.5¢ |
 | In-play overreaction | mild reversion, smaller than the round trip |
-| Endgame | confirmation pending on 641 independent games |
+| Endgame (buy the leader ≥ 0.90–0.97) | negative in every cell on 639 independent games |
 
 The pattern across all sixteen is the same: these markets are efficient to
 within about one tick, and every strategy that needs to *cross* a spread
