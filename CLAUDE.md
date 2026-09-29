@@ -181,9 +181,11 @@ the outcome and fabricates longshot edge.
   is right when they disagree (PR #24; sleeve zeroed, provisional ratings
   untradeable). The same MLB model against Polymarket's price (PR #29,
   Result 8: 392-408 games, model Brier 0.2403 vs mid 0.2344, beta -0.95,
-  t -1.8) gives the same answer on the second venue. Calibrated is not the
-  same as profitable: score a model against the price it would have paid,
-  not against outcomes.
+  t -1.8) gives the same answer on the second venue, and so does tennis on
+  Polymarket (PR #30, Result 9: ~600 priceable rows per lead, model Brier
+  0.244 vs mid 0.203, negative taker CLV at 6h and 2h). Calibrated is not
+  the same as profitable: score a model against the price it would have
+  paid, not against outcomes.
 - The weather market already contains the forecast (PR #28, Result 7): the
   regression of (outcome - market) on (NWS - market) over 168 settled
   strike-band rows, clustered by station-day, gives beta +0.036 with a 95%
@@ -265,6 +267,14 @@ python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues
 - The Odds API free tier is 500 requests/month — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
+- Polymarket's `closedTime` on sports markets is resolution time, not kickoff:
+  on tennis it trails `gameStartTime` by a median 14h (p90 21h). Anchor
+  every pre-match measurement on `gameStartTime`, skip markets whose start
+  is not before their close, and refuse closing prints at the rail
+  (outside 0.03-0.97). A `closedTime - 3h` anchor scored in-play and
+  post-result prints as the closing line and manufactured an "+18% ROI"
+  favourite bias (PR #30) — the same endogeneity as measuring horizons from
+  `closedTime` in the resolved-market study.
 - Polymarket sports markets charge a taker fee of 0.05 x p x (1 - p) per
   share (1.25c at 0.50; makers pay nothing and get a 15% rebate), per the
   "Sports Market Fees" page and Gamma's `feeSchedule`. Gamma's raw
