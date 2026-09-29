@@ -262,7 +262,9 @@ class TestArb:
         assert find_bundle_arb(_market(), _quote(bid=0.48, ask=0.50), NO_FEE) is None
 
     def test_fees_kill_thin_bundle(self):
-        q = _quote(bid=0.52, ask=0.47)  # 1% gross
+        # YES 0.50 + NO 0.49 = 0.99: 1 point gross; the documented sports fee
+        # (0.05 x p x (1-p) per share, each leg) costs ~2.5 points.
+        q = _quote(bid=0.51, ask=0.50)
         assert find_bundle_arb(_market(), q, taker_fee) is None
 
     def test_cross_venue_arb(self):
@@ -304,3 +306,14 @@ def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_g
     p = calls[0]
     assert p["order"] == "volume24hr" and p["ascending"] == "false"
     assert "start_date_min" in p           # the stale-event floor stays
+
+
+
+def test_polymarket_taker_fee_matches_the_documented_worked_example():
+    """docs.polymarket.com, Sports Market Fees: fee = C x 0.05 x p x (1-p);
+    100 shares at $0.50 -> $1.25. Symmetric about 0.5: 0.30 and 0.70 cost the
+    same. The old 0.10 x min(p,1-p) charged $5.00 for the same trade."""
+    assert abs(taker_fee(0.50, 100) - 1.25) < 1e-9
+    assert abs(taker_fee(0.30, 100) - taker_fee(0.70, 100)) < 1e-12
+    assert abs(taker_fee(0.30, 100) - 1.05) < 1e-9
+    assert taker_fee(0.50, 100, "any-market") == taker_fee(0.50, 100)

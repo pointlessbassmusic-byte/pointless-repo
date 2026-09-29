@@ -94,23 +94,29 @@ def _parse_dt(value: Any) -> Optional[datetime]:
         return None
 
 
+# Documented sports fee (docs.polymarket.com, "Sports Market Fees", read
+# 2026-09-28): fee = C x feeRate x p x (1 - p), taker rate 0.05, makers pay
+# nothing and receive a 15% rebate. Worked example on the page: 100 shares at
+# $0.50 -> $1.25. Gamma's per-market feeSchedule agrees:
+# {"rate": 0.05, "exponent": 1, "takerOnly": true, "rebateRate": 0.15}.
+SPORTS_TAKER_FEE_RATE = 0.05
+
+
 def taker_fee(price: float, shares: float, market_id: str | None = None,
-              base_fee_bps: float = 1000.0) -> float:
-    """Estimated taker fee in dollars: rate × min(p, 1-p) × shares.
+              fee_rate: float = SPORTS_TAKER_FEE_RATE) -> float:
+    """Taker fee in dollars: fee_rate x p x (1 - p) x shares.
 
-    `market_id` is accepted (and ignored — Polymarket does not vary the rate
-    by market) so this matches the `fee_fn(price, shares, market_id=None)`
-    contract and can be handed straight to the strategy. Without it, a caller
-    passing a market id would land it in `base_fee_bps` and silently compute a
-    nonsense fee.
+    Quadratic in price and symmetric about 0.5, where it peaks at 1.25 cents
+    a share. This replaced 0.10 x min(p, 1-p) x shares — the earlier reading
+    of Gamma's raw takerBaseFee=1000 — which charged 5 cents a share at 0.50,
+    four times the documented fee, and so overstated the hurdle on every
+    taker edge. Makers pay zero here (`takerOnly`), so maker legs must not
+    call this.
 
-    With the observed sports taker_base_fee of 1000 bps this peaks at 5% of
-    notional at p=0.5 and falls toward the extremes. Makers pay 0. Verify
-    realized fees on a small live trade before scaling (the docs formula and
-    the bps parametrization differ in form).
+    `market_id` is accepted (and ignored — the rate does not vary by market)
+    so this matches the `fee_fn(price, shares, market_id=None)` contract.
     """
-    rate = base_fee_bps / 10000.0
-    return rate * min(price, 1.0 - price) * shares
+    return fee_rate * price * (1.0 - price) * shares
 
 
 class PolymarketClient(ExchangeClient):

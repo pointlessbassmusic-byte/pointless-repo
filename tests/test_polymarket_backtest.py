@@ -41,7 +41,10 @@ def test_fetch_resolved_skips_voids_and_anchors_by_sport(monkeypatch):
     anchors on gameStartTime, tennis on closedTime minus three hours."""
     import sportsbot.backtest.polymarket_market as pm
 
-    def mkt(slug, prices, start="2026-09-29 11:30:00", closed="2026-09-29 14:00:00"):
+    import time as _time
+    day = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() - 3600))
+
+    def mkt(slug, prices, start=f"{day} 11:30:00", closed=f"{day} 14:00:00"):
         return {"sportsMarketType": "moneyline", "slug": slug,
                 "outcomePrices": prices, "outcomes": '["A","B"]',
                 "clobTokenIds": '["tokA","tokB"]', "gameStartTime": start,
@@ -59,10 +62,11 @@ def test_fetch_resolved_skips_voids_and_anchors_by_sport(monkeypatch):
                     ]}]
             return R()
 
-    mlb = pm.fetch_resolved("baseball", days=10_000, http=FakeHTTP())
+    # two 3-day windows both return the same page: the token dedups
+    mlb = pm.fetch_resolved("baseball", days=6, window_days=3, http=FakeHTTP(), pause=0)
     assert [g.slug for g in mlb] == ["decided"]
     assert mlb[0].home_won is True
-    assert mlb[0].start_ts == pm._ts("2026-09-29 11:30:00")
+    assert mlb[0].start_ts == pm._ts(f"{day} 11:30:00")
 
-    ten = pm.fetch_resolved("tennis", days=10_000, http=FakeHTTP())
-    assert ten[0].start_ts == pm._ts("2026-09-29 14:00:00") - 3 * 3600
+    ten = pm.fetch_resolved("tennis", days=6, window_days=3, http=FakeHTTP(), pause=0)
+    assert ten[0].start_ts == pm._ts(f"{day} 14:00:00") - 3 * 3600

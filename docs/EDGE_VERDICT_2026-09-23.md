@@ -16,10 +16,13 @@
 >
 > So the Kalshi results are Kalshi results. They say nothing about
 > Polymarket, and the Polymarket measurement is being built
-> (`backtest/polymarket_market.py`). One number already known: Polymarket
-> sports moneylines carry a **1000 bps base fee** — 5 points at p = 0.5, six
-> times Kalshi's MLB taker rate — on both sides of the book per Gamma's
-> `makerBaseFee`/`takerBaseFee`.
+> (`backtest/polymarket_market.py`). Fees, from the documentation's "Sports
+> Market Fees" page rather than Gamma's raw fields: **taker only**,
+> fee = C × 0.05 × p × (1 − p), so 1.25 points at p = 0.5 (100 shares at
+> $0.50 → $1.25); **makers pay nothing and receive a 15% rebate.** That is
+> comparable to Kalshi (0.875 MLB / 1.75 tennis), not six times worse as an
+> earlier draft of this note said — and the repo's `taker_fee` had charged
+> 0.10 × min(p, 1−p), four times the documented fee at the middle. Fixed.
 
 _2026-09-23. Reproduce with `sportsbot market-backtest`._
 

@@ -16,8 +16,9 @@ What Polymarket gives, and what it does not:
 * MLB markets carry a reliable `gameStartTime`. Tennis's is a scheduled slot
   the match often closes BEFORE, so tennis anchors on `closedTime` minus
   three hours, exactly as the Kalshi harness does.
-* The base fee is 1000 bps on these moneylines (Gamma `takerBaseFee`; CLOB
-  `/fee-rate` agrees): 0.10 x min(p, 1-p) per share, five points at p=0.5.
+* Fees are taker-only: fee = C x 0.05 x p x (1 - p) per the documentation's
+  "Sports Market Fees" page (100 shares at 0.50 -> $1.25), makers pay nothing
+  and earn a 15% rebate. Gamma's raw takerBaseFee=1000 is not the formula.
 """
 
 from __future__ import annotations
@@ -75,64 +76,86 @@ def _ts(v) -> Optional[int]:
         return None
 
 
-def fetch_resolved(sport: str, days: int = 75, max_pages: int = 40,
-                   http=None) -> list[PMGame]:
-    """Resolved moneyline markets for a sport, newest first from Gamma, one
-    game per event (outcomes[0]'s token; outcomes[1] is its complement)."""
+def _games_from_events(events, sport: str, cutoff: float,
+                       out: list[PMGame], seen: set[str]) -> None:
+    for ev in events:
+        for m in ev.get("markets") or []:
+            if m.get("sportsMarketType") != "moneyline":
+                continue
+            prices = _pj(m.get("outcomePrices"))
+            outcomes = _pj(m.get("outcomes"))
+            tokens = _pj(m.get("clobTokenIds"))
+            if len(prices) != 2 or len(outcomes) != 2 or len(tokens) != 2:
+                continue
+            try:
+                p0 = float(prices[0])
+            except (TypeError, ValueError):
+                continue
+            if p0 not in (0.0, 1.0):
+                continue                      # void / unresolved
+            close_ts = _ts(m.get("closedTime")) or _ts(m.get("umaEndDate"))
+            if close_ts is None or close_ts < cutoff:
+                continue
+            if sport == "baseball":
+                start_ts = _ts(m.get("gameStartTime"))
+                if start_ts is None:
+                    continue
+            else:
+                start_ts = close_ts - int(TENNIS_PRE_MATCH_MARGIN_H * 3600)
+            token = str(tokens[0])
+            if token in seen:
+                continue
+            seen.add(token)
+            out.append(PMGame(
+                date=datetime.fromtimestamp(start_ts, timezone.utc),
+                slug=m.get("slug") or ev.get("slug", ""),
+                home=str(outcomes[0]).strip().lower(),
+                away=str(outcomes[1]).strip().lower(),
+                token=token, start_ts=start_ts, close_ts=close_ts,
+                home_won=(p0 == 1.0),
+                volume=float(m.get("volumeNum") or 0.0)))
+
+
+def fetch_resolved(sport: str, days: int = 75, window_days: int = 3,
+                   max_pages: int = 20, http=None, pause: float = 0.1,
+                   end_date_lag_days: float = 8.0) -> list[PMGame]:
+    """Resolved moneyline markets for a sport, one game per event
+    (outcomes[0]'s token; outcomes[1] is its complement).
+
+    Gamma rejects `offset` beyond ~2000 with a 422, and a busy MLB day lists
+    dozens of derivative events per game, so a single newest-first walk
+    cannot reach 75 days back. Scan `window_days`-wide endDate windows
+    instead (`end_date_min`/`end_date_max`), paging within each window.
+    Game events carry endDate = first pitch + 7 days (measured 2026-09-29),
+    so the scan starts `end_date_lag_days` in the future and the per-market
+    `closedTime` cutoff, not the window, decides what is kept."""
     import httpx
 
     http = http or httpx.Client(timeout=40)
     tag = SPORT_TAGS[sport]
-    cutoff = time.time() - days * 86400
+    now = time.time()
+    cutoff = now - days * 86400
     out: list[PMGame] = []
-    offset = 0
-    for _ in range(max_pages):
-        r = http.get(f"{GAMMA}/events", params={
-            "tag_id": tag, "closed": "true", "order": "endDate",
-            "ascending": "false", "limit": 100, "offset": offset})
-        r.raise_for_status()
-        events = r.json()
-        if not events:
-            break
-        stop = False
-        for ev in events:
-            for m in ev.get("markets") or []:
-                if m.get("sportsMarketType") != "moneyline":
-                    continue
-                prices = _pj(m.get("outcomePrices"))
-                outcomes = _pj(m.get("outcomes"))
-                tokens = _pj(m.get("clobTokenIds"))
-                if len(prices) != 2 or len(outcomes) != 2 or len(tokens) != 2:
-                    continue
-                try:
-                    p0 = float(prices[0])
-                except (TypeError, ValueError):
-                    continue
-                if p0 not in (0.0, 1.0):
-                    continue                      # void / unresolved
-                close_ts = _ts(m.get("closedTime")) or _ts(m.get("umaEndDate"))
-                if close_ts is None:
-                    continue
-                if close_ts < cutoff:
-                    stop = True
-                    continue
-                if sport == "baseball":
-                    start_ts = _ts(m.get("gameStartTime"))
-                    if start_ts is None:
-                        continue
-                else:
-                    start_ts = close_ts - int(TENNIS_PRE_MATCH_MARGIN_H * 3600)
-                out.append(PMGame(
-                    date=datetime.fromtimestamp(start_ts, timezone.utc),
-                    slug=m.get("slug") or ev.get("slug", ""),
-                    home=str(outcomes[0]).strip().lower(),
-                    away=str(outcomes[1]).strip().lower(),
-                    token=str(tokens[0]), start_ts=start_ts, close_ts=close_ts,
-                    home_won=(p0 == 1.0),
-                    volume=float(m.get("volumeNum") or 0.0)))
-        if stop or len(events) < 100:
-            break
-        offset += 100
+    seen: set[str] = set()
+    win_end = now + end_date_lag_days * 86400
+    while win_end > cutoff:
+        win_start = max(cutoff, win_end - window_days * 86400)
+        fmt = "%Y-%m-%dT%H:%M:%SZ"
+        for page in range(max_pages):
+            r = http.get(f"{GAMMA}/events", params={
+                "tag_id": tag, "closed": "true",
+                "end_date_min": time.strftime(fmt, time.gmtime(win_start)),
+                "end_date_max": time.strftime(fmt, time.gmtime(win_end)),
+                "limit": 100, "offset": page * 100})
+            r.raise_for_status()
+            events = r.json()
+            if not events:
+                break
+            _games_from_events(events, sport, cutoff, out, seen)
+            if len(events) < 100:
+                break
+            time.sleep(pause)
+        win_end = win_start
     out.sort(key=lambda g: g.date)
     return out
 
@@ -201,16 +224,18 @@ def price_at_lead(hist: list[dict], start_ts: int, lead_hours: float,
     return round(mid - half, 4), round(mid + half, 4), pre[-1][1]
 
 
-def _fee(price: float, shares: float, base_bps: float) -> float:
-    return (base_bps / 10000.0) * min(price, 1.0 - price) * shares
+def _fee(price: float, shares: float, rate: float) -> float:
+    """Documented sports fee: rate x p x (1 - p) x shares (rate 0.05 taker,
+    0.0 maker). The rebate makers receive is ignored — conservative."""
+    return rate * price * (1.0 - price) * shares
 
 
 def run_backtest(history, games: list[PMGame], predict, update, key_of,
                  lead_hours: float = 6.0, min_edge: float = 0.03,
                  model_weight: float = 0.30, slippage: float = 0.005,
                  kelly: float = 0.25, bankroll: float = 100.0,
-                 max_stake: float = 8.0, fee_bps: float = 1000.0,
-                 maker: bool = False, maker_fee_bps: float = 1000.0,
+                 max_stake: float = 8.0, fee_rate: float = 0.05,
+                 maker: bool = False, maker_fee_rate: float = 0.0,
                  http=None) -> Result:
     """Generic day-batched walk-forward.
 
@@ -220,8 +245,8 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
     `update(item)` applies the result. Predictions for a day are made before
     any of that day's updates, so nothing on a date can inform itself.
     `maker=True` prices entry at the bid instead of the ask and charges
-    `maker_fee_bps`; fills are assumed, which is optimistic, and the caller
-    should say so.
+    `maker_fee_rate` (documented: zero, plus a rebate that is ignored here);
+    fills are assumed, which is optimistic, and the caller should say so.
     """
     from sportsbot.core.staking import kelly_binary
 
@@ -254,9 +279,9 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
                 continue
             blend = (1.0 - model_weight) * mid + model_weight * p_home
             if maker:
-                yes_entry, no_entry, fb = bid, 1.0 - ask, maker_fee_bps
+                yes_entry, no_entry, fb = bid, 1.0 - ask, maker_fee_rate
             else:
-                yes_entry, no_entry, fb = ask, 1.0 - bid, fee_bps
+                yes_entry, no_entry, fb = ask, 1.0 - bid, fee_rate
             yes_edge = blend - yes_entry - _fee(yes_entry, 1.0, fb) - slippage
             no_edge = (1.0 - blend) - no_entry - _fee(no_entry, 1.0, fb) - slippage
             side, prob, entry, edge, close_px = (
