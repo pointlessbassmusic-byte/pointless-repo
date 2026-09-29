@@ -64,7 +64,7 @@ def test_resolution_time_reads_the_post_may_2025_wording_from_title_and_end_date
 
 def test_hourly_series_lookup_and_realised_vol():
     pts = [(3600 * i, 100.0 * (1.01 ** (i % 2))) for i in range(800)]   # alternating +-1% hourly
-    s = HourlySeries(pts)
+    s = HourlySeries(pts, open_time=False)
     assert s.at(3600 * 10 + 1800) == pts[10][1]          # last hour at or before
     assert s.at(3600 * 10 - 1) == pts[9][1]
     assert s.at(3600 * 900) is None                       # more than 3h past the last point
@@ -72,7 +72,18 @@ def test_hourly_series_lookup_and_realised_vol():
     rv = s.realised_vol(3600 * 799, window_h=720)
     hourly_sd = math.log(1.01)                            # returns are exactly +-log(1.01)
     assert abs(rv - hourly_sd * math.sqrt(24 * 365.25)) < 0.01
-    assert HourlySeries(pts[:100]).realised_vol(3600 * 99, window_h=720) is None   # too short
+    assert HourlySeries(pts[:100], open_time=False).realised_vol(3600 * 99, window_h=720) is None   # too short
+
+
+def test_deribit_candles_are_keyed_by_close_time_so_at_never_sees_the_future():
+    # Deribit stamps the 15:00-16:00 bar at 15:00 and reports its 16:00 close.
+    bars = [(15 * 3600, 100.0), (16 * 3600, 200.0)]
+    s = HourlySeries(bars)                                # default: open-time stamps
+    assert s.at(15 * 3600) is None                        # nothing has closed by 15:00
+    assert s.at(16 * 3600) == 100.0                       # the 15:00 bar's close is known at 16:00
+    assert s.at(17 * 3600) == 200.0
+    # a digital settling at 17:00 sampled 1h before must not see the 17:00 print
+    assert s.at(17 * 3600 - 3600) == 100.0
 
 
 def test_lognormal_digital_probabilities():

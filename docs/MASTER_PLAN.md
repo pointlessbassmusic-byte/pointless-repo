@@ -197,6 +197,17 @@ Pipeline per cycle:
       0.029 at 1h (CIs exclude zero), the regression weight is all on the price, taking the
       nowcast's side loses. Fourth measured non-member of the reference class; the Fed
       reference is a market pricing the same event, which is the property to look for next.
+- [x] **Deribit options as a leading reference for BTC/ETH digitals: measured, no**
+      (`docs/CRYPTO_DERIBIT_VS_POLYMARKET_2026-09-29.md`, `python -m src.crypto_study`).
+      17,425 settled Polymarket BTC/ETH fixed-time digitals (1,795 events, Mar 2024 - Sep
+      2026) priced by a zero-drift lognormal on Deribit spot and DVOL at 1h/6h/24h. Brier
+      identical at every horizon on 17k digitals, regression weight split in half, and on
+      prints under 10 minutes old the market is slightly better with the DVOL-side trade at
+      -0.8% / +3.7% / -17% per $1; >= 0.90 digitals return -0.5% to -1.3%. Fifth measured
+      non-member, and the first that is itself a deep market: the Fed property is a
+      reference pricing the identical event against a thin crowd, not depth alone. The
+      first pass showed +122%/$1 from a one-hour candle-timestamp look-ahead, now a
+      CLAUDE.md landmine with a test.
 - [ ] **polymarket-edge's headline model has never run.** Its 2090 recorded estimates
       are 100% weather: five sports are configured but `ODDS_API_KEY` is unset, so the
       odds client returns nothing and sportsbook-consensus fair value produces zero

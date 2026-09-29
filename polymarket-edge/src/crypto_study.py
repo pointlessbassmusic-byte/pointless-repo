@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import logging
 import math
@@ -261,11 +262,23 @@ def fetch_digitals(http, since: str = "2024-03-01", window_days: int = 7,
 
 # ---------------------------------------------------------------- deribit
 
-class HourlySeries:
-    """Hourly (ts_seconds, value) lookup: value at the last hour <= ts."""
+CANDLE_S = 3600
 
-    def __init__(self, points: list[tuple[int, float]]):
-        pts = sorted(set(points))
+
+class HourlySeries:
+    """Hourly (ts_seconds, value) lookup: value at the last hour <= ts.
+
+    Deribit stamps a candle by its OPEN time (verified against 1-minute
+    candles: the hourly bar at 15:00Z closes at the 15:59 print). A series
+    is therefore built from (open + CANDLE_S, close) so that at(ts) is the
+    last price known AT ts. Keying by open time made at(15:00Z) return the
+    16:00Z close, and for a digital settling at 16:00Z that is the
+    settlement price: the first run of this study scored a 1h Brier of
+    0.006 and a +122%/$1 strategy on exactly that look-ahead."""
+
+    def __init__(self, points: list[tuple[int, float]], open_time: bool = True):
+        shift = CANDLE_S if open_time else 0
+        pts = sorted({(int(p[0]) + shift, float(p[1])) for p in points})
         self.ts = [p[0] for p in pts]
         self.vals = [p[1] for p in pts]
 
@@ -413,6 +426,26 @@ def brier(rows, key):
     return sum((r[key] - r["outcome"]) ** 2 for r in rows) / len(rows)
 
 
+def reprice(rows: list[dict], series: dict[str, tuple[HourlySeries, HourlySeries]]) -> list[dict]:
+    """Recompute spot, vols and model probabilities from cached Deribit
+    series, keeping the Polymarket prints. Rows whose sample instant has no
+    spot or DVOL are dropped."""
+    out = []
+    for r in rows:
+        dvol, spot = series[r["asset"]]
+        ts = int(datetime.fromisoformat(r["resolves"]).timestamp()) - r["horizon_h"] * 3600
+        s_, iv = spot.at(ts), dvol.at(ts)
+        if s_ is None or iv is None:
+            continue
+        rv = spot.realised_vol(ts)
+        tau = r["horizon_h"] / HOURS_PER_YEAR
+        r = dict(r, spot=round(s_, 2), dvol=round(iv, 2), rv="" if rv is None else round(rv * 100, 2),
+                 dvol_prob=round(digital_prob(s_, r["lo"], r["hi"], iv / 100, tau), 4),
+                 rv_prob="" if rv is None else round(digital_prob(s_, r["lo"], r["hi"], rv, tau), 4))
+        out.append(r)
+    return out
+
+
 def side_strategy(rows: list[dict], ref: str, threshold: float, spread: float = 0.01) -> dict:
     rets = []
     for r in rows:
@@ -505,20 +538,37 @@ def analyse(rows: list[dict], out=sys.stdout) -> None:
         if f["n"]:
             print(f"    Fed-style rule, digital priced >= 0.90: n={f['n']} hit {f['hit']:.3f} "
                   f"return {f['mean_ret']:+.4f}/$1", file=out)
+    fresh = [r for r in rows if r["pm_age_min"] <= FRESH_MIN]
     for h_from in (24, 6):
-        ll = lead_lag(rows, "dvol_prob", h_from, 1)
-        if ll:
-            print(f"lead-lag {h_from}h -> 1h: price move on (dvol - price) gap: beta {ll[0]:+.2f} "
-                  f"(t {ll[1]:+.1f}), n={ll[2]}", file=out)
+        for name, sub in (("all prints", rows), ("fresh prints at both horizons", fresh)):
+            ll = lead_lag(sub, "dvol_prob", h_from, 1)
+            if ll:
+                print(f"lead-lag {h_from}h -> 1h, {name}: price move on (dvol - price) gap: "
+                      f"beta {ll[0]:+.2f} (t {ll[1]:+.1f}), n={ll[2]}", file=out)
 
 
 FIELDS = ["slug", "asset", "question", "lo", "hi", "resolves", "horizon_h", "spot", "dvol", "rv",
           "pm_price", "pm_age_min", "dvol_prob", "rv_prob", "outcome", "volume"]
 
 
+def _open(path: Path, mode: str):
+    """The row table is ~10 MB raw and 0.8 MB gzipped; a .gz suffix picks gzip."""
+    if path.suffix == ".gz":
+        return gzip.open(path, mode + "t", newline="")
+    return path.open(mode, newline="")
+
+
+def write_rows(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _open(path, "w") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+
+
 def load_rows(path: Path) -> list[dict]:
     rows = []
-    for r in csv.DictReader(path.open()):
+    for r in csv.DictReader(_open(path, "r")):
         for k in ("lo", "hi", "spot", "dvol", "pm_price", "pm_age_min", "dvol_prob", "volume"):
             r[k] = float(r[k])
         for k in ("rv", "rv_prob"):
@@ -531,14 +581,24 @@ def load_rows(path: Path) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deribit-implied vs Polymarket BTC/ETH digitals")
-    parser.add_argument("--analyse", action="store_true")
+    parser.add_argument("--analyse", action="store_true", help="analyse the CSV, no network")
+    parser.add_argument("--reprice", action="store_true",
+                        help="recompute the Deribit side of every row from the cached series")
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--csv", default="docs/crypto_rows.csv")
+    parser.add_argument("--csv", default="docs/crypto_rows.csv.gz")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).resolve().parent.parent
     csv_path = root / args.csv
-    if not args.analyse:
+    cache = root / "data" / "deribit"
+    if args.reprice:
+        rows = load_rows(csv_path)
+        series = {a: (fetch_dvol(None, a, 0, 0, cache), fetch_spot(None, a, 0, 0, cache))
+                  for a in {r["asset"] for r in rows}}
+        rows = reprice(rows, series)
+        write_rows(csv_path, rows)
+        log.info("repriced %d rows", len(rows))
+    elif not args.analyse:
         http = retrying_session()
         digitals = fetch_digitals(http, cache=root / "data" / "polymarket")
         by_asset: dict[str, list[Digital]] = defaultdict(list)
@@ -548,8 +608,7 @@ def main() -> None:
         for asset, ds in by_asset.items():
             t0 = int(min(d.resolves for d in ds).timestamp()) - (RV_WINDOW_H + 48) * 3600
             t1 = int(max(d.resolves for d in ds).timestamp()) + 3600
-            series[asset] = (fetch_dvol(http, asset, t0, t1, root / "data" / "deribit"),
-                             fetch_spot(http, asset, t0, t1, root / "data" / "deribit"))
+            series[asset] = (fetch_dvol(http, asset, t0, t1, cache), fetch_spot(http, asset, t0, t1, cache))
             log.info("deribit %s: %d dvol hours, %d spot hours", asset, len(series[asset][0].ts),
                      len(series[asset][1].ts))
         rows: list[dict] = []
@@ -562,11 +621,7 @@ def main() -> None:
                     log.exception("sampling failed")
                 if i % 200 == 0:
                     log.info("sampled %d/%d digitals, %d rows", i, len(digitals), len(rows))
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        with csv_path.open("w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=FIELDS)
-            w.writeheader()
-            w.writerows(rows)
+        write_rows(csv_path, rows)
         log.info("wrote %d rows to %s", len(rows), csv_path)
     rows = load_rows(csv_path)
     print(f"{len(rows)} rows, {len({r['slug'] for r in rows})} events, "

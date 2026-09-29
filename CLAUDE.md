@@ -173,8 +173,12 @@ the outcome and fabricates longshot edge.
   MLB games and 215 tennis matches at hourly resolution: gap sd 0.8-2.1
   points, Briers equal to the fourth decimal, Polymarket closing 37-71% of
   the gap toward Kalshi per hour with the same last-trade staleness caveat,
-  and the gap trade at -10% to +6% with t under 1. Cross-venue gaps on the
-  same event are suspect matches, not edges.
+  and the gap trade at -10% to +6% with t under 1. PR #33 then sampled both
+  order books every 20s for 40 tennis matches: neither book closes the
+  other's gap at 30s-450s, and the hourly "convergence" was the stale
+  last-trade print updating. Cross-venue gaps on the same event are suspect
+  matches, not edges; a lead-lag reading from last-trade prints is not
+  evidence of anything until fresh prints or books say the same.
 - The Cleveland Fed inflation nowcast is not a leading reference for
   Polymarket's CPI buckets either (`docs/CPI_NOWCAST_VS_POLYMARKET_2026-09-29.md`,
   `python -m src.cpi_study`): with the nowcast's own error sigma fitted on
@@ -184,6 +188,21 @@ the outcome and fabricates longshot edge.
   on the price, and taking the nowcast's side loses. One confirmed member of
   the reference class, four measured non-members: the Fed reference is a
   deep market pricing the identical event, not a model the crowd already reads.
+- Deribit's option market is not a leading reference for Polymarket's BTC/ETH
+  price digitals either (`docs/CRYPTO_DERIBIT_VS_POLYMARKET_2026-09-29.md`,
+  `python -m src.crypto_study --analyse`): on 17,425 settled digitals in
+  1,795 events (Mar 2024 - Sep 2026) a lognormal on Deribit spot and DVOL
+  scores the same Brier as the price at 1h, 6h and 24h (diffs within
+  +-0.0002, CIs span zero), the regression splits the weight in half, and on
+  prints under 10 minutes old the market is slightly better at every horizon
+  with the take-the-DVOL-side trade at -0.8% / +3.7% / -17% per $1. Digitals
+  priced >= 0.90 return -0.5% to -1.3%: no favourite footprint. Fifth
+  measured non-member. A deep reference market is not enough; the Fed
+  reference prices the identical event against a crowd that is thin next to
+  it, and that is the property to look for. The first pass of this study
+  showed a +122%/$1 edge that was a one-hour look-ahead from candle
+  timestamps (see the landmine below): a result that good against a liquid
+  market is a leak until the leak is found.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
@@ -289,6 +308,13 @@ python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues
   post-result prints as the closing line and manufactured an "+18% ROI"
   favourite bias (PR #30) — the same endogeneity as measuring horizons from
   `closedTime` in the resolved-market study.
+- Deribit stamps candles (`get_tradingview_chart_data`, DVOL
+  `get_volatility_index_data`) by their **open** time; the bar stamped
+  15:00Z closes at 15:59. "Last close at or before ts" keyed on those stamps
+  hands you the price an hour into the future, which for a digital settling
+  on the hour is the settlement price. `HourlySeries` keys bars by close
+  time and a test pins it. Check any candle feed's stamp against a finer
+  resolution before scoring a model with it.
 - Polymarket sports markets charge a taker fee of 0.05 x p x (1 - p) per
   share (1.25c at 0.50; makers pay nothing and get a 15% rebate), per the
   "Sports Market Fees" page and Gamma's `feeSchedule`. Gamma's raw
