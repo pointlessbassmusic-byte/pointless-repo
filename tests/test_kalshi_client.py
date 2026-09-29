@@ -1,0 +1,175 @@
+"""Kalshi client audit regressions: orders reconciliation and retry
+semantics. Each test pins a defect found by auditing the client against
+the live 2026 API surface."""
+
+import httpx
+import pytest
+
+from sportsbot.core.types import OrderStatus, Side
+from sportsbot.exchanges.kalshi import KalshiClient, KalshiClientError
+
+# ---------------------------------------------------------------------------
+# Audit: orders / retry semantics
+# ---------------------------------------------------------------------------
+class _FakeOrdersClient(KalshiClient):
+    """KalshiClient with the network replaced by a canned payload."""
+
+    def __init__(self, payload):
+        super().__init__(api_key_id="k", env="prod")
+        self._payload = payload
+
+    def _request(self, *a, **kw):
+        return self._payload
+
+
+def test_open_orders_report_fills_so_the_executor_can_book_them():
+    """A resting order that partially filled must come back with
+    `filled` set. The executor books a maker fill only when the venue
+    reports more filled than it already knows, so a hardcoded 0.0 leaves
+    live exposure untracked."""
+    c = _FakeOrdersClient({"orders": [{
+        "order_id": "o1", "client_order_id": "c1", "ticker": "KXMLBGAME-X",
+        "side": "bid", "initial_count_fp": "10.00",
+        "remaining_count_fp": "4.00", "yes_price_dollars": "0.4300",
+    }]})
+    o = c.get_open_orders()[0]
+    assert o.size == 10.0
+    assert o.filled == 6.0
+    assert o.status is OrderStatus.PARTIAL
+    assert o.side is Side.YES
+    assert o.price == 0.43
+
+
+def test_open_orders_do_not_invert_the_side_on_a_yes_no_payload():
+    """`side` is "bid"/"ask" under Create Order V2, but a payload that
+    names the outcome directly must not fall through the bid/ask branch
+    and come back as the opposite contract."""
+    c = _FakeOrdersClient({"orders": [
+        {"order_id": "a", "ticker": "T", "side": "yes", "fill_count_fp": "1.00"},
+        {"order_id": "b", "ticker": "T", "side": "no", "fill_count_fp": "1.00"},
+        {"order_id": "c", "ticker": "T", "side": "ask", "no_price_dollars": "0.3000"},
+    ]})
+    a, b, cc = c.get_open_orders()
+    assert a.side is Side.YES
+    assert b.side is Side.NO
+    assert cc.side is Side.NO and cc.price == 0.30
+
+
+def test_open_orders_warn_rather_than_report_a_silent_zero_fill(caplog):
+    c = _FakeOrdersClient({"orders": [{"order_id": "o", "ticker": "T", "side": "bid"}]})
+    with caplog.at_level("WARNING"):
+        o = c.get_open_orders()[0]
+    assert o.filled == 0.0
+    assert "cannot be reconciled" in caplog.text
+
+
+def test_client_errors_are_not_retried():
+    """A 404 for a settled ticker is an answer, not a transient failure.
+    Retrying it five times with backoff stalls the settlement pass."""
+    calls = []
+
+    class C(KalshiClient):
+        def _request_once(self, method, path, **kw):
+            calls.append(path)
+            req = httpx.Request(method, "https://x/y")
+            resp = httpx.Response(404, request=req, text="not found")
+            raise KalshiClientError("404", request=req, response=resp)
+
+    c = C(env="prod")
+    with pytest.raises(KalshiClientError):
+        c._request("GET", "/trade-api/v2/markets/GONE")
+    assert len(calls) == 1
+    assert c.get_resolution("GONE") is None
+
+
+def test_rate_limits_are_still_retried():
+    calls = []
+
+    class C(KalshiClient):
+        def _request_once(self, method, path, **kw):
+            calls.append(path)
+            if len(calls) < 3:
+                req = httpx.Request(method, "https://x/y")
+                raise httpx.HTTPStatusError(
+                    "rate limited", request=req, response=httpx.Response(429, request=req))
+            return {"ok": True}
+
+    assert C(env="prod")._request("GET", "/p") == {"ok": True}
+    assert len(calls) == 3
+
+
+def test_venue_positions_carry_their_cost():
+    class C(KalshiClient):
+        def _request(self, *a, **kw):
+            return {"market_positions": [
+                {"ticker": "T", "position_fp": "-20.00",
+                 "market_exposure_dollars": "7.0000"}]}
+
+    p = C(env="prod").get_positions()[0]
+    assert p.side is Side.NO and p.size == 20.0
+    assert p.avg_price == 0.35
+    assert p.cost == 7.0
+
+
+# ---------------------------------------------------------------------------
+# Audit: occurrence_datetime is the expected END, not the start
+# ---------------------------------------------------------------------------
+def _raw(ticker, series_hint=None):
+    return {"ticker": ticker, "title": "x", "yes_sub_title": "A", "no_sub_title": "A",
+            "event_ticker": ticker.rsplit("-", 1)[0],
+            "occurrence_datetime": "2026-09-21T06:00:00Z",
+            "expected_expiration_time": "2026-09-21T06:00:00Z",
+            "close_time": "2026-10-05T03:00:00Z", "status": "active"}
+
+
+def test_tennis_has_no_start_time_because_kalshi_gives_none():
+    """occurrence_datetime == expected_expiration_time on tennis, and the
+    tape shows in-play action hours before it. Claiming it as the start
+    points the pre-match guard at the END of the match."""
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    mi = c._to_market_info(_raw("KXWTAMATCH-26SEP20YAOJOI-YAO"), Sport.TENNIS, "KXWTAMATCH")
+    assert mi.start_time is None
+    assert mi.close_time is not None          # settle bound still recorded
+
+
+def test_mlb_has_a_start_time():
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    mi = c._to_market_info(_raw("KXMLBGAME-26SEP222210SDLAD-SD"), Sport.BASEBALL, "KXMLBGAME")
+    assert mi.start_time is not None
+
+
+def test_mlb_first_pitch_is_the_ticker_time_in_eastern():
+    """occurrence_datetime is first pitch + 3h on 250/250 settled markets;
+    the ticker's HHMM in US Eastern is the only real start Kalshi gives."""
+    from datetime import datetime, timezone
+    from sportsbot.exchanges.kalshi import mlb_first_pitch
+    fp = mlb_first_pitch("KXMLBGAME-26SEP222210SDLAD-SD")
+    # Sep 22 22:10 EDT == Sep 23 02:10Z; occurrence on that market was 05:10Z
+    assert fp == datetime(2026, 9, 23, 2, 10, tzinfo=timezone.utc)
+
+
+def test_mlb_first_pitch_respects_dst():
+    from datetime import datetime, timezone
+    from sportsbot.exchanges.kalshi import mlb_first_pitch
+    # January is EST (UTC-5): 19:05 ET -> 00:05Z next day
+    assert (mlb_first_pitch("KXMLBGAME-26JAN151905NYYBOS-NYY")
+            == datetime(2026, 1, 16, 0, 5, tzinfo=timezone.utc))
+
+
+def test_mlb_first_pitch_never_guesses():
+    from sportsbot.exchanges.kalshi import mlb_first_pitch
+    assert mlb_first_pitch("KXATPMATCH-26SEP22HARGAL-HAR") is None
+    assert mlb_first_pitch("KXMLBGAME-26XXX222210SDLAD-SD") is None
+    assert mlb_first_pitch("") is None
+
+
+def test_mlb_start_time_comes_from_the_ticker_not_occurrence():
+    from datetime import datetime, timezone
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    raw = _raw("KXMLBGAME-26SEP222210SDLAD-SD")
+    raw["occurrence_datetime"] = "2026-09-23T05:10:00Z"   # end, 3h later
+    mi = c._to_market_info(raw, Sport.BASEBALL, "KXMLBGAME")
+    assert mi.start_time == datetime(2026, 9, 23, 2, 10, tzinfo=timezone.utc)
