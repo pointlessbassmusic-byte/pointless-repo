@@ -247,7 +247,7 @@ def report(db_path: str = "data/twobook.sqlite", step: float = 20.0,
            horizons=(1, 3, 6, 15), thetas=(0.01, 0.02, 0.03),
            kalshi_fee_multiplier: Optional[float] = None) -> dict:
     """Lead-lag and executable mark-out from the logged books."""
-    from sportsbot.exchanges.kalshi import KNOWN_FEE_MULTIPLIERS, kalshi_taker_fee
+    from sportsbot.exchanges.kalshi import KNOWN_FEE_MULTIPLIERS, kalshi_fee_per_share
 
     conn = sqlite3.connect(db_path)
     pairs = conn.execute("SELECT pair_id, sport, kalshi_ticker FROM pairs").fetchall()
@@ -307,10 +307,10 @@ def report(db_path: str = "data/twobook.sqlite", step: float = 20.0,
                         add("buy_pm", (1 - pm2) - e - PM_TAKER_RATE * e * (1 - e))
                     # Polymarket mid above Kalshi's ASK: buy YES on Kalshi
                     if pm - ka >= theta and 0.02 < ka < 0.98:
-                        add("buy_kalshi", km2 - ka - kalshi_taker_fee(ka, 1.0, fm))
+                        add("buy_kalshi", km2 - ka - kalshi_fee_per_share(ka, fm))
                     if kb - pm >= theta and 0.02 < kb < 0.98:
                         e = 1 - kb
-                        add("buy_kalshi", (1 - km2) - e - kalshi_taker_fee(e, 1.0, fm))
+                        add("buy_kalshi", (1 - km2) - e - kalshi_fee_per_share(e, fm))
             for name, (vals, grp) in cells.items():
                 if len(vals) >= 10:
                     m, se = _clustered(vals, grp)

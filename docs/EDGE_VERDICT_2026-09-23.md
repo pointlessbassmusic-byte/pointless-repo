@@ -500,8 +500,39 @@ this data does not contain.
 worth a live test is the lead-lag, and it is cheap to test properly: log
 both order books for the same matches at the same seconds and see whether
 Polymarket's *book* (not its last trade) follows Kalshi with a delay longer
-than the time it takes to hit it. That is a data-collection job for
-`substrate_bridge`-style logging, not a strategy yet.
+than the time it takes to hit it.
+
+**Addendum, 2026-09-29 03:45–04:15Z — first two-book sample.**
+`sportsbot twobook-log` (substrate_bridge, data only) sampled both order
+books every 20 s for 40 tennis matches listed on both venues (Asian
+session, pre-match), 7,200 book rows, aligned on a 30 s grid (2,400
+points). Both books were two-sided throughout: Kalshi spread 1.25 points,
+Polymarket 1.17; mids changed in 12–13% of consecutive samples on each
+venue. Gap sd 1.0 point, and the gap is mostly *per-pair and persistent*:
+the 40 pair-mean gaps have sd 0.96 points, max 3.0.
+
+| horizon | n | Polymarket → Kalshi | Kalshi → Polymarket |
+|---|---|---|---|
+| 30 s | 2,360 | +0.021 ± 0.016 | +0.020 ± 0.017 |
+| 90 s | 2,280 | +0.047 ± 0.030 | +0.005 ± 0.030 |
+| 180 s | 2,160 | +0.020 ± 0.047 | +0.044 ± 0.047 |
+| 450 s | 1,800 | −0.002 ± 0.072 | +0.075 ± 0.073 |
+
+Neither book closes the other's gap at any horizon from half a minute to
+seven and a half: every coefficient is within two standard errors of zero
+and none exceeds 0.08 of the gap. The 37% / 71% hourly "convergence" above
+was, as suspected, the stale last-trade print updating, not a lagging
+book. Hitting the ask when the other venue's mid sits ≥ 1 point above it
+marks out at **−1.6 points on Polymarket and −1.9 on Kalshi** at every
+horizon — the fee plus half the spread, with no reversion to recover it;
+the signals come from 8–10 pairs whose gap simply persists.
+
+One quiet half hour is not the last word — an active window (European
+daytime tennis, an MLB slate's last hour before first pitch) is where
+information would flow — so the daily check-in now logs 30 minutes at
+12:00Z and re-runs this report. Until a sample shows a coefficient well
+clear of zero at a horizon longer than the time it takes to hit a book,
+there is no cross-venue lag to trade.
 
 ## Live paper record so far (for the record, not for inference)
 
