@@ -443,6 +443,66 @@ out-of-sample test of the ITF cell: refresh the caches daily
 (`market-backtest tennis --exchange polymarket` does) and re-run this
 section at the end of October before believing anything.
 
+## Result 10 (both venues): Kalshi and Polymarket agree, Kalshi leads, and the gap is not a trade
+
+_2026-09-29. Offline, from the two caches: the games listed on both venues
+in the overlapping month — 294 MLB games (6,701 aligned pre-game hours),
+215 tour tennis matches (4,220 hours). Kalshi side = hourly candle bid/ask
+of the home ticker; Polymarket side = the hourly last-trade series for the
+same hour (one tick assumed around it). Fees: Kalshi 0.07 × mult × p(1−p)
+with the series multiplier (MLB 0.5, tennis 1.0), Polymarket 0.05 × p(1−p)._
+
+**Disagreement is small.**
+
+| | gap sd (K − PM) | \|gap\| > 2 pts | > 3 pts | > 5 pts | Kalshi spread |
+|---|---|---|---|---|---|
+| MLB | 0.0079 | 4.2% | 0.8% | 0.1% | 0.010 |
+| tennis | 0.0213 | 8.2% | 3.2% | 1.3% | 0.011–0.015 |
+
+Which venue is right when they differ cannot be resolved from this: the
+gaps are so small that the regression of outcome on the gap has standard
+errors of 3–5 on a coefficient that should be between 0 and 1, and the two
+venues' Briers agree to the fourth decimal (MLB 0.2355 / 0.2357 at 6h).
+
+**Kalshi leads at hourly resolution.** Regressing next hour's move on the
+current gap: Polymarket closes **37%** (MLB) / **71%** (tennis) of the gap
+toward Kalshi per hour (± 0.01); Kalshi closes 3% / 13% toward Polymarket.
+Caveat that stops this from being a finding: the Polymarket series is the
+last trade, sampled hourly, so a "gap" can be a print that is fifty minutes
+old, and "Polymarket converging" then means "a new trade printed". The
+10-minute series (926 points per market, 57 price changes in one) could
+separate lag from staleness; it has not been pulled for this.
+
+**Trading the gap** (buy the side the other venue prices higher, on the
+venue where it is cheaper, taker, hold to settlement, pooled over all
+pre-game hours, standard errors clustered by game — the *optimistic*
+bound, since staleness is uncontrolled):
+
+| | θ | signals | games | ROI | se | t |
+|---|---|---|---|---|---|---|
+| MLB, buy on Polymarket toward Kalshi | 0.02 | 284 | 123 | −0.099 | 0.097 | −1.0 |
+| MLB, buy on Polymarket toward Kalshi | 0.03 | 54 | 37 | −0.027 | 0.182 | −0.2 |
+| tennis, buy on Polymarket toward Kalshi | 0.02 | 348 | 124 | +0.047 | 0.083 | +0.6 |
+| tennis, buy on Polymarket toward Kalshi | 0.03 | 139 | 75 | +0.059 | 0.080 | +0.7 |
+| tennis, buy on Polymarket toward Kalshi | 0.05 | 53 | 35 | +0.131 | 0.117 | +1.1 |
+| tennis, one trigger per match, θ 0.03 | | 75 | 75 | +0.026 | 0.101 | +0.3 |
+
+Buying on Kalshi *against* Polymarket's price is −27% to −31% in tennis
+(t −2.4 to −2.7): the side Polymarket still prices higher is the side
+Kalshi has already moved away from, and it keeps losing — lag or stale
+print, either way the wrong side. A box (home on one venue, away on the
+other, both at the ask, fees in) costs under $1 in 0.2% of MLB hours
+(mean 1.3 points) and 1.5% of tennis hours (mean 6.9 points, max 37,
+almost certainly stale prints); it needs simultaneous fills on two books
+this data does not contain.
+
+**Verdict:** no cross-venue edge measurable from history. The one fact
+worth a live test is the lead-lag, and it is cheap to test properly: log
+both order books for the same matches at the same seconds and see whether
+Polymarket's *book* (not its last trade) follows Kalshi with a delay longer
+than the time it takes to hit it. That is a data-collection job for
+`substrate_bridge`-style logging, not a strategy yet.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
