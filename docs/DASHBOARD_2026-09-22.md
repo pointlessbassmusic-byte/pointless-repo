@@ -51,41 +51,17 @@ market-calibration record in `substrate/reports/`. The allocation therefore
 starts from validation evidence and is designed to move as CLV accrues; the
 dashboard exists so that movement is visible rather than asserted.
 
-## The venue finding: Polymarket has nothing tradable for these sports
+## The venue finding was wrong (corrected 2026-09-28)
 
-The sim's first cycles placed zero bets on 707 Polymarket markets. The
-decision feed made the reason measurable rather than a guess, and the answer
-turned out to be about the venue, not the thresholds.
-
-Measured 2026-09-22, same hour, both venues:
-
-| venue | sport | markets | median spread | ever <= 0.03 |
-|---|---|---|---|---|
-| Polymarket | table tennis | 350 | **0.88** | 0 of 282 |
-| Polymarket | baseball | 15 | **0.94** | 0 |
-| Kalshi | baseball | 86 | **0.010** | 23 of 25 sampled |
-| Kalshi | tennis | 264 | **0.020** | 21 of 25 sampled |
-
-The Polymarket books are not merely wide, they are empty shells: the best bid
-and ask are a lone market maker at 0.03 / 0.97, with the next levels at 0.02 /
-0.98. That read was verified against the raw order book rather than inferred
-from a spread number — the bot was reading the venue correctly.
-
-Two hypotheses died on the data. Liquidity does **not** arrive near match
-time: table-tennis markets under 2h from start had a median spread of 0.94,
-and in-play markets had no book at all. And the uncertainty filter was not
-the blocker either — roughly 55% of the slate cleared it, and the inactivity
-penalty never fired (maximum idle was 5 days against a 30-day threshold).
-Polymarket's only listed MLB slate was the Sep-27 season finale, 131 hours
-out; Kalshi listed that day's games.
-
-So the sim runs on **Kalshi**: it is where the markets are, and it is the
-US-legal venue for real money anyway (Polymarket's main CLOB geoblocks US
-order placement, which this project does not attempt to evade).
-
-Table tennis is switched off for the sim as a consequence. Kalshi lists no
-table tennis, and Polymarket's table-tennis books cannot be traded at any
-threshold. The model is fine; there is no market to trade it on.
+This section previously claimed Polymarket had nothing tradable for these
+sports and moved the sim to Kalshi on that basis. The claim was an artifact
+of a discovery bug — events ordered by `startDate` let inning-winner
+derivatives crowd the games off the page — and it is retracted. On the
+markets Polymarket actually trades, tennis and MLB moneylines quote a
+one-tick spread (median 0.010) with real volume; only table tennis is dead
+there. The sim is back on Polymarket, paper mode, per the architecture in
+`CLAUDE.md`; Kalshi remains the substrate venue. The Kalshi work above
+stays as the account of what was measured there.
 
 ## Kalshi MLB needed two fixes before it could scan
 

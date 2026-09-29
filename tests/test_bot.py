@@ -262,7 +262,9 @@ class TestArb:
         assert find_bundle_arb(_market(), _quote(bid=0.48, ask=0.50), NO_FEE) is None
 
     def test_fees_kill_thin_bundle(self):
-        q = _quote(bid=0.52, ask=0.47)  # 1% gross
+        # YES 0.50 + NO 0.49 = 0.99: 1 point gross; the documented sports fee
+        # (0.05 x p x (1-p) per share, each leg) costs ~2.5 points.
+        q = _quote(bid=0.51, ask=0.50)
         assert find_bundle_arb(_market(), q, taker_fee) is None
 
     def test_cross_venue_arb(self):
@@ -282,3 +284,105 @@ class TestKalshiFee:
         assert kalshi_taker_fee(0.5, 100, 1.0) == 1.75
         assert kalshi_taker_fee(0.5, 100, 0.5) == 0.88  # MLB half fees
         assert kalshi_taker_fee(0.05, 100, 1.0) == pytest.approx(0.34, abs=0.01)
+
+
+
+def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_games(monkeypatch):
+    """A game day lists dozens of inning-winner events sharing the game's
+    startDate. Ordered by startDate they filled the page ahead of the game and
+    the moneyline filter then emptied it — the venue looked dead. The client
+    must ask Gamma for volume order and walk every page."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+
+    calls = []
+
+    def fake_get(self, url, params=None):
+        calls.append(dict(params or {}))
+        return []            # no events; we only check the request shape
+
+    monkeypatch.setattr(PolymarketClient, "_get", fake_get)
+    PolymarketClient().list_sports_markets("mlb")
+    assert calls, "discovery made no request"
+    p = calls[0]
+    assert p["order"] == "volume24hr" and p["ascending"] == "false"
+    assert "start_date_min" in p           # the stale-event floor stays
+
+
+
+def test_polymarket_taker_fee_matches_the_documented_worked_example():
+    """docs.polymarket.com, Sports Market Fees: fee = C x 0.05 x p x (1-p);
+    100 shares at $0.50 -> $1.25. Symmetric about 0.5: 0.30 and 0.70 cost the
+    same. The old 0.10 x min(p,1-p) charged $5.00 for the same trade."""
+    assert abs(taker_fee(0.50, 100) - 1.25) < 1e-9
+    assert abs(taker_fee(0.30, 100) - taker_fee(0.70, 100)) < 1e-12
+    assert abs(taker_fee(0.30, 100) - 1.05) < 1e-9
+    assert taker_fee(0.50, 100, "any-market") == taker_fee(0.50, 100)
+
+
+class TestInPlayGuard:
+    """The clock is not enough: Kalshi's occurrence_datetime is the expected
+    END, so the guard must refuse an unknown start and catch a live market
+    by its price."""
+
+    def _mgr(self, tmp_path):
+        from sportsbot.bot.risk import RiskConfig, RiskManager
+        from sportsbot.data.store import Store
+        store = Store(str(tmp_path / "t.db"))
+        return RiskManager(RiskConfig(), store), store
+
+    def _intent(self, m):
+        from sportsbot.core.types import BetIntent
+        return BetIntent(market=m, side=Side.YES, prob=0.6, price=0.5,
+                         size=10, edge=0.1, kelly_fraction=0.01)
+
+    def test_unknown_start_is_refused_even_with_a_close_time(self, tmp_path):
+        mgr, _ = self._mgr(tmp_path)
+        m = _market(start_time=None,
+                    close_time=datetime.now(timezone.utc) + timedelta(days=14))
+        ok, reason = mgr.check_intent(self._intent(m), _quote())
+        assert not ok and "unknown" in reason
+
+    def test_first_sighting_is_recorded_and_allowed(self, tmp_path):
+        mgr, store = self._mgr(tmp_path)
+        ok, _ = mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))
+        assert ok
+        assert store.get_kv("first_mid:m1")["mid"] == 0.49
+
+    def test_a_large_move_since_first_sighting_is_refused(self, tmp_path):
+        mgr, _ = self._mgr(tmp_path)
+        assert mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))[0]
+        ok, reason = mgr.check_intent(self._intent(_market()), _quote(0.62, 0.64))
+        assert not ok and "in play" in reason
+
+    def test_a_small_move_is_still_allowed(self, tmp_path):
+        mgr, _ = self._mgr(tmp_path)
+        assert mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))[0]
+        assert mgr.check_intent(self._intent(_market()), _quote(0.51, 0.53))[0]
+
+    def test_first_mid_survives_a_restart(self, tmp_path):
+        from sportsbot.bot.risk import RiskConfig, RiskManager
+        from sportsbot.data.store import Store
+        mgr, store = self._mgr(tmp_path)
+        mgr.check_intent(self._intent(_market()), _quote(0.48, 0.50))
+        fresh = RiskManager(RiskConfig(), Store(str(tmp_path / "t.db")))
+        ok, reason = fresh.check_intent(self._intent(_market()), _quote(0.70, 0.72))
+        assert not ok and "in play" in reason
+
+
+def test_polymarket_mlb_lists_the_visitor_first_so_home_field_is_outcomes_1():
+    """981 of 981 resolved MLB moneylines (2026-07-16..09-27) list the away
+    team as outcomes[0]. The scanner's home-field restatement keys on
+    meta["home_field"]; without it the home advantage goes to the visitor."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+    _moneyline_markets_from_event = PolymarketClient()._moneyline_markets_from_event
+    ev = {"slug": "mlb-wsh-det-2026-09-22", "markets": [{
+        "sportsMarketType": "moneyline", "conditionId": "c1",
+        "outcomes": '["Washington Nationals","Detroit Tigers"]',
+        "clobTokenIds": '["t0","t1"]', "gameStartTime": "2026-09-22 22:40:00+00",
+        "acceptingOrders": True, "enableOrderBook": True}]}
+    (mlb,) = _moneyline_markets_from_event(ev, Sport.BASEBALL)
+    assert mlb.home == "Washington Nationals"          # YES side = outcomes[0]
+    assert mlb.meta["home_field"] == "Detroit Tigers"  # the real home team
+    (ten,) = _moneyline_markets_from_event(
+        {**ev, "markets": [{**ev["markets"][0], "outcomes": '["A","B"]'}]}, Sport.TENNIS)
+    assert "home_field" not in ten.meta

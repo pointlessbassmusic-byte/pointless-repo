@@ -94,23 +94,29 @@ def _parse_dt(value: Any) -> Optional[datetime]:
         return None
 
 
+# Documented sports fee (docs.polymarket.com, "Sports Market Fees", read
+# 2026-09-28): fee = C x feeRate x p x (1 - p), taker rate 0.05, makers pay
+# nothing and receive a 15% rebate. Worked example on the page: 100 shares at
+# $0.50 -> $1.25. Gamma's per-market feeSchedule agrees:
+# {"rate": 0.05, "exponent": 1, "takerOnly": true, "rebateRate": 0.15}.
+SPORTS_TAKER_FEE_RATE = 0.05
+
+
 def taker_fee(price: float, shares: float, market_id: str | None = None,
-              base_fee_bps: float = 1000.0) -> float:
-    """Estimated taker fee in dollars: rate × min(p, 1-p) × shares.
+              fee_rate: float = SPORTS_TAKER_FEE_RATE) -> float:
+    """Taker fee in dollars: fee_rate x p x (1 - p) x shares.
 
-    `market_id` is accepted (and ignored — Polymarket does not vary the rate
-    by market) so this matches the `fee_fn(price, shares, market_id=None)`
-    contract and can be handed straight to the strategy. Without it, a caller
-    passing a market id would land it in `base_fee_bps` and silently compute a
-    nonsense fee.
+    Quadratic in price and symmetric about 0.5, where it peaks at 1.25 cents
+    a share. This replaced 0.10 x min(p, 1-p) x shares — the earlier reading
+    of Gamma's raw takerBaseFee=1000 — which charged 5 cents a share at 0.50,
+    four times the documented fee, and so overstated the hurdle on every
+    taker edge. Makers pay zero here (`takerOnly`), so maker legs must not
+    call this.
 
-    With the observed sports taker_base_fee of 1000 bps this peaks at 5% of
-    notional at p=0.5 and falls toward the extremes. Makers pay 0. Verify
-    realized fees on a small live trade before scaling (the docs formula and
-    the bps parametrization differ in form).
+    `market_id` is accepted (and ignored — the rate does not vary by market)
+    so this matches the `fee_fn(price, shares, market_id=None)` contract.
     """
-    rate = base_fee_bps / 10000.0
-    return rate * min(price, 1.0 - price) * shares
+    return fee_rate * price * (1.0 - price) * shares
 
 
 class PolymarketClient(ExchangeClient):
@@ -152,6 +158,14 @@ class PolymarketClient(ExchangeClient):
         # Some long-stale events stay active=true; ask only for events starting
         # from yesterday onward (yesterday, not today, to keep live matches).
         start_min = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        # Order by volume, NOT start date. A game day lists dozens of derivative
+        # events per game (inning winners, first-five) that share the game's
+        # startDate; ordered by startDate they fill the page ahead of the game
+        # itself, and after the moneyline filter drops them the slate looks
+        # empty. Measured 2026-09-28: by startDate this returned inning
+        # winners and a finale six days out; by volume the first three rows
+        # were that day's games at $59k, $33k and $13k. The empty-slate
+        # conclusion in EDGE_VERDICT's venue section came from this bug.
         while True:
             events = self._get(
                 f"{GAMMA_BASE}/events",
@@ -160,8 +174,8 @@ class PolymarketClient(ExchangeClient):
                     "active": "true",
                     "closed": "false",
                     "start_date_min": start_min,
-                    "order": "startDate",
-                    "ascending": "true",
+                    "order": "volume24hr",
+                    "ascending": "false",
                     "limit": page_size,
                     "offset": offset,
                 },
@@ -192,6 +206,20 @@ class PolymarketClient(ExchangeClient):
             tokens = _parse_json_field(m.get("clobTokenIds"))
             if len(outcomes) != 2 or len(tokens) != 2:
                 continue
+            meta = {
+                "event_slug": ev.get("slug"),
+                "game_id": m.get("gameId"),
+                "taker_base_fee": m.get("takerBaseFee"),
+                "fees_enabled": m.get("feesEnabled"),
+                "outcome_prices": _parse_json_field(m.get("outcomePrices")),
+            }
+            # Polymarket lists the VISITOR first on MLB moneylines: measured
+            # against MLB Stats on 981 of 981 resolved games, 2026-07-16 to
+            # 2026-09-27 (slug mlb-{away}-{home}-{date}). Without this the
+            # scanner models outcomes[0] as the home side and applies the
+            # home advantage to the wrong team on every game.
+            if sport == Sport.BASEBALL:
+                meta["home_field"] = str(outcomes[1])
             infos.append(
                 MarketInfo(
                     exchange=Exchange.POLYMARKET,
@@ -209,13 +237,7 @@ class PolymarketClient(ExchangeClient):
                     tick_size=float(m.get("orderPriceMinTickSize") or 0.01),
                     min_order_size=float(m.get("orderMinSize") or 5),
                     neg_risk=bool(m.get("negRisk", False)),
-                    meta={
-                        "event_slug": ev.get("slug"),
-                        "game_id": m.get("gameId"),
-                        "taker_base_fee": m.get("takerBaseFee"),
-                        "fees_enabled": m.get("feesEnabled"),
-                        "outcome_prices": _parse_json_field(m.get("outcomePrices")),
-                    },
+                    meta=meta,
                 )
             )
         return infos
