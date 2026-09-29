@@ -523,7 +523,7 @@ seven and a half: every coefficient is within two standard errors of zero
 and none exceeds 0.08 of the gap. The 37% / 71% hourly "convergence" above
 was, as suspected, the stale last-trade print updating, not a lagging
 book. Hitting the ask when the other venue's mid sits ≥ 1 point above it
-marks out at **−1.6 points on Polymarket and −1.9 on Kalshi** at every
+marks out at **−1.6 points on Polymarket and −2.0 on Kalshi** at every
 horizon — the fee plus half the spread, with no reversion to recover it;
 the signals come from 8–10 pairs whose gap simply persists.
 
