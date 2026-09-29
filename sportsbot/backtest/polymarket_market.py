@@ -303,3 +303,84 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
         for item in todays:
             update(item)
     return res
+
+
+# ---------------------------------------------------------------- per-sport
+def run_mlb_backtest(history, games: list[PMGame], lead_hours: float = 6.0,
+                     min_edge: float = 0.03, home_advantage: float = 24.0,
+                     prob_shrink: float = 0.8, maker: bool = False,
+                     **kw) -> Result:
+    """MLB walk-forward on Polymarket prices with the production
+    BaseballModel. `history` is MLB Stats GameResults; `games` come from
+    `fetch_resolved("baseball")`. Polymarket lists the visitor as
+    outcomes[0], so the prediction is made for the real matchup (MLB
+    Stats' home/away) and restated for whichever side PMGame.home is."""
+    from sportsbot.core.types import Sport
+    from sportsbot.data.mlb_data import normalize_team
+    from sportsbot.engine.base import EventInput
+    from sportsbot.engine.baseball import BaseballModel
+
+    model = BaseballModel(home_advantage=home_advantage, prob_shrink=prob_shrink)
+
+    def key_of(g):
+        return (g.date.date(), normalize_team(g.home), normalize_team(g.away))
+
+    def predict(pm_home, pm_away, g):
+        p = model.predict(EventInput(
+            sport=Sport.BASEBALL, home=g.home, away=g.away, start_time=g.date,
+            context={"home_sp": g.home_sp, "away_sp": g.away_sp})).prob_yes
+        return p if pm_home == normalize_team(g.home) else 1.0 - p
+
+    return run_backtest(history, games, predict, model.update_result, key_of,
+                        lead_hours=lead_hours, min_edge=min_edge, maker=maker, **kw)
+
+
+def tennis_history_with(games: list[PMGame], history) -> list:
+    """Resolved Polymarket matches folded into a MatchResult history
+    (deduplicated by date and player pair) — the bootstrap population."""
+    from sportsbot.data.tennis_data import MatchResult, normalize_player
+
+    seen = {(m.date.date(), frozenset((normalize_player(m.winner),
+                                        normalize_player(m.loser)))) for m in history}
+    out = list(history)
+    for g in games:
+        key = (g.date.date(), frozenset((normalize_player(g.home),
+                                          normalize_player(g.away))))
+        if key in seen:
+            continue
+        seen.add(key)
+        won, lost = (g.home, g.away) if g.home_won else (g.away, g.home)
+        out.append(MatchResult(date=g.date, winner=won, loser=lost, surface="",
+                               best_of=3, level="", tourney="polymarket"))
+    out.sort(key=lambda m: m.date)
+    return out
+
+
+def run_tennis_backtest(history, games: list[PMGame], lead_hours: float = 6.0,
+                        min_edge: float = 0.03, surface_weight: float = 0.5,
+                        min_matches: int = 10, max_uncertainty: float = 0.20,
+                        maker: bool = False, **kw) -> Result:
+    """Tennis walk-forward on Polymarket prices, day-batched. `history` is
+    MatchResults (see `tennis_history_with`); matches the live scanner would
+    not price (uncertainty above `max_uncertainty`) are skipped."""
+    from sportsbot.core.types import Sport
+    from sportsbot.data.tennis_data import normalize_player
+    from sportsbot.engine.base import EventInput
+    from sportsbot.engine.tennis import TennisModel
+
+    model = TennisModel(surface_weight=surface_weight, min_matches=min_matches)
+    games = [PMGame(**{**g.__dict__, "home": normalize_player(g.home),
+                       "away": normalize_player(g.away)}) for g in games]
+
+    def key_of(m):
+        return (m.date.date(), normalize_player(m.winner), normalize_player(m.loser))
+
+    def predict(h, a, m):
+        pred = model.predict(EventInput(sport=Sport.TENNIS, home=h, away=a, best_of=3))
+        return None if pred.uncertainty > max_uncertainty else pred.prob_yes
+
+    def update(m):
+        model.update_result(m.winner, m.loser, surface="", when=m.date)
+
+    return run_backtest(history, games, predict, update, key_of,
+                        lead_hours=lead_hours, min_edge=min_edge, maker=maker, **kw)

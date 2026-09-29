@@ -206,6 +206,20 @@ class PolymarketClient(ExchangeClient):
             tokens = _parse_json_field(m.get("clobTokenIds"))
             if len(outcomes) != 2 or len(tokens) != 2:
                 continue
+            meta = {
+                "event_slug": ev.get("slug"),
+                "game_id": m.get("gameId"),
+                "taker_base_fee": m.get("takerBaseFee"),
+                "fees_enabled": m.get("feesEnabled"),
+                "outcome_prices": _parse_json_field(m.get("outcomePrices")),
+            }
+            # Polymarket lists the VISITOR first on MLB moneylines: measured
+            # against MLB Stats on 981 of 981 resolved games, 2026-07-16 to
+            # 2026-09-27 (slug mlb-{away}-{home}-{date}). Without this the
+            # scanner models outcomes[0] as the home side and applies the
+            # home advantage to the wrong team on every game.
+            if sport == Sport.BASEBALL:
+                meta["home_field"] = str(outcomes[1])
             infos.append(
                 MarketInfo(
                     exchange=Exchange.POLYMARKET,
@@ -223,13 +237,7 @@ class PolymarketClient(ExchangeClient):
                     tick_size=float(m.get("orderPriceMinTickSize") or 0.01),
                     min_order_size=float(m.get("orderMinSize") or 5),
                     neg_risk=bool(m.get("negRisk", False)),
-                    meta={
-                        "event_slug": ev.get("slug"),
-                        "game_id": m.get("gameId"),
-                        "taker_base_fee": m.get("takerBaseFee"),
-                        "fees_enabled": m.get("feesEnabled"),
-                        "outcome_prices": _parse_json_field(m.get("outcomePrices")),
-                    },
+                    meta=meta,
                 )
             )
         return infos

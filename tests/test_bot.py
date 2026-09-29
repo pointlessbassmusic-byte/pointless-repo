@@ -367,3 +367,22 @@ class TestInPlayGuard:
         fresh = RiskManager(RiskConfig(), Store(str(tmp_path / "t.db")))
         ok, reason = fresh.check_intent(self._intent(_market()), _quote(0.70, 0.72))
         assert not ok and "in play" in reason
+
+
+def test_polymarket_mlb_lists_the_visitor_first_so_home_field_is_outcomes_1():
+    """981 of 981 resolved MLB moneylines (2026-07-16..09-27) list the away
+    team as outcomes[0]. The scanner's home-field restatement keys on
+    meta["home_field"]; without it the home advantage goes to the visitor."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+    _moneyline_markets_from_event = PolymarketClient()._moneyline_markets_from_event
+    ev = {"slug": "mlb-wsh-det-2026-09-22", "markets": [{
+        "sportsMarketType": "moneyline", "conditionId": "c1",
+        "outcomes": '["Washington Nationals","Detroit Tigers"]',
+        "clobTokenIds": '["t0","t1"]', "gameStartTime": "2026-09-22 22:40:00+00",
+        "acceptingOrders": True, "enableOrderBook": True}]}
+    (mlb,) = _moneyline_markets_from_event(ev, Sport.BASEBALL)
+    assert mlb.home == "Washington Nationals"          # YES side = outcomes[0]
+    assert mlb.meta["home_field"] == "Detroit Tigers"  # the real home team
+    (ten,) = _moneyline_markets_from_event(
+        {**ev, "markets": [{**ev["markets"][0], "outcomes": '["A","B"]'}]}, Sport.TENNIS)
+    assert "home_field" not in ten.meta

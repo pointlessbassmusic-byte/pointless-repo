@@ -70,3 +70,36 @@ def test_fetch_resolved_skips_voids_and_anchors_by_sport(monkeypatch):
 
     ten = pm.fetch_resolved("tennis", days=6, window_days=3, http=FakeHTTP(), pause=0)
     assert ten[0].start_ts == pm._ts(f"{day} 14:00:00") - 3 * 3600
+
+
+def test_mlb_backtest_orients_the_prediction_to_polymarkets_visitor_first_listing(monkeypatch):
+    """PMGame.home is outcomes[0] = the visitor. The model is asked about the
+    real matchup and the answer restated for the listed side, so a strong
+    real-home favourite priced cheaply on the visitor's contract yields a NO
+    bet on that contract (= the home team)."""
+    from datetime import datetime, timezone
+    import sportsbot.backtest.polymarket_market as pm
+    from sportsbot.data.mlb_data import GameResult
+
+    t0 = int(datetime(2026, 9, 20, 23, 0, tzinfo=timezone.utc).timestamp())
+    hist = []
+    # 60 earlier games: "strong" beats "weak" every time, alternating venues
+    for i in range(60):
+        d = datetime(2026, 7, 1 + i % 28, 23, 0, tzinfo=timezone.utc).replace(month=7 + i // 28)
+        home, away = ("strong", "weak") if i % 2 else ("weak", "strong")
+        hist.append(GameResult(date=d, home=home, away=away, home_score=5 if home == "strong" else 1,
+                               away_score=1 if home == "strong" else 5))
+    target = GameResult(date=datetime.fromtimestamp(t0, timezone.utc), home="strong", away="weak",
+                        home_score=3, away_score=2)
+    hist.append(target)
+    game = pm.PMGame(date=target.date, slug="mlb-weak-strong", home="weak", away="strong",
+                     token="tok", start_ts=t0, close_ts=t0 + 4 * 3600, home_won=False, volume=1.0)
+    # the visitor ("weak") priced at 0.48 all day: far too rich (0.50 exactly
+    # would be read as the listing placeholder and skipped)
+    monkeypatch.setattr(pm, "price_history",
+                        lambda token, http=None: [{"t": t0 - h * 3600, "p": 0.48} for h in range(30, 0, -1)])
+    res = pm.run_mlb_backtest(hist, [game], lead_hours=6.0, min_edge=0.01)
+    assert res.priced == 1 and len(res.bets) == 1
+    bet = res.bets[0]
+    assert bet.side == "NO"            # NO on the visitor's contract = the home side
+    assert bet.won is True
