@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .calibration_study import yes_price_before
+from .calibration_study import TRADES
 from .cpi_study import _eastern_offset
 from .http_util import retrying_session
 from .sportsbook_study import ols, paired_brier_diff
@@ -55,6 +55,7 @@ ASSETS = {"bitcoin": "BTC", "ethereum": "ETH"}
 HORIZONS_H = (1, 6, 24)
 HOURS_PER_YEAR = 24 * 365.25
 RV_WINDOW_H = 24 * 30
+FRESH_MIN = 10  # a print this recent is a price you could plausibly have traded near
 
 _MONTHS = {m: i + 1 for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
@@ -90,15 +91,47 @@ def parse_question(q: str) -> tuple[str, float, float] | None:
     return None
 
 
-def resolution_time(description: str) -> datetime | None:
+_TIME_RE = re.compile(r"(\d{1,2}):(\d{2}) in the ET timezone")
+_TITLE_DATE_RE = re.compile(r"\bon ([A-Za-z]+) (\d{1,2})(?:, (\d{4}))?\b")
+
+
+def resolution_time(description: str, question: str = "", end_date: str = "") -> datetime | None:
+    """Settlement instant in UTC. Two wordings exist: until May 2025 the
+    description carried the full stamp ("15 May '25 17:00 in the ET timezone");
+    since then it says "12:00 in the ET timezone (noon) on the date specified
+    in the title" and the title says "on September 10". The second form takes
+    the year from the event's endDate and is accepted only if it lands within
+    two hours of that endDate, so a misread date cannot slip through."""
     m = _RES_RE.search(description or "")
-    if not m:
+    if m:
+        dd, mon, yy, hh, mi = m.groups()
+        month = _MONTHS.get(mon.lower())
+        if month is None:
+            return None
+        return _eastern_to_utc(datetime(2000 + int(yy), month, int(dd), int(hh), int(mi)))
+    mt = _TIME_RE.search(description or "")
+    md = _TITLE_DATE_RE.search(question or "")
+    if not (mt and md and end_date):
         return None
-    dd, mon, yy, hh, mi = m.groups()
-    month = _MONTHS.get(mon.lower())
-    if month is None:
+    month = _MONTHS.get(md.group(1).lower()[:3])
+    if month is None or len(md.group(1)) < 3:
         return None
-    local = datetime(2000 + int(yy), month, int(dd), int(hh), int(mi), tzinfo=timezone.utc)
+    try:
+        end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    year = int(md.group(3)) if md.group(3) else end.year
+    try:
+        res = _eastern_to_utc(datetime(year, month, int(md.group(2)), int(mt.group(1)), int(mt.group(2))))
+    except ValueError:
+        return None
+    if abs((res - end).total_seconds()) > 2 * 3600:
+        return None
+    return res
+
+
+def _eastern_to_utc(local_naive: datetime) -> datetime:
+    local = local_naive.replace(tzinfo=timezone.utc)
     return local - timedelta(hours=_eastern_offset(local.date()))
 
 
@@ -122,7 +155,8 @@ def parse_event(ev: dict) -> list[Digital]:
         parsed = parse_question(m.get("question") or "")
         if parsed is None:
             continue
-        res = resolution_time(m.get("description") or "")
+        res = resolution_time(m.get("description") or "", m.get("question") or "",
+                              ev.get("endDate") or "")
         if res is None:
             continue
         try:
@@ -140,37 +174,86 @@ def parse_event(ev: dict) -> list[Digital]:
     return out
 
 
-def fetch_digitals(http, since: str = "2024-03-01", window_days: int = 7) -> list[Digital]:
+def _digital_to_dict(d: Digital) -> dict:
+    out = d.__dict__.copy()
+    out["resolves"] = d.resolves.isoformat()
+    return out
+
+
+def _digital_from_dict(o: dict) -> Digital:
+    o = dict(o)
+    o["resolves"] = datetime.fromisoformat(o["resolves"])
+    return Digital(**o)
+
+
+def _window_digitals(http, tag: str, lo: datetime, hi: datetime) -> list[Digital] | None:
+    """One tag's settled digitals ending inside [lo, hi). Returns None when
+    Gamma keeps answering 5xx after the session's retries, so the caller
+    can skip the window instead of losing the whole run (2026-09-29: one
+    offset of the bitcoin tag 500'd persistently and killed a 13-minute
+    discovery pass)."""
+    out, offset = [], 0
+    while offset < 2100:
+        r = http.get(GAMMA_EVENTS, params={
+            "tag_slug": tag, "closed": "true", "limit": 100, "offset": offset,
+            "end_date_min": lo.date().isoformat(), "end_date_max": hi.date().isoformat()},
+            timeout=60)
+        if r.status_code == 422:
+            break
+        if r.status_code >= 500:
+            log.warning("gamma %s: %s at %s..%s offset %d, skipping window",
+                        r.status_code, tag, lo.date(), hi.date(), offset)
+            return None
+        r.raise_for_status()
+        batch = r.json()
+        if not isinstance(batch, list) or not batch:
+            break
+        for ev in batch:
+            out.extend(parse_event(ev))
+        if len(batch) < 100:
+            break
+        offset += 100
+    return out
+
+
+def fetch_digitals(http, since: str = "2024-03-01", window_days: int = 7,
+                   cache: Path | None = None) -> list[Digital]:
     """Every settled BTC/ETH digital under the bitcoin and ethereum tags.
     Gamma refuses offsets past ~2100 and the bitcoin tag alone has thousands
     of closed events, so discovery is paged inside weekly end-date windows,
-    which the API accepts as date-only end_date_min / end_date_max."""
+    which the API accepts as date-only end_date_min / end_date_max. Windows
+    that ended more than a day ago are cached (keyed by window start) so a
+    rerun only pages the recent ones."""
+    cache_path = cache / "crypto_digitals.json" if cache else None
+    done: dict[str, list[dict]] = {}
+    if cache_path and cache_path.exists():
+        done = json.loads(cache_path.read_text())
     seen, out = set(), []
     lo = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
-    today = datetime.now(timezone.utc) + timedelta(days=1)
-    while lo < today:
+    now = datetime.now(timezone.utc)
+    while lo < now + timedelta(days=1):
         hi = lo + timedelta(days=window_days)
-        for tag in ("bitcoin", "ethereum"):
-            offset = 0
-            while offset < 2100:
-                r = http.get(GAMMA_EVENTS, params={
-                    "tag_slug": tag, "closed": "true", "limit": 100, "offset": offset,
-                    "end_date_min": lo.date().isoformat(), "end_date_max": hi.date().isoformat()},
-                    timeout=60)
-                if r.status_code == 422:
-                    break
-                r.raise_for_status()
-                batch = r.json()
-                if not isinstance(batch, list) or not batch:
-                    break
-                for ev in batch:
-                    for d in parse_event(ev):
-                        if d.condition_id not in seen:
-                            seen.add(d.condition_id)
-                            out.append(d)
-                if len(batch) < 100:
-                    break
-                offset += 100
+        key = lo.date().isoformat()
+        if key in done:
+            found = [_digital_from_dict(o) for o in done[key]]
+        else:
+            found, complete = [], True
+            for tag in ("bitcoin", "ethereum"):
+                got = _window_digitals(http, tag, lo, hi)
+                if got is None:
+                    complete = False
+                else:
+                    found.extend(got)
+            if complete and hi < now - timedelta(days=1) and cache_path:
+                done[key] = [_digital_to_dict(d) for d in found]
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(json.dumps(done))
+            log.info("gamma %s..%s: %d digitals%s", lo.date(), hi.date(), len(found),
+                     "" if complete else " (partial)")
+        for d in found:
+            if d.condition_id not in seen:
+                seen.add(d.condition_id)
+                out.append(d)
         lo = hi
     log.info("polymarket: %d settled BTC/ETH digitals", len(out))
     return out
@@ -208,7 +291,7 @@ class HourlySeries:
 def fetch_dvol(http, currency: str, start: int, end: int, cache: Path) -> HourlySeries:
     """Hourly DVOL closes (percent) between start and end (seconds)."""
     path = cache / f"dvol_{currency}.json"
-    pts: list[tuple[int, float]] = json.loads(path.read_text()) if path.exists() else []
+    pts: list[tuple[int, float]] = [tuple(p) for p in json.loads(path.read_text())] if path.exists() else []
     have = {p[0] for p in pts}
     cursor = end * 1000
     while cursor > start * 1000:
@@ -235,7 +318,7 @@ def fetch_dvol(http, currency: str, start: int, end: int, cache: Path) -> Hourly
 def fetch_spot(http, currency: str, start: int, end: int, cache: Path) -> HourlySeries:
     """Hourly perpetual closes between start and end (seconds), 5000 per page."""
     path = cache / f"spot_{currency}.json"
-    pts: list[tuple[int, float]] = json.loads(path.read_text()) if path.exists() else []
+    pts: list[tuple[int, float]] = [tuple(p) for p in json.loads(path.read_text())] if path.exists() else []
     have = {p[0] for p in pts}
     chunk = 4900 * 3600
     lo = start
@@ -282,6 +365,21 @@ def digital_prob(spot: float, lo: float, hi: float, sigma: float, tau_years: flo
 
 # ---------------------------------------------------------------- rows
 
+def yes_trade_before(http, market: dict, ts: int) -> tuple[float, int] | None:
+    """(YES price, trade timestamp) of the last trade at or before ts. The
+    timestamp matters: a print from hours earlier is not a price anyone could
+    have traded at, and against a fresh spot it fakes a reference edge."""
+    r = http.get(TRADES, params={"market": market["condition_id"], "limit": 3, "end": ts},
+                 timeout=60)
+    r.raise_for_status()
+    trades = r.json()
+    if not isinstance(trades, list) or not trades:
+        return None
+    t = max(trades, key=lambda x: x.get("timestamp", 0))
+    p = float(t["price"])
+    return (p if t.get("asset") == market["yes_token"] else 1 - p), int(t.get("timestamp", 0))
+
+
 def sample(http, d: Digital, dvol: HourlySeries, spot: HourlySeries) -> list[dict]:
     rows = []
     t_res = int(d.resolves.timestamp())
@@ -292,15 +390,16 @@ def sample(http, d: Digital, dvol: HourlySeries, spot: HourlySeries) -> list[dic
         if s is None or iv is None:
             continue
         rv = spot.realised_vol(ts)
-        p = yes_price_before(http, market, ts)
-        if p is None or not (0 < p < 1):
+        got = yes_trade_before(http, market, ts)
+        if got is None or not (0 < got[0] < 1):
             continue
+        p, t_trade = got
         tau = h / HOURS_PER_YEAR
         rows.append({
             "slug": d.slug, "asset": d.asset, "question": d.question, "lo": d.lo, "hi": d.hi,
             "resolves": d.resolves.isoformat(), "horizon_h": h, "spot": round(s, 2),
             "dvol": round(iv, 2), "rv": "" if rv is None else round(rv * 100, 2),
-            "pm_price": round(p, 4),
+            "pm_price": round(p, 4), "pm_age_min": round((ts - t_trade) / 60, 1),
             "dvol_prob": round(digital_prob(s, d.lo, d.hi, iv / 100, tau), 4),
             "rv_prob": "" if rv is None else round(digital_prob(s, d.lo, d.hi, rv, tau), 4),
             "outcome": d.outcome, "volume": round(d.volume),
@@ -382,6 +481,18 @@ def analyse(rows: list[dict], out=sys.stdout) -> None:
             if len(sub) >= 30:
                 d, lo, hi = paired_brier_diff(sub, "pm_price", "dvol_prob", n_boot=500)
                 print(f"    {name} (n={len(sub)}, cut ${cut:,.0f}): diff {d:+.4f} [{lo:+.4f},{hi:+.4f}]", file=out)
+        for name, sub in (("fresh print (<= %d min old)" % FRESH_MIN,
+                           [r for r in hr if r["pm_age_min"] <= FRESH_MIN]),
+                          ("stale print (> 60 min old)", [r for r in hr if r["pm_age_min"] > 60])):
+            if len(sub) >= 30:
+                d, lo, hi = paired_brier_diff(sub, "pm_price", "dvol_prob", n_boot=500)
+                st = side_strategy(sub, "dvol_prob", 0.05)
+                print(f"    {name}: n={len(sub)} diff {d:+.4f} [{lo:+.4f},{hi:+.4f}]; DVOL side at "
+                      f"|gap| >= 0.05: n={st['n']} return {st['mean_ret']:+.3f}/$1 (se {st['se']:.3f})",
+                      file=out)
+        ages = sorted(r["pm_age_min"] for r in hr)
+        print(f"    last-trade age: median {ages[len(ages) // 2]:.0f} min, 90th "
+              f"{ages[int(0.9 * len(ages))]:.0f} min", file=out)
         gap = sorted(abs(r["pm_price"] - r["dvol_prob"]) for r in hr)
         print(f"    |polymarket - dvol implied|: median {gap[len(gap) // 2]:.3f}, 90th "
               f"{gap[int(0.9 * len(gap))]:.3f}", file=out)
@@ -402,13 +513,13 @@ def analyse(rows: list[dict], out=sys.stdout) -> None:
 
 
 FIELDS = ["slug", "asset", "question", "lo", "hi", "resolves", "horizon_h", "spot", "dvol", "rv",
-          "pm_price", "dvol_prob", "rv_prob", "outcome", "volume"]
+          "pm_price", "pm_age_min", "dvol_prob", "rv_prob", "outcome", "volume"]
 
 
 def load_rows(path: Path) -> list[dict]:
     rows = []
     for r in csv.DictReader(path.open()):
-        for k in ("lo", "hi", "spot", "dvol", "pm_price", "dvol_prob", "volume"):
+        for k in ("lo", "hi", "spot", "dvol", "pm_price", "pm_age_min", "dvol_prob", "volume"):
             r[k] = float(r[k])
         for k in ("rv", "rv_prob"):
             r[k] = float(r[k]) if r[k] != "" else ""
@@ -429,7 +540,7 @@ def main() -> None:
     csv_path = root / args.csv
     if not args.analyse:
         http = retrying_session()
-        digitals = fetch_digitals(http)
+        digitals = fetch_digitals(http, cache=root / "data" / "polymarket")
         by_asset: dict[str, list[Digital]] = defaultdict(list)
         for d in digitals:
             by_asset[d.asset].append(d)
