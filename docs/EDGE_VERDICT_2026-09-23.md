@@ -530,9 +530,36 @@ the signals come from 8–10 pairs whose gap simply persists.
 One quiet half hour is not the last word — an active window (European
 daytime tennis, an MLB slate's last hour before first pitch) is where
 information would flow — so the daily check-in now logs 30 minutes at
-12:00Z and re-runs this report. Until a sample shows a coefficient well
-clear of zero at a horizon longer than the time it takes to hit a book,
-there is no cross-venue lag to trade.
+12:00Z and re-runs this report.
+
+**Second sample, 2026-09-29 12:01–12:31Z, European daytime tennis:** 62
+matches on both venues (22 new), 12,946 book rows, 4,310 grid points.
+Here Polymarket's book *does* follow Kalshi, and Kalshi does not follow
+Polymarket:
+
+| horizon | n | Polymarket → Kalshi | se (plain) | se (clustered by pair) | t (clustered) | Kalshi → Polymarket |
+|---|---|---|---|---|---|---|
+| 30 s | 4,248 | +0.067 | 0.021 | 0.028 | +2.4 | +0.010 ± 0.021 |
+| 90 s | 4,124 | +0.139 | 0.037 | 0.054 | +2.6 | −0.035 ± 0.036 |
+| 180 s | 3,938 | +0.189 | 0.053 | 0.075 | +2.5 | −0.048 ± 0.052 |
+| 450 s | 3,380 | +0.355 | 0.082 | 0.173 | +2.1 | −0.106 ± 0.081 |
+
+So the lead-lag is real in an active session and absent in a quiet one:
+Polymarket's book closes about a third of its gap to Kalshi within seven
+and a half minutes, Kalshi closes none of its gap to Polymarket. With
+pair-clustered errors it is a 2-to-2.6-sigma result on one half hour, not a
+settled fact. And it is **not a taker trade**: the gap is small (mean 0.6
+points, p90 1.5, above 2 points in 4.8% of grid points), so a third of it
+is 0.2–0.5 points against 1.9 points of fee plus half-spread; hitting the
+lagging Polymarket ask marks out at −1.2 to −1.6 points at every horizon
+(n 344–388, 13–14 pairs), and hitting Kalshi at −1.7 to −2.2.
+
+What it does support is the *maker* version: resting a Polymarket bid one
+tick inside the gap, in the direction Kalshi already moved, pays no fee,
+earns the rebate, and would capture the drift if filled — the same
+adverse-selection question as Kalshi's Result 4, now with a directional
+signal attached. That is the experiment worth funding with real
+minimum-size orders; nothing in this data can answer it.
 
 ## Live paper record so far (for the record, not for inference)
 
