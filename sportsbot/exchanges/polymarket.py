@@ -53,6 +53,9 @@ GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
 
 # Live-verified Gamma tag ids (Sep 2026).
+STALE_EVENT_FLOOR_DAYS = 21   # Gamma startDate = listing time; postseason lists days ahead
+STALE_GAME_HOURS = 8          # a game this long past first pitch is not on the slate
+
 SPORT_TAGS: dict[str, int] = {
     "sports": 1,
     "tennis": 864,
@@ -155,9 +158,15 @@ class PolymarketClient(ExchangeClient):
         out: list[MarketInfo] = []
         offset = 0
         page_size = 100
-        # Some long-stale events stay active=true; ask only for events starting
-        # from yesterday onward (yesterday, not today, to keep live matches).
-        start_min = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        # Some long-stale events stay active=true, so a startDate floor keeps
+        # the page count bounded — but Gamma's event startDate is the LISTING
+        # time, not the game time. Floored at "yesterday" this dropped the
+        # 2026-09-30 wild-card games, listed on Sep 26-28, and the sim scanned
+        # nothing (measured 2026-09-30: four open, accepting, two-sided
+        # moneylines on Gamma, zero from this client). The floor is now three
+        # weeks back and staleness is judged per market on gameStartTime in
+        # `_moneyline_markets_from_event`, which is the field that means it.
+        start_min = (datetime.now(timezone.utc) - timedelta(days=STALE_EVENT_FLOOR_DAYS)).strftime("%Y-%m-%d")
         # Order by volume, NOT start date. A game day lists dozens of derivative
         # events per game (inning winners, first-five) that share the game's
         # startDate; ordered by startDate they fill the page ahead of the game
@@ -201,6 +210,11 @@ class PolymarketClient(ExchangeClient):
             if m.get("closed") or not m.get("acceptingOrders", True):
                 continue
             if not m.get("enableOrderBook", True):
+                continue
+            # A game that started more than STALE_GAME_HOURS ago and is still
+            # "active" is a settlement straggler, not a slate entry.
+            gst = _parse_dt(m.get("gameStartTime"))
+            if gst is not None and (datetime.now(timezone.utc) - gst) > timedelta(hours=STALE_GAME_HOURS):
                 continue
             outcomes = _parse_json_field(m.get("outcomes"))
             tokens = _parse_json_field(m.get("clobTokenIds"))

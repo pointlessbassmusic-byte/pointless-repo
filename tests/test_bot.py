@@ -305,7 +305,31 @@ def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_g
     assert calls, "discovery made no request"
     p = calls[0]
     assert p["order"] == "volume24hr" and p["ascending"] == "false"
-    assert "start_date_min" in p           # the stale-event floor stays
+    # The floor stays, but far enough back to keep events listed days ahead:
+    # Gamma's startDate is the listing time, not the game time.
+    from datetime import datetime, timedelta, timezone
+    assert datetime.fromisoformat(p["start_date_min"]).date() <= (
+        datetime.now(timezone.utc) - timedelta(days=14)).date()
+
+
+def test_polymarket_discovery_keeps_games_listed_days_ahead_and_drops_finished_ones():
+    """2026-09-30: the wild-card games were listed Sep 26-28 (event startDate)
+    and dropped by a 'yesterday' floor; a game 8h+ past first pitch that is
+    still active is a settlement straggler and must not be scanned."""
+    from datetime import datetime, timedelta, timezone
+    from sportsbot.exchanges.polymarket import PolymarketClient
+    now = datetime.now(timezone.utc)
+    def mk(slug, start):
+        return {"sportsMarketType": "moneyline", "conditionId": slug, "slug": slug,
+                "outcomes": '["A","B"]', "clobTokenIds": '["t0","t1"]',
+                "gameStartTime": start.strftime("%Y-%m-%d %H:%M:%S+00"),
+                "acceptingOrders": True, "enableOrderBook": True}
+    ev = {"slug": "mlb-a-b", "startDate": (now - timedelta(days=4)).isoformat(),
+          "markets": [mk("today", now + timedelta(hours=3)),
+                      mk("in-play", now - timedelta(hours=2)),
+                      mk("finished", now - timedelta(hours=30))]}
+    got = [m.slug for m in PolymarketClient()._moneyline_markets_from_event(ev, Sport.BASEBALL)]
+    assert got == ["today", "in-play"]
 
 
 
