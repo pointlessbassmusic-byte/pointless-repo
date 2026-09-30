@@ -397,12 +397,14 @@ def test_polymarket_mlb_lists_the_visitor_first_so_home_field_is_outcomes_1():
     """981 of 981 resolved MLB moneylines (2026-07-16..09-27) list the away
     team as outcomes[0]. The scanner's home-field restatement keys on
     meta["home_field"]; without it the home advantage goes to the visitor."""
+    from datetime import datetime, timedelta, timezone
     from sportsbot.exchanges.polymarket import PolymarketClient
     _moneyline_markets_from_event = PolymarketClient()._moneyline_markets_from_event
+    start = (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S+00")
     ev = {"slug": "mlb-wsh-det-2026-09-22", "markets": [{
         "sportsMarketType": "moneyline", "conditionId": "c1",
         "outcomes": '["Washington Nationals","Detroit Tigers"]',
-        "clobTokenIds": '["t0","t1"]', "gameStartTime": "2026-09-22 22:40:00+00",
+        "clobTokenIds": '["t0","t1"]', "gameStartTime": start,
         "acceptingOrders": True, "enableOrderBook": True}]}
     (mlb,) = _moneyline_markets_from_event(ev, Sport.BASEBALL)
     assert mlb.home == "Washington Nationals"          # YES side = outcomes[0]
