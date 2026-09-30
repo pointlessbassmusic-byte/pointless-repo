@@ -554,12 +554,23 @@ is 0.2–0.5 points against 1.9 points of fee plus half-spread; hitting the
 lagging Polymarket ask marks out at −1.2 to −1.6 points at every horizon
 (n 344–388, 13–14 pairs), and hitting Kalshi at −1.7 to −2.2.
 
-What it does support is the *maker* version: resting a Polymarket bid one
-tick inside the gap, in the direction Kalshi already moved, pays no fee,
-earns the rebate, and would capture the drift if filled — the same
-adverse-selection question as Kalshi's Result 4, now with a directional
-signal attached. That is the experiment worth funding with real
-minimum-size orders; nothing in this data can answer it.
+What it would support, if it held, is the *maker* version: resting a
+Polymarket bid one tick inside the gap, in the direction Kalshi already
+moved, pays no fee, earns the rebate, and would capture the drift if
+filled — the same adverse-selection question as Kalshi's Result 4, with a
+directional signal attached.
+
+**Third sample, 2026-09-30 12:00–12:30Z, 25 tennis matches, 4,500 rows:**
+it does not hold. Polymarket → Kalshi is +0.07 ± 0.04 (30 s), −0.01 ± 0.05
+(90 s), +0.07 ± 0.13 (180 s), −0.03 ± 0.09 (450 s), pair-clustered — zero
+at every horizon — and the weak drift that exists runs the other way
+(Kalshi → Polymarket +0.16 ± 0.05 at 90 s, +0.26 ± 0.15 at 450 s, plain
+se). Three half-hours, three answers: none (quiet overnight), Polymarket
+follows (Monday's active session), Kalshi drifts (Tuesday's). The
+lead-lag is not stable enough to be a directional signal, so the maker
+case above is withdrawn until a sample repeats Monday's pattern; the
+daily check-in keeps logging. Mark-outs in this sample are within noise of
+zero on 17–21 signals from 2–4 pairs — nothing to read.
 
 ## Live paper record so far (for the record, not for inference)
 
