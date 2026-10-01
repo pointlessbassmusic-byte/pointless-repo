@@ -56,3 +56,13 @@ Disclosure: the first (broken-split) run printed confirmation-half statistics fo
 the cells that passed its discovery step. The confirmation half is therefore no
 longer untouched for those cells. Any survivor of the corrected run must be
 re-tested on markets that settle after 2026-10-01 before it counts.
+
+## Amendment 3 (data-source fix, after the second run)
+- `/historical/markets` ignores `min_close_ts`/`max_close_ts` (it streams
+  newest-first by close); the sampled days 62–116 were cut from that stream.
+- The batch `/markets/candlesticks` endpoint returns nothing for markets past the
+  historical cutoff (offsets ≥ 74); those were backfilled one market at a time from
+  `/historical/markets/{ticker}/candlesticks`, same period and quote rule.
+- Day clustering maps each event to its sampled day (markets closing exactly on a
+  window edge had been counted as a separate day).
+The second run's discovery half again had only 2–4 days, so it is void like the first.
