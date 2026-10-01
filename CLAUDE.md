@@ -181,8 +181,11 @@ the outcome and fabricates longshot edge.
   third of the gap in 7.5 minutes (t 2.1-2.6 pair-clustered, one half hour),
   and Kalshi follows nothing — but the gap is 0.6 points mean, so hitting
   the lagging ask marks out at -1.2 to -2.2 points at every horizon. Not a
-  taker trade; the open question is the maker version (rest inside the gap
-  in Kalshi's direction), which needs real minimum-size orders to answer.
+  taker trade. PR #35's third sample (25 matches) shows no lag either way
+  that Polymarket follows, and a weak drift the other way: three half-hours,
+  three answers. The lead-lag is not stable enough to be a directional
+  signal, so the maker version (rest inside the gap in Kalshi's direction)
+  is withdrawn until a sample repeats the second one's pattern.
   Cross-venue gaps on the same event are suspect matches, not edges; a
   lead-lag reading from last-trade prints is not evidence of anything until
   fresh prints or books say the same.
