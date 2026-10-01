@@ -45,3 +45,14 @@ inverse strategy.
 ## Amendment 1 (before any candle data was fetched or analysed)
 Per-series event cap raised 40 → 120: with 40, no series could reach n ≥ 30 per
 half, so the sub-field (series) level would have been untestable.
+
+## Amendment 2 (data-source fix, after a first run)
+The live `/markets` listing returns nothing for settlements before ~2026-07-26;
+those are served by `/historical/markets` (cutoff 2026-08-01). The first run
+therefore had only 2 discovery days (offsets 62, 68) instead of 10. Fix: each
+sampled day is listed from both endpoints, unioned by ticker. Design and bars
+unchanged.
+Disclosure: the first (broken-split) run printed confirmation-half statistics for
+the cells that passed its discovery step. The confirmation half is therefore no
+longer untouched for those cells. Any survivor of the corrected run must be
+re-tested on markets that settle after 2026-10-01 before it counts.
