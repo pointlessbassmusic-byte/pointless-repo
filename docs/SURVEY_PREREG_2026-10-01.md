@@ -6,7 +6,7 @@ these rules; anything else is labelled exploratory.
 ## Data
 - Settled Kalshi markets (`mve_filter=exclude`, volume > 0) closing on 20 sampled
   days: day offsets 2, 8, …, 116 before 2026-10-01T00:00Z.
-- Per series: up to 40 events spread evenly over time; per event up to 25 markets
+- Per series: up to 120 events spread evenly over time; per event up to 25 markets
   chosen at random (seed 7) — not by volume, which would leak the price path.
 - Candlesticks per market: 1-min if lifetime ≤ 2h, 60-min if ≤ 7d, else daily.
   Quotes are forward-filled from the last candle at or before entry time.
@@ -41,3 +41,7 @@ inverse strategy.
   event-level t ≥ 2, day-clustered t ≥ 2 over ≥ 5 days, ROI ≥ 1% of cost.
 - Report the number of cells tested and the expected number of false passes.
 - Survivors are candidates for a forward paper test, not for live money.
+
+## Amendment 1 (before any candle data was fetched or analysed)
+Per-series event cap raised 40 → 120: with 40, no series could reach n ≥ 30 per
+half, so the sub-field (series) level would have been untestable.
