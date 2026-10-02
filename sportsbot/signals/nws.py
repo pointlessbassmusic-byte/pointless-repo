@@ -32,9 +32,9 @@ DEFAULT_SIGMA = 2.6   # °F std-dev around the point forecast for next-day highs
 # Kalshi settlement stations (same mapping as climatology.py), lat/lon.
 STATION_COORDS = {
     "KXHIGHNY": (40.7794, -73.9692),    # NYC Central Park
-    "KXHIGHCHI": (41.9602, -87.9316),   # Chicago O'Hare
+    "KXHIGHCHI": (41.7861, -87.7524),   # Chicago Midway (rules: CLIMDW)
     "KXHIGHMIA": (25.7881, -80.3169),   # Miami Intl
-    "KXHIGHAUS": (30.3208, -97.7604),   # Austin Camp Mabry
+    "KXHIGHAUS": (30.1945, -97.6699),   # Austin Bergstrom (rules: CLIAUS)
     "KXHIGHDEN": (39.8467, -104.6561),  # Denver Intl
     "KXHIGHLAX": (33.9382, -118.3865),  # Los Angeles Intl
     "KXHIGHPHIL": (39.8683, -75.2311),  # Philadelphia Intl
