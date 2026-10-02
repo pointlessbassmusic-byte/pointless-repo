@@ -47,3 +47,11 @@ Local standard time 11:00, 13:00, 15:00, 17:00 (converted to UTC per station).
   only.
 - Settlement-source caveat: test-half events after the source switch are flagged
   and reported separately.
+
+## Amendment 1 (before any analysis was run)
+- Brackets are 2°F wide, so settled brackets give the high only to within a range.
+  The fit therefore uses the IEM copy of the NWS CLI high, and only on days where it
+  reproduces every settled bracket of that event; mismatches are dropped and counted.
+- The fit half (June–July) predates the switch to The Weather Company source.
+- P&L always uses Kalshi's settlement values.
+- A station × checkpoint needs ≥ 10 fit days, or it is not traded.
