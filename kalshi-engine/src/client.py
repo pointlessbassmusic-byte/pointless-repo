@@ -180,7 +180,8 @@ class KalshiClient:
         return out
 
     def markets_via_events(self, max_events: int = 500,
-                           categories: list[str] | None = None) -> list[Market]:
+                           categories: list[str] | None = None,
+                           exclude_categories: list[str] | None = None) -> list[Market]:
         """Open markets discovered through /events — the curated feed.
 
         The raw /markets firehose is dominated by auto-generated multivariate
@@ -206,6 +207,8 @@ class KalshiClient:
             seen_events += len(events)
             for ev in events:
                 if categories and ev.get("category") not in categories:
+                    continue
+                if exclude_categories and ev.get("category") in exclude_categories:
                     continue
                 out.extend(_parse_market(m) for m in ev.get("markets") or [])
             cursor = data.get("cursor")
