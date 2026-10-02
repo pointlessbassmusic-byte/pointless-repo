@@ -45,6 +45,7 @@ Then:
 | go-live preflight | `... sportsbot doctor` — config/gate/DB/ratings age/keys/venues/clock; exits non-zero on FAIL |
 | trading dashboard (sim/real) | `... sportsbot board` → `/opt/sportsbot/data/board.html`; runs every minute as `sportsbot-board.service` |
 | $100 sim book | runs as `sportsbot-sim.service` (paper mode, live market data); logs via `journalctl -u sportsbot-sim` |
+| Kalshi LIP shadow recorder | `sportsbot-lip.service` → `/opt/sportsbot/data/lip.sqlite` (data only: incentive programs, books, trades, results; never trades) |
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
