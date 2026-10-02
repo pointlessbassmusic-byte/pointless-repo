@@ -572,6 +572,85 @@ case above is withdrawn until a sample repeats Monday's pattern; the
 daily check-in keeps logging. Mark-outs in this sample are within noise of
 zero on 17–21 signals from 2–4 pairs — nothing to read.
 
+## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
+
+_2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of
+every Kalshi series (14,577) and of every market in Polymarket's top 1,000
+events by 24h volume (29,429 markets); (b) one snapshot of both venues'
+order books for every game listed on **both** Kalshi and Polymarket in
+six sports (`sportsbot venue-survey`, data only); (c) the repo's
+cross-category `arb-scanner` run once across all 10,255 Polymarket and
+136,083 Kalshi markets._
+
+**Fees are flat on Kalshi and vary by category on Polymarket.** Kalshi:
+every series is `quadratic` at multiplier 1.0 (1.75 points taker at
+p = 0.5) except 18 MLB series at 0.5 and 14 fee-free one-offs (BTC/ETH
+year-end ranges, annual GDP, a few Iran and Trump political binaries);
+160 series — all the major game markets (NFL, NBA, NHL, EPL, UCL, tennis,
+MLB) — charge makers a quarter of the taker fee, the rest charge makers
+nothing. Polymarket: fees are on for 92.5% of top-event volume, at a
+rate that depends on the category:
+
+| Polymarket category | markets | 24h volume | fee rate | median spread | median liquidity |
+|---|---|---|---|---|---|
+| NFL | 60 | $342k | **0.03** | 0.003 | $103k |
+| NBA | 113 | $273k | **0.03** | 0.001 | $54k |
+| MLB | 165 | $290k | 0.03 | 0.020 | $1.9k |
+| NHL | 180 | $914k | 0.05 | 0.010 | $29k |
+| Tennis | 460 | $1.05M | 0.05 | 0.040 | $2.1k |
+| UFC | 261 | $276k | 0.05 | 0.140 | $3.2k |
+| Soccer | 3,898 | $4.27M | 0.05 / 0.03 | 0.040 | $1.0k |
+| Crypto | 701 | $4.72M | 0.07 / 0.04 | 0.010 | $22k |
+| Politics | 3,447 | $12.3M | 0.04 / 0.05 (88% on) | 0.040 | $2.5k |
+| Geopolitics | 118 | $600k | fee-free (2% on) | 0.030 | $12k |
+| Weather | 1,529 | $1.57M | 0.05 | 0.007 | $2.4k |
+
+**Both-venue snapshot, 156 paired games** (medians; "rt cost" = spread +
+two taker fees at mid, the cost of a round trip taken on that venue):
+
+| sport | pairs | spread K / PM | taker fee at mid K / PM | rt cost K / PM | gap sd | box > 0 | best box | depth K / PM |
+|---|---|---|---|---|---|---|---|---|
+| NFL | 21 | 0.010 / 0.010 | 0.0163 / **0.0070** | 0.043 / **0.025** | 0.006 | 0 of 21 | −0.013 | 11.9k / 21.3k |
+| NHL | 48 | 0.030 / 0.010 | 0.0173 / 0.0123 | 0.065 / **0.035** | 0.009 | 0 of 48 | −0.024 | 60 / 31 |
+| NBA (preseason) | 23 | 0.050 / 0.050 | 0.0175 / 0.0115 | 0.083 / 0.069 | 0.100* | 0 of 23 | −0.019 | 935 / 31 |
+| UFC | 13 | 0.010 / 0.010 | 0.0154 / 0.0108 | 0.041 / **0.032** | 0.010 | 0 of 13 | −0.013 | 5.2k / 13.8k |
+| tennis | 14 | 0.010 / 0.010 | 0.0156 / 0.0113 | 0.041 / **0.033** | 0.006 | 0 of 14 | −0.0004 | 3.5k / 4.7k |
+| MLB (postseason) | 12 | 0.015 / 0.010 | **0.0086** / 0.0122 | **0.032** / 0.035 | 0.008 | 0 of 12 | −0.019 | 865 / 37 |
+
+\* The NBA "gap" is not a price gap: Kalshi's preseason books were
+0.14 / 0.87 placeholders against live Polymarket quotes. Every other
+sport's venues agree to within a tick, as in Result 10.
+
+**No box anywhere.** Not one of 156 pairs lets YES on one venue plus NO
+on the other be bought under $1 after fees; the closest is tennis at
+−0.04 points. The cross-category `arb-scanner` (text-similarity pairing,
+fees modelled as Kalshi 0.07 flat and Polymarket zero — both now wrong,
+see below) matched 79 pairs; the only "edges" above 2% net are 2.4–2.7%
+locked for a year or more on 3–7-cent longshots (a 2028 nominee, an IPO
+"before 2027") or on questions that are not the same question ("best AI
+model" against "best coding model", flagged suspect by its own
+quarantine). Nothing to run money through.
+
+**Where fees are more favourable.** On Polymarket, NFL and NBA at 0.03
+are the cheapest sports markets on either venue: 0.7 points taker at the
+middle, a 0.1–0.3-point spread and five-figure depth. They are also the
+most efficient markets on either venue, which is why they are cheap —
+the fee is lower where there is least to win. Kalshi is cheaper only for
+MLB (0.5 multiplier: 0.86 vs 1.22 points at mid), and Kalshi's fee-free
+series are a dozen multi-month political and macro one-offs with no
+model behind them here. Polymarket's fee-free categories (geopolitics,
+some politics) are likewise outside anything this repo can price. For
+the US-legal path the comparison that matters is Polymarket US against
+Kalshi, and Polymarket US's sports fee schedule has not been measured.
+
+**What changes:** nothing in the sim. Adding sports does not add edge
+when the price on both venues is already the same price; it adds fee
+exposure. The survey is one command (`sportsbot venue-survey`) and worth
+re-running when the NBA and NHL seasons are live, since both venues'
+books there were thin or placeholders tonight. The `arb-scanner` fee
+constants should be updated to the per-series Kalshi multiplier and the
+per-market Polymarket schedule before its output is read again.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
