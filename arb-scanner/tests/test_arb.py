@@ -1,16 +1,16 @@
 from datetime import datetime, timedelta, timezone
 
 from src.arb import ArbDetector, kalshi_fee
-from src.feeds import BinaryMarket
+from src.feeds import BinaryMarket, _poly_fee_rate
 from src.matcher import MarketPair, find_pairs, jaccard, tokens
 
 
 def bm(platform, mid, question="Will X happen?", yes_ask=None, no_ask=None,
-       close=None, volume=1000):
+       close=None, volume=1000, fee_rate=None):
     return BinaryMarket(
         platform=platform, market_id=mid, question=question,
         yes_bid=None, yes_ask=yes_ask, no_bid=None, no_ask=no_ask,
-        volume=volume, close_time=close,
+        volume=volume, close_time=close, fee_rate=fee_rate,
     )
 
 
@@ -21,7 +21,7 @@ def test_kalshi_fee_peaks_at_half():
 
 def test_cross_platform_arb_detected_and_fee_gated():
     det = ArbDetector({"min_net_edge": 0.02, "kalshi_fee_rate": 0.07})
-    p = bm("polymarket", "tok", yes_ask=0.40)
+    p = bm("polymarket", "tok", yes_ask=0.40, fee_rate=0.0)
     k = bm("kalshi", "TICK", no_ask=0.50)
     pair = MarketPair(poly=p, kalshi=k, similarity=0.8)
     opps = det.scan_pairs([pair])
@@ -97,3 +97,42 @@ def test_disjoint_strike_numbers_never_pair():
                     close=now + timedelta(days=1))
     pairs = find_pairs([p], [wrong_band, right_band], min_similarity=0.3)
     assert len(pairs) == 1 and pairs[0].kalshi.market_id == "KX8283"
+
+
+def test_gamma_fee_schedule_parsed_and_unknown_is_not_free():
+    on = {"feesEnabled": True, "feeSchedule": {"exponent": 1, "rate": 0.03, "takerOnly": True}}
+    assert _poly_fee_rate(on) == 0.03
+    assert _poly_fee_rate({"feesEnabled": False, "feeSchedule": {"rate": 0.05}}) == 0.0
+    # Gamma silent, or fees on with no schedule: unknown, so the detector's
+    # default applies rather than zero
+    assert _poly_fee_rate({}) is None
+    assert _poly_fee_rate({"feesEnabled": True}) is None
+
+
+def test_polymarket_taker_fee_is_charged_per_market():
+    """Polymarket charges rate * P * (1-P) per share (0.05 on most markets in
+    2026), not zero. A box that clears with Polymarket free must be charged
+    its leg's fee, at the market's own rate or the default when unknown."""
+    det = ArbDetector({"min_net_edge": 0.0, "kalshi_fee_rate": 0.07, "poly_fee_rate": 0.05})
+    k = bm("kalshi", "TICK", no_ask=0.50)
+    gross = 1 - 0.47 - 0.50
+    kfee = 0.07 * 0.5 * 0.5
+    for rate, charged in ((0.03, 0.03), (None, 0.05), (0.0, 0.0)):
+        p = bm("polymarket", "tok", yes_ask=0.47, fee_rate=rate)
+        opps = det.scan_pairs([MarketPair(poly=p, kalshi=k, similarity=0.8)])
+        assert len(opps) == 1
+        assert abs(opps[0].net_edge - round(gross - kfee - charged * 0.47 * 0.53, 4)) < 1e-9
+
+
+def test_fees_do_not_launder_a_suspect_match_into_an_arb():
+    """Live, Oct 2026: 'best AI model' (Polymarket, YES 0.54) against 'best
+    coding model' (Kalshi, NO 0.29) is a 17-point gap. Charging Polymarket's
+    fee took net to 14.6%, under max_net_edge, and relabelled the
+    wrong-question pair an arb. Plausibility is judged on the gross gap."""
+    det = ArbDetector({"min_net_edge": 0.02, "max_net_edge": 0.15,
+                       "kalshi_fee_rate": 0.07, "poly_fee_rate": 0.05})
+    p = bm("polymarket", "tok", yes_ask=0.54)
+    k = bm("kalshi", "TICK", no_ask=0.29)
+    opps = det.scan_pairs([MarketPair(poly=p, kalshi=k, similarity=0.58)])
+    assert len(opps) == 1 and opps[0].net_edge < 0.15
+    assert opps[0].kind == "suspect_match"

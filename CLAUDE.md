@@ -293,8 +293,9 @@ python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues
   exposure (`live_exposure` excludes settled tickers/tokens).
 - HTTP retries are GET-only except read-only POSTs (CLOB `/prices`); order
   placement must never auto-retry.
-- arb-scanner is detect-only. Cross-platform "edges" above `max_net_edge` are
-  `suspect_match` (wrong-question pairs), not opportunities.
+- arb-scanner is detect-only. Cross-platform gaps above `max_net_edge` are
+  `suspect_match` (wrong-question pairs), not opportunities — judged on the
+  GROSS gap, since fees shrink net but never make two questions the same.
 
 ### API landmines (all discovered the hard way — tests cover them)
 
@@ -325,10 +326,14 @@ python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues
   on the hour is the settlement price. `HourlySeries` keys bars by close
   time and a test pins it. Check any candle feed's stamp against a finer
   resolution before scoring a model with it.
-- Polymarket sports markets charge a taker fee of 0.05 x p x (1 - p) per
-  share (1.25c at 0.50; makers pay nothing and get a 15% rebate), per the
-  "Sports Market Fees" page and Gamma's `feeSchedule`. Gamma's raw
-  `takerBaseFee` is not the fee. Cost it in any Polymarket sports strategy.
+- Polymarket is not fee-free. Takers pay rate x p x (1 - p) per share, the
+  rate set per market in Gamma's `feeSchedule` when `feesEnabled`: 0.03 NFL
+  and NBA, 0.05 most other sports, the Fed decision buckets, weather and
+  most politics, 0 where fees are off (most geopolitics) — 92.5% of
+  top-event volume pays (EDGE_VERDICT Result 11). Makers pay nothing and get
+  a 15-25% rebate. Gamma's raw `takerBaseFee` is not the fee. arb-scanner and
+  the Fed recorder read each market's own rate (`BinaryMarket.fee_rate`) and
+  assume 0.05, not zero, when Gamma is silent. Cost it in any strategy.
 - Live orders use the official `polymarket-client` py-sdk (same SDK as
   sportsbot), lazily imported so dry-run needs nothing installed. The old
   `py-clob-client` is archived/dead — never reintroduce it.

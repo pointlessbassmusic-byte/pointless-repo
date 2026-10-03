@@ -64,11 +64,12 @@ def test_rule_fires_only_at_price_within_window_with_agreement():
     assert ks.kalshi_ticker == "KXFEDDECISION-26OCT-H25"
     assert abs(ks.lead_days - 3.25) < 0.01
     assert abs(ks.other_mid - 0.92) < 1e-9
-    # Kalshi net return folds the taker fee in; Polymarket pays no fee
+    # both venues' net returns fold the taker fee in: Kalshi 0.07, and
+    # Polymarket's Fed markets at the 0.05 default when Gamma gives no schedule
     fee = 0.07 * 0.92 * 0.08
     assert abs(ks.net_return - (1 - 0.92 - fee) / 0.92) < 1e-4
     ps = next(s for s in fired if s.platform == "polymarket")
-    assert abs(ps.net_return - (1 - 0.93) / 0.93) < 1e-4
+    assert abs(ps.net_return - (1 - 0.93 - 0.05 * 0.93 * 0.07) / 0.93) < 1e-4
 
     # below the threshold: the 0.80-0.90 band is untested, the rule stays shut
     assert w.evaluate([kalshi("H25", 0.86, 0.88), poly(HIKE_Q, 0.87, 0.89)], now=NOW) == []
@@ -161,3 +162,16 @@ def test_export_csv_round_trips_the_signal_table(tmp_path):
     assert all(r["result"] == "yes" and r["meeting"] == "2026-10" for r in rows)
     assert export_csv(sqlite3.connect(":memory:"), out) == 0      # empty table still writes a header
     assert out.read_text().strip() == ",".join(EXPORT_FIELDS)
+
+
+def test_polymarket_net_return_uses_the_markets_own_fee_rate():
+    """Polymarket is not fee-free: its Fed markets carried feeSchedule rate
+    0.05 in Oct 2026. A recorded row must charge the rate Gamma reported for
+    that market, and charge nothing only when Gamma says fees are off."""
+    w = FedWatcher({"min_price": 0.90, "max_lead_days": 7, "agree_min": 0.85})
+    k = kalshi("H25", 0.91, 0.92)
+    for rate in (0.05, 0.03, 0.0):
+        p = poly(HIKE_Q, 0.95, 0.96)
+        p.fee_rate = rate
+        ps = next(s for s in w.evaluate([k, p], now=NOW) if s.platform == "polymarket")
+        assert abs(ps.net_return - (1 - 0.96 - rate * 0.96 * 0.04) / 0.96) < 1e-4

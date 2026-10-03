@@ -31,6 +31,9 @@ class BinaryMarket:
     no_ask: float | None
     volume: float
     close_time: datetime | None
+    # taker fee = fee_rate * P * (1-P) per contract; None = venue default.
+    # Polymarket sets it per market (Gamma feeSchedule.rate), Kalshi per series.
+    fee_rate: float | None = None
 
 
 def _parse_dt(s: str | None) -> datetime | None:
@@ -40,6 +43,21 @@ def _parse_dt(s: str | None) -> datetime | None:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
         return None
+
+
+def _poly_fee_rate(m: dict) -> float | None:
+    """A Gamma market's taker fee rate: 0 when fees are off, the schedule's
+    rate when on, None when Gamma does not say (the detector then assumes the
+    configured default rather than free)."""
+    enabled = m.get("feesEnabled")
+    if enabled is False:
+        return 0.0
+    if enabled is True:
+        try:
+            return float((m.get("feeSchedule") or {})["rate"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
 
 
 def _f(v) -> float | None:
@@ -122,20 +140,20 @@ class PolymarketFeed:
                     # e.g. ["Team A", "Team B"]: phrase as a YES question about outcome 0
                     question = f"{question} {outcomes[0]}"
                 raw.append((question, _parse_dt(m.get("endDate")), tokens[0], tokens[1],
-                            float(m.get("volumeNum") or m.get("volume") or 0)))
+                            float(m.get("volumeNum") or m.get("volume") or 0), _poly_fee_rate(m)))
 
         # batch CLOB quotes for every token (both sides of every market)
         all_tokens = [t for row in raw for t in (row[2], row[3])]
         quotes = self._clob_prices(all_tokens)
 
         out = []
-        for question, close, yes_tok, no_tok, volume in raw:
+        for question, close, yes_tok, no_tok, volume, fee_rate in raw:
             yq, nq = quotes.get(yes_tok, {}), quotes.get(no_tok, {})
             out.append(BinaryMarket(
                 platform="polymarket", market_id=yes_tok, question=question,
                 yes_bid=_f(yq.get("BUY")), yes_ask=_f(yq.get("SELL")),
                 no_bid=_f(nq.get("BUY")), no_ask=_f(nq.get("SELL")),
-                volume=volume, close_time=close,
+                volume=volume, close_time=close, fee_rate=fee_rate,
             ))
         return out
 

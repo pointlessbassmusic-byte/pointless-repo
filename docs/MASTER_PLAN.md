@@ -251,6 +251,12 @@ Pipeline per cycle:
       daily at 13:00 UTC from a session routine and exports its signal table to
       `arb-scanner/docs/fed_signals.csv` after every run, so the record survives the
       ephemeral sandbox; a fire or settlement is committed the same day.
+      2026-10-03: Polymarket rows were costed fee-free, but Gamma's feeSchedule puts
+      the Fed buckets at rate 0.05 (0.25c per $1 at 0.95, about a tenth of the measured +2.1%). Both
+      the recorder and the cross-venue detector now charge each market's own Gamma
+      rate (0.05 when unreported), and suspect matches are judged on the gross gap so
+      a fee cannot relabel a wrong-question pair as an arb. No rows had been recorded,
+      so nothing needed restating.
 - [ ] Decide, on the first settled fires, whether the Kalshi leg goes to kalshi-engine's
       executor in dry-run. Blocked on the record above; the generic ensemble dilutes a
       2-3c edge below `min_edge` and `max_price: 0.95` excludes the buckets, so it needs

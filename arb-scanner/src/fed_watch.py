@@ -186,11 +186,15 @@ class FedWatcher:
         # the reference agreeing
         self.agree_min = float(cfg.get("agree_min", 0.85))
         self.kalshi_fee_rate = float(cfg.get("kalshi_fee_rate", 0.07))
+        # Polymarket's Fed markets charge takers too (feeSchedule rate 0.05 in
+        # Oct 2026); this default applies only when Gamma omits the schedule
+        self.poly_fee_rate = float(cfg.get("poly_fee_rate", 0.05))
         self.stake_usd = float(cfg.get("stake_usd", 25))
 
-    def net_return(self, platform: str, ask: float) -> float:
-        fee = kalshi_fee(ask, self.kalshi_fee_rate) if platform == "kalshi" else 0.0
-        return (1 - ask - fee) / ask
+    def net_return(self, platform: str, ask: float, fee_rate: float | None = None) -> float:
+        if fee_rate is None:
+            fee_rate = self.kalshi_fee_rate if platform == "kalshi" else self.poly_fee_rate
+        return (1 - ask - kalshi_fee(ask, fee_rate)) / ask
 
     def evaluate(self, markets: list[BinaryMarket],
                  now: datetime | None = None) -> list[FedSignal]:
@@ -220,7 +224,7 @@ class FedWatcher:
                     market_id=venue.market_id,
                     kalshi_ticker=st.kalshi.market_id if st.kalshi else None,
                     ask=venue.yes_ask, other_mid=other_mid, lead_days=round(lead, 2),
-                    net_return=round(self.net_return(venue.platform, venue.yes_ask), 4),
+                    net_return=round(self.net_return(venue.platform, venue.yes_ask, venue.fee_rate), 4),
                     stake_usd=self.stake_usd, detected_at=now.isoformat(),
                 ))
         return signals
