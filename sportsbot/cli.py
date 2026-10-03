@@ -398,6 +398,26 @@ def twobook_report(db: str = typer.Option("data/twobook.sqlite"),
     console.print(format_report(report(db, step=step)))
 
 
+@app.command("venue-survey")
+def venue_survey(sports: str = typer.Option("nfl,nba,nhl,ufc,tennis,mlb"),
+                 out: str = typer.Option("", help="also dump the paired books to this JSON path")):
+    """One snapshot of both venues' books for every game listed on BOTH Kalshi
+    and Polymarket: spreads, taker fee at mid, round-trip cost, gap, depth,
+    and whether any box (YES one venue + NO the other) locks a profit after
+    fees. Data only (substrate_bridge); public reads, no orders."""
+    import dataclasses
+    import json
+
+    from sportsbot.substrate_bridge import venue_survey as vs
+
+    pairs, summ = vs.run(sports=tuple(x.strip() for x in sports.split(",") if x.strip()))
+    console.print(vs.format_summary(summ))
+    if out:
+        with open(out, "w") as fh:
+            json.dump([dataclasses.asdict(p) for p in pairs], fh)
+        console.print(f"wrote {len(pairs)} pairs to {out}")
+
+
 @app.command("verify-fees")
 def verify_fees(config: str = CONFIG_OPT,
                 note: str = typer.Option(..., help="what you traded and the fee you saw")):
