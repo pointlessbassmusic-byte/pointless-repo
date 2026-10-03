@@ -83,3 +83,13 @@ def test_recorder_stores_programs_snapshots_and_never_posts(tmp_path):
     assert json.loads(row[0]) == [[0.40, 10.0]] and json.loads(row[1]) == [[0.55, 20.0]]
     assert r.db.execute("SELECT category, weight FROM panel").fetchone() == ("Climate and Weather", 5.0)
     assert not hasattr(c, "post")      # the recorder has no write path at all
+
+
+def test_pull_trades_logs_pull_time_even_with_no_trades(tmp_path):
+    # the analysis only credits rewards up to the last pull, so a market with no
+    # trades must still record that it was checked
+    c = _Client({"/markets/trades": {"trades": [], "cursor": ""}})
+    r = Recorder(str(tmp_path / "lip.sqlite"), rps=1000, client=c)
+    r.db.execute("INSERT INTO panel VALUES ('T', 'x', 100, 1.0)")
+    r.pull_trades("T")
+    assert r.db.execute("SELECT ts FROM pulls WHERE ticker='T'").fetchone()[0] > 100

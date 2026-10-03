@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE INDEX IF NOT EXISTS trade_ticker ON trades(ticker, ts);
 CREATE TABLE IF NOT EXISTS results (
   ticker TEXT PRIMARY KEY, result TEXT, settlement_value REAL, ts INTEGER);
+CREATE TABLE IF NOT EXISTS pulls (
+  ticker TEXT PRIMARY KEY, ts INTEGER);
 CREATE TABLE IF NOT EXISTS panel (
   ticker TEXT PRIMARY KEY, category TEXT, added_ts INTEGER, weight REAL);
 """
@@ -206,6 +208,7 @@ class Recorder:
                         (int(time.time()), ticker, json.dumps(yes), json.dumps(no)))
 
     def pull_trades(self, ticker: str) -> None:
+        pulled_at = int(time.time())
         last = self.db.execute("SELECT MAX(ts) FROM trades WHERE ticker=?", (ticker,)).fetchone()[0]
         since = last or self.db.execute("SELECT added_ts FROM panel WHERE ticker=?", (ticker,)).fetchone()[0]
         cur = None
@@ -221,6 +224,8 @@ class Recorder:
             cur = d.get("cursor")
             if not cur or not d.get("trades"):
                 break
+        # fills are only known up to here; the analysis ignores later snapshots
+        self.db.execute("INSERT OR REPLACE INTO pulls VALUES (?,?)", (ticker, pulled_at))
 
     def pull_results(self) -> None:
         todo = [r[0] for r in self.db.execute(

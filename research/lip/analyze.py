@@ -5,6 +5,8 @@ For each snapshot of a rewarded market, and each side (YES bids, NO bids):
   size Q contracts (default 100)
   reward  = period_reward * unit * (recorded fraction of the period) * (share of
             combined score, averaged over snapshots; random times -> unbiased)
+  coverage: each snapshot stands for the time to the next one, capped at 15 min,
+            and only up to the market's last trade pull (fills known)
   fills   = trades between this snapshot and the next breach our price
             (queue-aware, sportsbot.signals.lip.simulate_fill); each fill is held
             to settlement, then we re-quote at the next snapshot
@@ -29,6 +31,12 @@ for pid, t, s, e, rew, dbps, tgt in db.execute(
         "SELECT id, market_ticker, start_ts, end_ts, period_reward, discount_bps, target_size FROM programs"):
     progs[t].append((s, e, rew, dbps / 1e4, tgt, pid))
 results = {t: v for t, v in db.execute("SELECT ticker, settlement_value FROM results")}
+MAX_GAP = 900   # a snapshot represents at most 15 min; longer gaps = recorder down
+try:
+    pulled = {t: ts for t, ts in db.execute("SELECT ticker, ts FROM pulls")}
+except sqlite3.OperationalError:   # older DBs: no pull log -> last trade seen
+    pulled = {}
+last_trade = {t: ts for t, ts in db.execute("SELECT ticker, MAX(ts) FROM trades GROUP BY ticker")}
 cats = {t: c for t, c in db.execute("SELECT ticker, category FROM panel")}
 
 
@@ -51,7 +59,7 @@ def combined_share(yes, no, quotes, tgt, disc):
     return ours / tot if tot > 0 else 0.0
 
 
-acc = defaultdict(lambda: defaultdict(lambda: {"share": [], "loss": 0.0, "fills": 0, "settled": True, "t0": None, "t1": None}))
+acc = defaultdict(lambda: defaultdict(lambda: {"share": [], "loss": 0.0, "fills": 0, "settled": True, "covered": 0.0}))
 tickers = [r[0] for r in db.execute("SELECT DISTINCT ticker FROM snapshots")]
 for tk in tickers:
     snaps = db.execute("SELECT ts, yes_bids, no_bids FROM snapshots WHERE ticker=? ORDER BY ts", (tk,)).fetchall()
@@ -67,14 +75,17 @@ for tk in tickers:
             continue
         by, bn = max(p for p, _ in yes), max(p for p, _ in no)
         last_mid = (by + (1 - bn)) / 2
-        nxt = snaps[i + 1][0] if i + 1 < len(snaps) else ts + 600
+        nxt = min(snaps[i + 1][0] if i + 1 < len(snaps) else ts + MAX_GAP, ts + MAX_GAP)
+        # fills are only known up to the last trade pull: count no reward past it
+        known = pulled.get(tk, last_trade.get(tk, 0))
+        if nxt > known:
+            continue
         window = [t for t in trades if ts < t["ts"] <= nxt]
         for variant, off in (("join", 0.0), ("behind1", TICK)):
             quotes = [("yes", round(by - off, 2)), ("no", round(bn - off, 2))]
             rec = acc[variant][(tk, prog[5])]
             rec["share"].append(combined_share(yes, no, quotes, prog[4], prog[3]))
-            rec["t0"] = ts if rec["t0"] is None else rec["t0"]
-            rec["t1"] = nxt
+            rec["covered"] += max(0, min(nxt, prog[1]) - max(ts, prog[0]))
             for side, px in quotes:
                 ahead = sum(s for p, s in (yes if side == "yes" else no) if p >= px - 1e-9)
                 if px <= 0 or not simulate_fill(px, ahead, window, side):
@@ -91,7 +102,7 @@ for variant, recs in acc.items():
     for (tk, pid), r in recs.items():
         s, e, rew, disc, tgt, _ = next(p for p in progs[tk] if p[5] == pid)
         # prorate: only the recorded window counts, matching the fill window
-        covered = max(0, min(e, r["t1"]) - max(s, r["t0"])) / max(1, e - s)
+        covered = r["covered"] / max(1, e - s)
         reward = rew * REWARD_UNIT_USD * covered * (sum(r["share"]) / len(r["share"]))
         rows.append((tk, cats.get(tk, "?"), reward, r["loss"], r["fills"], r["settled"], len(r["share"])))
     print(f"\n== {variant}, Q={Q:.0f} per side; {len(rows)} market-programs ==")
