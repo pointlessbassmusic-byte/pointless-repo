@@ -10,6 +10,11 @@ into a probability:
     "81° or above" (floor=80)         ->  P(T > 80.5)
 
 One forecast fetch per station per cache TTL covers every market and date.
+
+The generator stands down once a day's extremum window has closed in
+station-local time: the low is set overnight and the high by late afternoon,
+so from then on the market knows the realized value and we only hold a
+forecast. Lead time is measured in station-local days for the same reason.
 """
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ import logging
 import math
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..base import Context, Forecast, SignalGenerator
 from ...client import Market
@@ -100,6 +105,61 @@ def _event_date(ticker: str) -> date | None:
         return None
 
 
+def bucket_center(floor: float | None, cap: float | None) -> float | None:
+    """The temperature a strike band is centred on, in band_probability's terms."""
+    if floor is not None and cap is not None:
+        return (floor + cap) / 2
+    if cap is not None:      # "cap-1 or below" => T < cap
+        return cap - 1.0
+    if floor is not None:    # "floor+1 or above" => T > floor
+        return floor + 1.0
+    return None
+
+
+def market_implied_moments(markets: list[Market], event_ticker: str,
+                           min_buckets: int = 4,
+                           min_total_prob: float = 0.8
+                           ) -> tuple[float, float] | None:
+    """(mean, stddev) temperature implied by an event's own strike-band prices.
+
+    A station-day's bands are mutually exclusive and exhaustive, so their YES
+    prices form a distribution over whole degrees whose mean is the market's
+    expected temperature. A partial set (prices summing well below 1) says too
+    little to compare against, so it returns None rather than a skewed mean.
+
+    The stddev is a floor: the open-ended end bands get the centre of the
+    nearest whole degree, pulling in whatever mass sits further out.
+    """
+    buckets: list[tuple[float, float]] = []
+    for m in markets:
+        if m.event_ticker != event_ticker:
+            continue
+        center = bucket_center(m.floor_strike, m.cap_strike)
+        if center is None:
+            continue
+        if m.yes_bid > 0 and m.yes_ask > 0:
+            price = (m.yes_bid + m.yes_ask) / 2
+        elif m.yes_ask > 0:      # no bid on a deep tail band: the ask bounds it
+            price = m.yes_ask / 2
+        else:
+            continue
+        buckets.append((center, price))
+    total = sum(p for _, p in buckets)
+    if len(buckets) < min_buckets or total < min_total_prob:
+        return None
+    mean = sum(c * p for c, p in buckets) / total
+    var = sum(p * (c - mean) ** 2 for c, p in buckets) / total
+    return mean, math.sqrt(var)
+
+
+def market_implied_mean(markets: list[Market], event_ticker: str,
+                        min_buckets: int = 4,
+                        min_total_prob: float = 0.8) -> float | None:
+    """Just the mean from market_implied_moments."""
+    moments = market_implied_moments(markets, event_ticker, min_buckets, min_total_prob)
+    return None if moments is None else moments[0]
+
+
 def _normal_cdf(x: float, mu: float, sigma: float) -> float:
     return 0.5 * (1 + math.erf((x - mu) / (sigma * math.sqrt(2))))
 
@@ -126,9 +186,16 @@ class WeatherHigh(SignalGenerator):
         self.sigma_base = float(cfg.get("sigma_base_f", 1.8))
         self.sigma_per_day = float(cfg.get("sigma_per_day_f", 0.6))
         self.cache_ttl = float(cfg.get("cache_ttl_sec", 1800))
+        # station-local hour after which the day's extremum is effectively
+        # realized and the market's price beats our forecast
+        self.realized_hour_min = int(cfg.get("realized_hour_min", 10))
+        self.realized_hour_max = int(cfg.get("realized_hour_max", 17))
+        # how far our forecast may sit from the market-implied mean, in sigmas,
+        # before we read the gap as a broken input rather than an edge
+        self.max_divergence_sigma = float(cfg.get("max_divergence_sigma", 1.5))
         self.http = retrying_session()
-        # series prefix -> (fetched_monotonic, {iso_date: forecast_high_f})
-        self._cache: dict[str, tuple[float, dict[str, float]]] = {}
+        # prefix -> (fetched_monotonic, {iso_date: forecast_f}, utc_offset_sec)
+        self._cache: dict[str, tuple[float, dict[str, float], int]] = {}
 
     def _forecasts(self, prefix: str, station: dict) -> dict[str, float]:
         cached = self._cache.get(prefix)
@@ -156,12 +223,24 @@ class WeatherHigh(SignalGenerator):
                 daily = loc.get("daily", {})
                 self._cache[name] = (now, {
                     d: t for d, t in zip(daily.get("time", []), daily.get(var, []))
-                    if t is not None})
+                    if t is not None}, int(loc.get("utc_offset_seconds") or 0))
         except Exception:  # noqa: BLE001 — a dead weather feed must not sink the cycle
             log.warning("weather batch fetch failed (%s)", var, exc_info=True)
             for name, _ in group:  # cache the failure briefly: no per-market retries
-                self._cache.setdefault(name, (now, {}))
-        return self._cache.get(prefix, (now, {}))[1]
+                self._cache.setdefault(name, (now, {}, 0))
+        return self._cache.get(prefix, (now, {}, 0))[1]
+
+    def sigma_for(self, lead_days: int) -> float:
+        """Forecast-error stddev at this lead, in F."""
+        return self.sigma_base + self.sigma_per_day * max(0, lead_days)
+
+    def _local_now(self, prefix: str) -> datetime:
+        """Station-local wall clock, from open-meteo's utc_offset_seconds (DST
+        correct, no tzdata needed). Both the lead time and the realized-window
+        check need local dates: at 01:00 UTC a US station is still on yesterday,
+        which otherwise reads a same-day market as a past-day one."""
+        cached = self._cache.get(prefix)
+        return datetime.now(timezone.utc) + timedelta(seconds=cached[2] if cached else 0)
 
     def forecast(self, market: Market, ctx: Context) -> Forecast | None:
         prefix = market.ticker.split("-", 1)[0]
@@ -178,15 +257,40 @@ class WeatherHigh(SignalGenerator):
         # by weather_calibrate from Kalshi-settled truth. Grid-cell forecasts can
         # run systematically hot/cold vs the exact settlement station.
         mu += float(station.get("bias_f", 0.0))
-        days_ahead = max(0, (target - datetime.now(timezone.utc).date()).days)
-        sigma = self.sigma_base + self.sigma_per_day * days_ahead
+        # A day whose extremum has already been realized belongs to the market:
+        # it sees the observed value, we only have a forecast. (Seen live: a
+        # KXLOWTSATX day the book priced 0.89 YES scored 0.05 on this arm, and
+        # the engine sank its largest stake of the cycle into the NO side.)
+        local_now = self._local_now(prefix)
+        lead_days = (target - local_now.date()).days
+        if lead_days < 0:
+            return None
+        cutoff = (self.realized_hour_min if station.get("variable") == "min"
+                  else self.realized_hour_max)
+        if lead_days == 0 and local_now.hour >= cutoff:
+            return None
+        sigma = self.sigma_for(lead_days)
+        # A multi-degree gap against the market's own distribution is not an
+        # edge we found, it is a sign our input describes something else — a
+        # grid cell away from the settlement station, or a source that reports
+        # the extremum differently. Fitting that out needs settled truth
+        # (weather_calibrate's bias_f), so until then, stand down.
+        mkt_mu = market_implied_mean(ctx.markets, market.event_ticker or "")
+        if mkt_mu is not None and abs(mu - mkt_mu) > self.max_divergence_sigma * sigma:
+            log.debug("weather: skipping %s %s — forecast %.1fF vs market %.1fF "
+                      "(%.1f sigma)", prefix, target, mu, mkt_mu,
+                      abs(mu - mkt_mu) / sigma)
+            return None
+
         p = band_probability(mu, sigma, market.floor_strike, market.cap_strike)
         if p is None:
             return None
+        divergence = f"; market implies {mkt_mu:.1f}F" if mkt_mu is not None else ""
         return Forecast(
             generator=self.name,
             prob_yes=p,
             confidence=self.confidence,
             rationale=(f"forecast high {mu:.1f}F ±{sigma:.1f} for {target}; "
-                       f"band [{market.floor_strike},{market.cap_strike}] -> {p:.2f}"),
+                       f"band [{market.floor_strike},{market.cap_strike}] -> {p:.2f}"
+                       f"{divergence}"),
         )

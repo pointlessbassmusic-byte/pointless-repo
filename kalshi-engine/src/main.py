@@ -115,7 +115,7 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
     # back to last_price, which can be hours stale and would poison the history
     # that mean-reversion/momentum trade on.
     ctx = Context(price_history=db.price_history([m.ticker for m in markets]),
-                  scan_interval_sec=cfg.scan_interval_sec)
+                  scan_interval_sec=cfg.scan_interval_sec, markets=markets)
     db.record_prices({
         m.ticker: (m.yes_bid + m.yes_ask) / 2
         for m in markets if m.yes_bid > 0 and m.yes_ask > 0

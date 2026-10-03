@@ -31,6 +31,9 @@ class BinaryMarket:
     no_ask: float | None
     volume: float
     close_time: datetime | None
+    # taker fee = fee_rate * P * (1-P) per contract; None = venue default.
+    # Polymarket sets it per market (Gamma feeSchedule.rate), Kalshi per series.
+    fee_rate: float | None = None
 
 
 def _parse_dt(s: str | None) -> datetime | None:
@@ -40,6 +43,21 @@ def _parse_dt(s: str | None) -> datetime | None:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
         return None
+
+
+def _poly_fee_rate(m: dict) -> float | None:
+    """A Gamma market's taker fee rate: 0 when fees are off, the schedule's
+    rate when on, None when Gamma does not say (the detector then assumes the
+    configured default rather than free)."""
+    enabled = m.get("feesEnabled")
+    if enabled is False:
+        return 0.0
+    if enabled is True:
+        try:
+            return float((m.get("feeSchedule") or {})["rate"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
 
 
 def _f(v) -> float | None:
@@ -71,10 +89,38 @@ class PolymarketFeed:
             offset += 100
         return events
 
+    def _tagged_events(self, tag_slug: str, max_events: int = 300) -> list[dict]:
+        events, offset = [], 0
+        while offset < max_events:
+            r = self.http.get(f"{GAMMA_BASE}/events", params={
+                "tag_slug": tag_slug, "closed": "false", "active": "true",
+                "limit": 100, "offset": offset,
+            }, timeout=30)
+            r.raise_for_status()
+            batch = r.json()
+            if not isinstance(batch, list) or not batch:
+                break
+            events.extend(batch)
+            if len(batch) < 100:
+                break
+            offset += 100
+        return events
+
     def markets(self, max_events: int = 500, min_liquidity: float = 1000) -> list[BinaryMarket]:
         """One BinaryMarket per outcome token, with CLOB quotes for both sides."""
+        out = self._from_events(self._events(max_events), min_liquidity)
+        log.info("polymarket feed: %d binary markets", len(out))
+        return out
+
+    def tagged_markets(self, tag_slug: str, min_liquidity: float = 0) -> list[BinaryMarket]:
+        """Every binary market under one Gamma tag (e.g. fed-rates), quoted."""
+        out = self._from_events(self._tagged_events(tag_slug), min_liquidity)
+        log.info("polymarket feed: %d binary markets tagged %s", len(out), tag_slug)
+        return out
+
+    def _from_events(self, events: list[dict], min_liquidity: float) -> list[BinaryMarket]:
         raw = []  # (question, close, yes_token, no_token) — binary markets only
-        for ev in self._events(max_events):
+        for ev in events:
             title = ev.get("title", "")
             for m in ev.get("markets", []) or []:
                 if m.get("closed") or not m.get("active"):
@@ -94,22 +140,21 @@ class PolymarketFeed:
                     # e.g. ["Team A", "Team B"]: phrase as a YES question about outcome 0
                     question = f"{question} {outcomes[0]}"
                 raw.append((question, _parse_dt(m.get("endDate")), tokens[0], tokens[1],
-                            float(m.get("volumeNum") or m.get("volume") or 0)))
+                            float(m.get("volumeNum") or m.get("volume") or 0), _poly_fee_rate(m)))
 
         # batch CLOB quotes for every token (both sides of every market)
         all_tokens = [t for row in raw for t in (row[2], row[3])]
         quotes = self._clob_prices(all_tokens)
 
         out = []
-        for question, close, yes_tok, no_tok, volume in raw:
+        for question, close, yes_tok, no_tok, volume, fee_rate in raw:
             yq, nq = quotes.get(yes_tok, {}), quotes.get(no_tok, {})
             out.append(BinaryMarket(
                 platform="polymarket", market_id=yes_tok, question=question,
                 yes_bid=_f(yq.get("BUY")), yes_ask=_f(yq.get("SELL")),
                 no_bid=_f(nq.get("BUY")), no_ask=_f(nq.get("SELL")),
-                volume=volume, close_time=close,
+                volume=volume, close_time=close, fee_rate=fee_rate,
             ))
-        log.info("polymarket feed: %d binary markets", len(out))
         return out
 
     def _clob_prices(self, token_ids: list[str]) -> dict[str, dict]:
@@ -147,19 +192,50 @@ class KalshiFeed:
             for ev in events:
                 ev_title = ev.get("title", "")
                 for m in ev.get("markets") or []:
-                    # a market's own title carries the specific threshold/outcome;
-                    # yes_sub_title disambiguates within multi-market events
-                    q = " ".join(filter(None, [ev_title, m.get("title", ""),
-                                               m.get("yes_sub_title", "")]))
-                    out.append(BinaryMarket(
-                        platform="kalshi", market_id=m.get("ticker", ""), question=q,
-                        yes_bid=_f(m.get("yes_bid_dollars")), yes_ask=_f(m.get("yes_ask_dollars")),
-                        no_bid=_f(m.get("no_bid_dollars")), no_ask=_f(m.get("no_ask_dollars")),
-                        volume=float(m.get("volume_fp") or m.get("volume") or 0),
-                        close_time=_parse_dt(m.get("close_time")),
-                    ))
+                    out.append(self._market(m, ev_title))
             cursor = data.get("cursor")
             if not cursor or not events:
                 break
         log.info("kalshi feed: %d markets from %d events", len(out), seen_events)
         return out
+
+    @staticmethod
+    def _market(m: dict, ev_title: str) -> BinaryMarket:
+        # a market's own title carries the specific threshold/outcome;
+        # yes_sub_title disambiguates within multi-market events
+        q = " ".join(filter(None, [ev_title, m.get("title", ""), m.get("yes_sub_title", "")]))
+        return BinaryMarket(
+            platform="kalshi", market_id=m.get("ticker", ""), question=q,
+            yes_bid=_f(m.get("yes_bid_dollars")), yes_ask=_f(m.get("yes_ask_dollars")),
+            no_bid=_f(m.get("no_bid_dollars")), no_ask=_f(m.get("no_ask_dollars")),
+            volume=float(m.get("volume_fp") or m.get("volume") or 0),
+            close_time=_parse_dt(m.get("close_time")),
+        )
+
+    def _series_raw(self, series: str, status: str) -> list[dict]:
+        """Raw /markets rows for one curated series. Unlike the global feed a
+        named series is not buried in MVE shards, so /markets is fine here."""
+        out, cursor = [], None
+        while True:
+            params: dict = {"series_ticker": series, "status": status, "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            r = self.http.get(f"{KALSHI_BASE}/markets", params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            rows = data.get("markets") or []
+            out.extend(rows)
+            cursor = data.get("cursor")
+            if not cursor or not rows:
+                break
+        return out
+
+    def series_markets(self, series: str, status: str = "open") -> list[BinaryMarket]:
+        out = [self._market(m, m.get("event_ticker", "")) for m in self._series_raw(series, status)]
+        log.info("kalshi feed: %d %s markets in %s", len(out), status, series)
+        return out
+
+    def series_results(self, series: str) -> dict[str, str]:
+        """ticker -> 'yes'|'no' for every settled market in the series."""
+        return {m.get("ticker", ""): m["result"] for m in self._series_raw(series, "settled")
+                if m.get("result") in ("yes", "no")}

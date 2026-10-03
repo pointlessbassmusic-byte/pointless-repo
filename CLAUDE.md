@@ -71,6 +71,184 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Table-tennis fast leagues carry documented match-fixing risk — their
   higher `min_edge_override` / lower stake caps are deliberate.
 
+## Weather modeling invariants (repo-wide)
+
+Both weather paths in this repo — `sportsbot/signals/nws.py` +
+`substrate_bridge/` (data only) and the engine suite's forecast arms — price
+daily temperature extremes, and both are exposed to the same two mistakes.
+Reference implementation and regression tests:
+`kalshi-engine/src/substrate/generators/weather.py`,
+`polymarket-edge/src/models/weather.py`.
+
+- Measure lead time and the day's extremum window in **station-local** time,
+  never UTC. Forecast feeds key their daily values by local date, so a UTC
+  `.date()` reads a day behind for US stations for the first third of the UTC
+  day. Open-meteo returns `utc_offset_seconds`; use it (DST-correct, needs no
+  tzdata). NWS's `startTime` is already local.
+- A forecast only beats the book while the outcome is still unrealized. The
+  daily low is set overnight and the high by late afternoon (the arms abstain
+  at 10:00 / 17:00 local). Past that the market prices an observed value and a
+  forecast is strictly worse information — a live dry-run staked 356 contracts
+  against an already-settled low before this rule existed.
+- A bucketed temperature event's own prices are a distribution over whole
+  degrees; its mean is the market's expected temperature, available with no
+  settled history. A forecast several degrees off that mean is a mismatched
+  input (grid cell vs. settlement station), not an edge: stand down past
+  ~1.5 sigma and fit the offset from settled truth only (`city_bias`,
+  `bias_f`). `python -m src.weather_divergence` prints the table in both
+  engines. Never fit bias to market prices — that just copies the book, even
+  when two venues agree: Miami reads -4.4F against both Kalshi's bands and
+  Polymarket's buckets, which says our grid cell is wrong but still is not a
+  settled outcome.
+- Empirically (Kalshi settlements, n=14): sigma ~= 2.4F same-day + 1.0F per
+  lead day, i.e. **wider** than the 1.8 + 0.55 ramp in `signals/nws.py`, and
+  roughly twice what bucket prices imply. Where those disagree, settled
+  outcomes decide, not priors — and `sportsbot weather-score` has the larger
+  sample (168 settled rows: coin 0.2500 -> climatology 0.1828 -> market
+  0.0751), so refit against it rather than against either prior. Measured, our
+  sigma is a median 1.85x the sigma bucket prices imply, so narrow centre
+  buckets always look overpriced to us: treat a NO on one as a variance bet
+  needing settled evidence, not a temperature call.
+- That evidence now exists and it goes against us. Two independent lines agree
+  the book's weather distribution beats ours: the live sigma ratios above, and
+  settled Brier scores — on the five-date NWS cohort (168 rows, PR #27) coin
+  0.2500 > climatology 0.1954 > NWS 0.1408 > market 0.0802; the NWS arm beats
+  climatology (paired per-date +0.049, t 2.9, 4 of 5 dates) and the market
+  beats NWS by more (station-day -0.061, t -4.0), a gap that widened as dates
+  were added (`docs/SIGNALS_2026-09-17.md`, `sportsbot weather-score`). sportsbot already
+  keeps weather out of trading for this reason (`bot/allocation.py`). The
+  engine suite still takes these bets in **dry run**, deliberately, because
+  that is how its own settled record gets built — but treat a weather signal
+  as unproven until that record exists, and see the `pre-live-gate` skill
+  before any of it meets real money.
+- Lead time in `substrate_bridge/kalshi_weather.py` still counts from the
+  target date's **UTC** midnight (two call sites), which runs 4-8h short for
+  US stations. Small next to that module's 0.55/day ramp and it only feeds
+  offline scoring, not orders — but it is the same mistake as the first bullet
+  and should go when that module is next touched.
+
+## What resolved data says about edges (repo-wide)
+
+`docs/RESOLVED_MARKET_STUDY_2026-09-23.md`, rerun with
+`python -m src.calibration_study` in polymarket-edge. Measure horizons from a
+market's **scheduled** end, never from `closedTime`: a "by <date>" market that
+resolves YES closes when the event happens, so time-before-close conditions on
+the outcome and fabricates longshot edge.
+
+- Liquid Polymarket markets are calibrated to within noise. Buying favorites
+  loses 0.5-2% per $1 at every threshold and horizon before spread; buying
+  underdogs loses more. A strategy that uses price alone — mean reversion,
+  momentum, "buy the favorite" — starts from a negative base rate. A backtest
+  that finds edge there is suspect until settled outcomes confirm it. Kalshi
+  is the same (PR #25, `docs/EDGE_VERDICT_2026-09-23.md`): tennis calibrated
+  within three points in every bucket on 3,122 side-observations, favorites
+  -0.4% as taker, longshots -16% — which is the fee and spread on a small
+  stake, not a bias anyone can earn.
+- The edges that exist are **reference-price** edges: a public source sharper
+  than the book. FOMC decision buckets paid every time at >= 0.90 within a
+  week across 18 meetings (+2.1% at 24h, +3.4% at 168h net of 1c) because
+  fed-funds futures lead the book. Regime matters: that is 1-3c when the
+  decision is telegraphed (2024-25); in a contested cycle (2026) the bucket
+  sits at 0.80-0.88 and the rule does not fire — the 0.80-0.90 band is
+  untested, do not lower the threshold on two meetings. No public history
+  reaches June 2022, so the surprise tail is unmeasured. Weather is the
+  reverse class: the book is the sharper source.
+- The sportsbook-consensus model is NOT a reference-price edge on liquid
+  soccer (`docs/SPORTSBOOK_VS_POLYMARKET_2026-09-23.md`, rerun with
+  `python -m src.sportsbook_study` in polymarket-edge, no key needed): on
+  1,048 settled EPL / La Liga / Bundesliga / Ligue 1 matches, Polymarket an
+  hour before kickoff scores the same Brier as the market-average, Bet365 and
+  Betfair closing lines to within ±0.0006, beats Pinnacle's closing line, and
+  a regression puts all the weight on the Polymarket price. Median
+  disagreement is 0.8c; buying the book's side of a 2-3c disagreement loses.
+  A reference must LEAD the market (fed-funds futures do); a consensus of the
+  books the crowd already reads does not. `ODDS_API_KEY` is not an unlock.
+  US sports are unmeasured; measure with the same script before assuming.
+- Polymarket is not a leading reference for Kalshi either
+  (`docs/VENUE_LEAD_LAG_2026-09-23.md`, `python -m src.venue_study`): on 148
+  matches listed on both venues the quotes sit 0.5c apart at the median,
+  inside Kalshi's 1c spread, Brier identical, and from a day out it is
+  Polymarket's price that moves toward Kalshi's (beta 1.07, t 7.6), not the
+  reverse. PR #31 (Result 10) reaches the same verdict independently on 294
+  MLB games and 215 tennis matches at hourly resolution: gap sd 0.8-2.1
+  points, Briers equal to the fourth decimal, Polymarket closing 37-71% of
+  the gap toward Kalshi per hour with the same last-trade staleness caveat,
+  and the gap trade at -10% to +6% with t under 1. PR #33 then sampled both
+  order books every 20s for 40 tennis matches in a quiet session: neither
+  book closes the other's gap at 30s-450s, and the hourly "convergence" was
+  the stale last-trade print updating. PR #34's second sample (62 matches,
+  European daytime) finds Polymarket's book does follow Kalshi's, closing a
+  third of the gap in 7.5 minutes (t 2.1-2.6 pair-clustered, one half hour),
+  and Kalshi follows nothing — but the gap is 0.6 points mean, so hitting
+  the lagging ask marks out at -1.2 to -2.2 points at every horizon. Not a
+  taker trade. PR #35's third sample (25 matches) shows no lag either way
+  that Polymarket follows, and a weak drift the other way: three half-hours,
+  three answers. The lead-lag is not stable enough to be a directional
+  signal, so the maker version (rest inside the gap in Kalshi's direction)
+  is withdrawn until a sample repeats the second one's pattern.
+  Cross-venue gaps on the same event are suspect matches, not edges; a
+  lead-lag reading from last-trade prints is not evidence of anything until
+  fresh prints or books say the same.
+- The Cleveland Fed inflation nowcast is not a leading reference for
+  Polymarket's CPI buckets either (`docs/CPI_NOWCAST_VS_POLYMARKET_2026-09-29.md`,
+  `python -m src.cpi_study`): with the nowcast's own error sigma fitted on
+  137 months out-of-sample, the price beats the nowcast-implied bucket
+  probabilities by 0.018 Brier a day out and 0.029 an hour out (CIs exclude
+  zero) on 279 buckets across 37 events, the regression puts all the weight
+  on the price, and taking the nowcast's side loses. One confirmed member of
+  the reference class, four measured non-members: the Fed reference is a
+  deep market pricing the identical event, not a model the crowd already reads.
+- Deribit's option market is not a leading reference for Polymarket's BTC/ETH
+  price digitals either (`docs/CRYPTO_DERIBIT_VS_POLYMARKET_2026-09-29.md`,
+  `python -m src.crypto_study --analyse`): on 17,425 settled digitals in
+  1,795 events (Mar 2024 - Sep 2026) a lognormal on Deribit spot and DVOL
+  scores the same Brier as the price at 1h, 6h and 24h (diffs within
+  +-0.0002, CIs span zero), the regression splits the weight in half, and on
+  prints under 10 minutes old the market is slightly better at every horizon
+  with the take-the-DVOL-side trade at -0.8% / +3.7% / -17% per $1. Digitals
+  priced >= 0.90 return -0.5% to -1.3%: no favourite footprint. Fifth
+  measured non-member. A deep reference market is not enough; the Fed
+  reference prices the identical event against a crowd that is thin next to
+  it, and that is the property to look for. The first pass of this study
+  showed a +122%/$1 edge that was a one-hour look-ahead from candle
+  timestamps (see the landmine below): a result that good against a liquid
+  market is a leak until the leak is found.
+- Favorites in news and geopolitics markets are overpriced (-10% to -37%
+  with real losses). Do not buy certainty there.
+- In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
+  910 settled Kalshi games at real quotes and fees, has no information the
+  price lacks (`docs/EDGE_VERDICT_2026-09-23.md`: beta 0.065, t 0.2; market
+  Brier 0.2399 vs model 0.2422). Its bootstrapped tennis Elo is worse: on
+  1,577 settled Kalshi matches it scores below the base rate (Brier 0.2589
+  vs market 0.2024), its bets lose ~18% per bet (t ~ -2.2), and the market
+  is right when they disagree (PR #24; sleeve zeroed, provisional ratings
+  untradeable). The same MLB model against Polymarket's price (PR #29,
+  Result 8: 392-408 games, model Brier 0.2403 vs mid 0.2344, beta -0.95,
+  t -1.8) gives the same answer on the second venue, and so does tennis on
+  Polymarket (PR #30, Result 9: ~600 priceable rows per lead, model Brier
+  0.244 vs mid 0.203, negative taker CLV at 6h and 2h). Calibrated is not
+  the same as profitable: score a model against the price it would have
+  paid, not against outcomes.
+- The weather market already contains the forecast (PR #28, Result 7): the
+  regression of (outcome - market) on (NWS - market) over 168 settled
+  strike-band rows, clustered by station-day, gives beta +0.036 with a 95%
+  CI of [-0.106, +0.222]. Beating climatology is not carrying anything the
+  price has not absorbed.
+- The Fed rule runs as a recorder, not a trader: `arb-scanner/src/fed_watch.py`
+  fires on a decision bucket at >= 0.90 within 7 days when the other venue
+  agrees, stores the first price it saw as the entry, and scores rows from
+  Kalshi settlements. That settled record is the pre-live-gate evidence; do
+  not wire it to an executor before it exists.
+- The Fed trade is short volatility: a surprise costs the stake, and one
+  loss erases ~40 wins. Zero losses in 18 meetings bounds the surprise rate
+  at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
+  not prove the trade; the mechanism's longer record does. Size it so a total
+  loss changes nothing.
+- PnL from hundreds of bets cannot settle an edge claim: per-bet return SD on
+  50c binaries is ~1.0, so 2% ROI needs ~10,000 bets (PR #22's power
+  analysis). Closing-line value needs ~80-500 observations. Judge strategies
+  by CLV against the price paid, not by realized PnL.
+
 ---
 
 ## Additional modules: polymarket-edge / kalshi-engine / arb-scanner
@@ -98,7 +276,9 @@ edited.
 python -m pytest tests -q          # every module
 python -m src.main --once --dry-run  # one scan cycle (arb-scanner: --once)
 python -m src.report               # calibration vs real settlements (bot/engine)
+python -m src.weather_divergence   # bot/engine: forecast vs market-implied temps
 python -m src.backtest             # kalshi-engine: replay history offline
+python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues + settled record
 ```
 
 ### Safety invariants — do not weaken
@@ -113,8 +293,9 @@ python -m src.backtest             # kalshi-engine: replay history offline
   exposure (`live_exposure` excludes settled tickers/tokens).
 - HTTP retries are GET-only except read-only POSTs (CLOB `/prices`); order
   placement must never auto-retry.
-- arb-scanner is detect-only. Cross-platform "edges" above `max_net_edge` are
-  `suspect_match` (wrong-question pairs), not opportunities.
+- arb-scanner is detect-only. Cross-platform gaps above `max_net_edge` are
+  `suspect_match` (wrong-question pairs), not opportunities — judged on the
+  GROSS gap, since fees shrink net but never make two questions the same.
 
 ### API landmines (all discovered the hard way — tests cover them)
 
@@ -130,6 +311,29 @@ python -m src.backtest             # kalshi-engine: replay history offline
 - The Odds API free tier is 500 requests/month — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
+- Polymarket's `closedTime` on sports markets is resolution time, not kickoff:
+  on tennis it trails `gameStartTime` by a median 14h (p90 21h). Anchor
+  every pre-match measurement on `gameStartTime`, skip markets whose start
+  is not before their close, and refuse closing prints at the rail
+  (outside 0.03-0.97). A `closedTime - 3h` anchor scored in-play and
+  post-result prints as the closing line and manufactured an "+18% ROI"
+  favourite bias (PR #30) — the same endogeneity as measuring horizons from
+  `closedTime` in the resolved-market study.
+- Deribit stamps candles (`get_tradingview_chart_data`, DVOL
+  `get_volatility_index_data`) by their **open** time; the bar stamped
+  15:00Z closes at 15:59. "Last close at or before ts" keyed on those stamps
+  hands you the price an hour into the future, which for a digital settling
+  on the hour is the settlement price. `HourlySeries` keys bars by close
+  time and a test pins it. Check any candle feed's stamp against a finer
+  resolution before scoring a model with it.
+- Polymarket is not fee-free. Takers pay rate x p x (1 - p) per share, the
+  rate set per market in Gamma's `feeSchedule` when `feesEnabled`: 0.03 NFL
+  and NBA, 0.05 most other sports, the Fed decision buckets, weather and
+  most politics, 0 where fees are off (most geopolitics) — 92.5% of
+  top-event volume pays (EDGE_VERDICT Result 11). Makers pay nothing and get
+  a 15-25% rebate. Gamma's raw `takerBaseFee` is not the fee. arb-scanner and
+  the Fed recorder read each market's own rate (`BinaryMarket.fee_rate`) and
+  assume 0.05, not zero, when Gamma is silent. Cost it in any strategy.
 - Live orders use the official `polymarket-client` py-sdk (same SDK as
   sportsbot), lazily imported so dry-run needs nothing installed. The old
   `py-clob-client` is archived/dead — never reintroduce it.
