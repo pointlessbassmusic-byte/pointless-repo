@@ -572,6 +572,39 @@ case above is withdrawn until a sample repeats Monday's pattern; the
 daily check-in keeps logging. Mark-outs in this sample are within noise of
 zero on 17–21 signals from 2–4 pairs — nothing to read.
 
+**Samples 4–6 (Oct 2 22Z, Oct 3 12Z, Oct 4 12Z).** Sample 4 was dead
+(Polymarket mids never moved). Sample 5 (27 pairs, active) leaned
+Monday's way, +0.08 / +0.14 / +0.29 at 90 / 180 / 450 s, at clustered
+t 1.3. **Sample 6** (Sunday 12:00–12:30Z, 40 tennis pairs, the busiest
+session logged: mids moved in 13% / 16% of consecutive samples on Kalshi /
+Polymarket) is the clearest:
+
+| horizon | n | Polymarket → Kalshi | clustered se | t | Kalshi → Polymarket |
+|---|---|---|---|---|---|
+| 30 s | 2,295 | +0.104 | 0.021 | +4.9 | −0.006 ± 0.020 |
+| 90 s | 2,215 | +0.230 | 0.038 | +6.0 | −0.023 ± 0.032 |
+| 180 s | 2,095 | +0.358 | 0.064 | +5.6 | −0.024 ± 0.041 |
+| 450 s | 1,735 | +0.496 | 0.108 | +4.6 | +0.010 ± 0.061 |
+
+Pooled 90 s estimate across the four active samples (inverse-variance,
+pair-clustered): **+0.126 ± 0.024, t 5.3**. Over six half-hours the
+pattern is now consistent: when the session is active, Polymarket's book
+follows Kalshi's, closing a quarter of the gap in 90 seconds and half in
+seven minutes, and Kalshi never follows Polymarket. In quiet sessions
+there is nothing to follow.
+
+It is still **not a taker trade** — the gap averages 0.6 points (p90 1.0,
+above 2 points in 7% of grid points), and hitting the lagging ask marks
+out at −1.9 to −2.2 points on Polymarket and −2.0 on Kalshi at every
+horizon in sample 6 too. The *maker* case withdrawn above is reinstated
+on this evidence: a resting Polymarket bid one tick inside the gap, in
+the direction Kalshi has already moved, pays no fee, earns the rebate and
+would collect the quarter-to-half of the gap that closes — if it fills
+before the gap does, which is the adverse-selection question only real
+orders answer. That experiment (minimum size, Polymarket, tennis, active
+sessions, a week of fills logged against this signal) is now the single
+best-evidenced thing to spend real money finding out.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of
