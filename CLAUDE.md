@@ -183,10 +183,18 @@ the outcome and fabricates longshot edge.
   the lagging ask marks out at -1.2 to -2.2 points at every horizon. Not a
   taker trade. PR #35's third sample (25 matches) shows no lag either way
   that Polymarket follows, and a weak drift the other way: three half-hours,
-  three answers. The lead-lag is not stable enough to be a directional
-  signal, so the maker version (rest inside the gap in Kalshi's direction)
-  is withdrawn until a sample repeats the second one's pattern.
-  Cross-venue gaps on the same event are suspect matches, not edges; a
+  three answers. Samples 4-6 (PRs #36-#39) settle it by session activity:
+  quiet sessions show nothing to follow, and in the busiest (sample 6, 40
+  pairs) Polymarket's book closes 23% of the gap to Kalshi's in 90 s and
+  half in 7 minutes (t 4.6-6.0); pooled over the four active samples the
+  90 s estimate is +0.126 ± 0.024 (t 5.3), and Kalshi never follows
+  Polymarket. Still not a taker trade (-1.9 to -2.2 points marked out at
+  every horizon on a 0.6-point mean gap). The maker version is reinstated
+  as the best-evidenced experiment: a resting Polymarket bid one tick
+  inside the gap in the direction Kalshi already moved (no fee, rebate) —
+  but whether it fills before the gap closes is adverse selection only real
+  fills measure, so it is a minimum-size, pre-live-gate experiment, not a
+  strategy. Cross-venue gaps on the same event are suspect matches, not edges; a
   lead-lag reading from last-trade prints is not evidence of anything until
   fresh prints or books say the same.
 - The Cleveland Fed inflation nowcast is not a leading reference for
