@@ -780,6 +780,20 @@ queue-position game against bots already resting at 0.999, not a
 predictive edge. `sportsbot updown-log` / `updown-report` and the cached
 week of windows (`data/cache/updown5m/`) reproduce this.
 
+**Seconds-level addendum (2026-10-05 19:15–20:15Z, 11 resolved windows,
+924 ticks).** The logger sampled the live book beside Coinbase spot every
+3 s nominal, 3–30 s actual (each tick is three HTTP round trips from this
+container). Too few windows to price the last tenths, but the mechanism
+is visible: the book re-prices on 1–3 bps spot moves within a tick, and in
+the window ending 19:40Z the UP contract went 0.21 → 0.77 → 0.91 while the
+spot feed here still read −1.5 bps — the market saw the Chainlink move
+before this feed did. In the last 30 s the winner's bid sat at 0.97–0.99
+with 900–2,800 contracts behind it. The "spot-favoured side at its ask"
+rule nets −23 to +10 points per contract across cells of 3–232 ticks,
+which is noise. Measuring the last-seconds edge needs a sub-second
+Chainlink-stream feed and co-located execution; from here it is not
+measurable, and the queue already resting at 0.999 says who is taking it.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
