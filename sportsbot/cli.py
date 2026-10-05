@@ -418,6 +418,24 @@ def venue_survey(sports: str = typer.Option("nfl,nba,nhl,ufc,tennis,mlb"),
         console.print(f"wrote {len(pairs)} pairs to {out}")
 
 
+@app.command("updown-log")
+def updown_log(minutes: float = typer.Option(60.0), interval: float = typer.Option(3.0),
+               asset: str = typer.Option("BTC"), db: str = typer.Option("data/updown.sqlite")):
+    """Log the live 5-minute Up/Down book with a spot feed every few seconds.
+    Data only (substrate_bridge); public reads, no orders."""
+    from sportsbot.substrate_bridge.updown import UpDownLogger
+
+    console.print(UpDownLogger(db, asset=asset).run(minutes=minutes, interval=interval))
+
+
+@app.command("updown-report")
+def updown_report(db: str = typer.Option("data/updown.sqlite")):
+    """Does the Up/Down book lag the spot-implied outcome by more than the fee?"""
+    from sportsbot.substrate_bridge.updown import format_report, report
+
+    console.print(format_report(report(db)))
+
+
 @app.command("verify-fees")
 def verify_fees(config: str = CONFIG_OPT,
                 note: str = typer.Option(..., help="what you traded and the fee you saw")):
