@@ -44,3 +44,11 @@ then-market price and paying fees, makes money. This is an information signal
 - Main-CLOB order placement is geoblocked for US IPs and never circumvented.
 - If this passed, execution would go through Polymarket US or a matched Kalshi
   market, which would need its own test.
+
+## Amendment 1 (after listing markets, before any trade or wallet data)
+- The sports listing returned 82,767 binary moneylines for Aug–Sep, mostly tiny.
+- Candidate pool: sampled from a random 800 (seed 13) of the August moneylines
+  with volume ≥ $100k (3,021 exist).
+- Period-A P&L and period-B signals use only moneylines with volume ≥ $10k
+  (16,388 exist), so copies are fillable.
+- Nothing else changes.
