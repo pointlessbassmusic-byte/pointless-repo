@@ -684,6 +684,102 @@ books there were thin or placeholders tonight. The `arb-scanner` fee
 constants should be updated to the per-series Kalshi multiplier and the
 per-market Polymarket schedule before its output is read again.
 
+## Result 12 (Polymarket crypto Up/Down): the strategies in the X posts, measured
+
+_2026-10-05. Three posts were put forward (@RetroValix on an HFT bot
+combining spot-derived fair value, dynamic hedging and complete sets on
+crypto Up/Down windows; @Dan1ro0 on a "Quant Directional Movement"
+DMI/ADX system claiming +$809,704 in 214 days on BTC Up/Down; @0xNevsky on
+memecoin sniping with moonbags). The third is DEX memecoin trading with an
+affiliate link, outside anything this stack can measure or should touch.
+The first two reduce to claims testable on real data. Markets: Polymarket
+`btc-updown-5m-<epoch>` (5-minute BTC windows, fee rate 0.07 taker,
+resolution = Chainlink BTC/USD 60-s TWAP at window end ≥ price at window
+start), ~$40–50k volume per window, 288 windows a day._
+
+**DMI/ADX directional signal: below a coin.** 45 days of Binance.US
+1-minute BTC/USDT candles (64,257; Binance.com is geoblocked here, the
+direction over a window is the same series up to venue basis), Wilder
+DMI/ADX at periods 14 / 28 / 60, signal = +DI vs −DI at the window open,
+gated by ADX. Break-even accuracy at a 0.50 entry with the 0.07 fee is
+51.75%.
+
+| period | ADX ≥ | 5-min n | accuracy | 15-min n | accuracy | 60-min n | accuracy |
+|---|---|---|---|---|---|---|---|
+| 14 | 0 | 12,281 | 0.480 ± 0.005 | 4,267 | 0.478 ± 0.008 | 1,068 | 0.493 ± 0.015 |
+| 14 | 25 | 5,876 | 0.474 ± 0.007 | 2,040 | 0.470 ± 0.011 | 495 | 0.491 ± 0.023 |
+| 14 | 40 | 1,539 | 0.454 ± 0.013 | 540 | 0.463 ± 0.022 | 150 | 0.460 ± 0.041 |
+| 28 | 25 | 2,331 | 0.456 ± 0.010 | 820 | 0.457 ± 0.017 | 223 | 0.453 ± 0.033 |
+
+Every cell is under 50% and the strongest trends (ADX ≥ 40) are the worst.
+Five-minute direction mean-reverts slightly (48.5% of windows repeat the
+previous direction), the opposite of what a trend indicator assumes.
+
+**The wallet behind that post is real and is not that system.**
+Polymarket's public data API for the linked address shows ~8,650
+positions, $28.7M bought, roughly +$6.9M net, a $2,112 maker rebate and a
+$309 taker rebate in a single day, 3,972 buys on Sep 24 alone at a median
+$4 with prices spread from 0.09 to 0.88, and MERGE events (complete sets
+redeemed). That is a two-sided market maker building sets on 5-minute
+windows. Neither number reconciles with the post's +$809k, and nothing in
+it is DMI/ADX.
+
+**Spot-derived fair value: the market knows the reference price better
+than a spot feed does.** A Brownian fair value P(up) = Φ(move / σ√(time
+left)) at realized vol (5.2 bps a minute), fed the last *completed*
+minute close before each market print (no look-ahead), on 10,079
+in-window prints from 2,016 resolved windows (one week):
+
+| minute | n | market print Brier | spot fair-value Brier | "fair > print + fee + 1 pt" rule, net per contract |
+|---|---|---|---|---|
+| 1 | 2,014 | 0.2313 | 0.2500 | −0.048 ± 0.012 |
+| 2 | 2,016 | 0.1906 | 0.2327 | −0.030 ± 0.010 |
+| 3 | 2,017 | 0.1542 | 0.2078 | −0.007 ± 0.009 |
+| 4 | 2,015 | 0.1057 | 0.1805 | −0.019 ± 0.009 |
+| 5 | 2,017 | 0.0453 | 0.1429 | +0.003 ± 0.012 |
+
+A first pass of this test that used the close of the minute *containing*
+the print (up to 60 s of look-ahead) showed +2 to +4 points per contract
+at every minute; removing the leak removed all of it. Resolution agrees
+with the Binance.US close direction in only 82.8% of windows: the
+Chainlink TWAP is its own series, and the book tracks it.
+
+**Complete-set building and mean reversion at minute prints: both lose.**
+Buy the first side printing at or under T, then buy the other side if it
+later prints at or under T (a $1 set), else hold to resolution:
+
+| T | windows entered | sets completed | mean PnL per window |
+|---|---|---|---|
+| 0.30 | 1,988 | 14% | −0.031 ± 0.008 |
+| 0.40 | 2,016 | 30% | −0.037 ± 0.008 |
+| 0.45 | 2,016 | 40% | −0.047 ± 0.008 |
+
+Plain mean reversion (buy the first side at or under T, hold): −0.014 to
+−0.027 per contract (t −2 to −3). The oscillations that make sets
+possible exist — 40% of windows print both sides at or under 0.45 — but
+the leg you hold when the second never comes costs more than the sets
+earn, and the fee takes the rest.
+
+**Decision timing and late prints.** The winner first prints ≥ 0.97 in
+minute 4 in 20% of windows, minute 5 in 42%, and only after the window
+ends in 33%; most windows are open until the last minute. Late prints are
+well calibrated: minute-4 prints ≥ 0.97 (n 1,340) win 99.9% at a mean
+price 0.993, net **+0.005 per contract** after fee (se 0.001) — the
+"near-resolution capture" the posts describe, at minute granularity and
+at the last-trade price, which is an upper bound: the live book at six
+seconds left showed a 28,000-contract bid already sitting at 0.999.
+Whether anything is left at the ask in the last seconds is what the
+seconds-level logger measures (addendum below).
+
+**Verdict:** of everything in the three posts that can be tested, nothing
+survives: the directional signal is below a coin, the fair-value rule
+loses once look-ahead is removed, complete-set building and mean reversion
+lose, and the one profitable wallet is a market maker. The remaining
+question — a few tenths of a point in the last seconds — is a latency and
+queue-position game against bots already resting at 0.999, not a
+predictive edge. `sportsbot updown-log` / `updown-report` and the cached
+week of windows (`data/cache/updown5m/`) reproduce this.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
