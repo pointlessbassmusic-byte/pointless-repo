@@ -794,6 +794,94 @@ which is noise. Measuring the last-seconds edge needs a sub-second
 Chainlink-stream feed and co-located execution; from here it is not
 measurable, and the queue already resting at 0.999 says who is taking it.
 
+## Result 13 (other venues, arbitrage classes, HFT): what the wider market offers a $100 US account
+
+_2026-10-05 21:00–22:30Z. Scope: every other venue with a reachable
+public price feed from this environment, every arbitrage class the
+literature documents, and the practical question of high-frequency
+execution from this stack. All live snapshots; the paper cited is
+Saguillo, Ghafouri, Kiffer & Suarez-Tangil, "Unravelling the Probabilistic
+Forest: Arbitrage in Prediction Markets", arXiv 2508.03474 (IMDEA, Aug
+2025)._
+
+**Venues.** Of the exchanges a 2026 US account could use or read,
+reachability and fees from here:
+
+| venue | public read API | US-tradeable | fee | what it lists |
+|---|---|---|---|---|
+| Kalshi | yes | yes (CFTC) | 1.75 pts taker at mid (MLB 0.875); makers ¼ on game series | sports, politics, econ, weather, crypto |
+| Polymarket (main CLOB) | yes | reads only; orders geoblocked | 0.03–0.07 by category, taker only | everything |
+| Polymarket US | no public feed found | yes (Dec 2025) | not measured | sports |
+| PredictIt | yes (`marketdata/all`) | yes, $850/contract cap | **10% of profit + 5% on withdrawal** | US politics only |
+| Smarkets | yes (v3, unauthenticated reads) | no (UK) | 2% commission | sports, politics |
+| Betfair | needs app key | no | 2–5% | sports |
+| ProphetX, Novig, Sporttrade | no public API | yes (ProphetX 49 states) | p2p sports exchange | sports |
+| ForecastEx (IBKR) | IBKR API only | yes | small, contracts accrue interest | econ, climate, politics |
+| Overtime, Azuro, Limitless, Myriad | 401 / moved / 404 / empty | no (on-chain, non-US) | on-chain | sports, crypto |
+| Manifold | yes | play money | none | everything |
+
+**Arbitrage class 1 — dutch books within a venue.** Every multi-outcome
+event on both venues, live: Polymarket's 19 fully two-sided negRisk
+events (of 222 scanned, 1,229 books read) have a cheapest buy-all of
+**1.0075** (a 3-way soccer line) and a median of 1.0475 after fees; no
+event under $1 in either direction. Kalshi's 87 fully two-sided
+mutually-exclusive events: 17 have YES asks summing under $1, but those
+sets are not exhaustive ("51st state", "next pope"), so the sum under $1
+is not a box; the exhaustive direction (NO on every leg) is above fair in
+all 87. Zero dutch books.
+
+**Arbitrage class 2 — the same question on two venues.**
+*PredictIt vs Polymarket*, 35 matched 2028 contracts (both nominations
+and the presidency): PredictIt quotes most names 1–5 points above
+Polymarket, but after its 10% profit fee and 5% withdrawal fee **0 of 35
+boxes are positive**; ignoring the withdrawal fee 17 would be, by 0.1–2.5
+points, locked until 2028 under an $850 cap. *Smarkets vs Polymarket*,
+23 matched tennis players tonight: on true matches the mid gap is within
+±1.5 points and every box is −2 to −5 points; the four apparent +36 to
++71-point "boxes" are surname collisions (Zheng, Sun, Guo, Wang) between
+different players, which is the standard failure mode of text-matched
+cross-venue arbitrage and why the repo's `arb-scanner` quarantines big
+"edges" as suspect. Kalshi vs Polymarket is Results 10–11: within a tick.
+
+**Arbitrage class 3 — combinatorial (dependent markets).** The paper's
+inequality: a box exists when a candidate's presidency YES bid exceeds
+their nomination YES ask (buy nomination YES, buy presidency NO; payoff
+≥ 1 in every state). Across 29 candidates priced on both Polymarket
+events tonight: 4 positive by 0.03–1.04 points, all at 1–2-cent prices,
+two of them last-name collisions (Trump / Trump Jr., two Johnsons). The
+paper itself found 13 dependent pairs in a whole election year with
+"average max profit around $100" per pair.
+
+**What the literature actually measured.** The $39.6M headline is gross
+extraction over April 2024–April 2025 on **86 million bets**, when
+Polymarket charged **no fees**, concentrated in 2024-election politics;
+the median profit per within-condition opportunity was **$0.60**; the top
+wallet made $2.0M over 4,049 transactions; execution is non-atomic (one
+leg can fail). Polymarket now charges 0.04–0.07 on exactly those
+categories, which is larger than the median opportunity. The marketing
+pages found by search ("9.6% average arb rate", "22% risk-free") are
+affiliate funnels for bot subscriptions and do not survive the fee
+arithmetic above.
+
+**High-frequency execution from this stack.** Request latency from this
+container is 0.2–1.3 s per call; the Up/Down logger could not hold a 3 s
+cadence; Polymarket main-CLOB orders are geoblocked for US IPs and that
+is not something to route around; Kalshi has no co-location. Result 12's
+seconds-level sample showed the Up/Down book moving before the spot feed
+here. Anything labelled HFT in the posts is a latency race this stack
+cannot enter, and the fee at 0.5 (1.25–1.75 points) is larger than the
+sub-second mispricings the race is for.
+
+**Verdict:** adding venues adds price references, not profit. Every
+arbitrage class is either closed (dutch books, cross-venue), eaten by a
+fee schedule the literature pre-dates (PredictIt, Polymarket
+post-2026), or a name-matching artefact. The two things in this document
+with real evidence remain: fee asymmetry favours resting orders on both
+venues, and Polymarket's tennis book follows Kalshi's in active sessions
+(Result 10, pooled t 5.6). Both point at the same experiment — resting
+maker orders on Polymarket US or Kalshi, minimum size, logged against the
+Kalshi signal — and nothing measurable from here advances it further.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
