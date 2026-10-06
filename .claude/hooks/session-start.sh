@@ -11,6 +11,12 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-pip install --quiet requests PyYAML python-dotenv cryptography cffi pytest
+pip install --quiet requests PyYAML python-dotenv cryptography cffi pytest ruff
+
+# sportsbot itself (typer, pydantic, httpx, rich, pandas ...). A rebuilt
+# container has none of these and every `sportsbot` command and test fails
+# to import; measured 2026-10-06 when the daily check-in found an empty
+# site-packages after an overnight rebuild.
+pip install --quiet -e "${CLAUDE_PROJECT_DIR:-.}"
 
 echo "session-start: python test dependencies installed"
