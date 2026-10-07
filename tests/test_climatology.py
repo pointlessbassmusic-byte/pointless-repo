@@ -105,3 +105,15 @@ def test_failed_download_not_retried_per_row(monkeypatch):
     # with load_station fully mocked the guard lives in prob(), so calls still happen
     # but the log only fires once. Assert the negative-cache flag is set.
     assert "USW00094728" in climo._failed
+
+
+def test_stations_match_kalshi_settlement_codes():
+    # Kalshi rules name the CLI station: CLIMDW (Midway), CLIAUS (Bergstrom).
+    # O'Hare / Camp Mabry were wrong and biased both the prior and the NWS signal.
+    from sportsbot.signals.nws import STATION_COORDS
+    from sportsbot.substrate_bridge.climatology import STATIONS
+
+    assert STATIONS["KXHIGHCHI"] == "USW00014819"
+    assert STATIONS["KXHIGHAUS"] == "USW00013904"
+    assert abs(STATION_COORDS["KXHIGHCHI"][0] - 41.786) < 0.01
+    assert abs(STATION_COORDS["KXHIGHAUS"][0] - 30.195) < 0.01

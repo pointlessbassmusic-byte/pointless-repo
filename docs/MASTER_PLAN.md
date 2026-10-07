@@ -91,6 +91,12 @@ Pipeline per cycle:
   if we outgrow it.
 - **Secrets in `.env`** (never committed). `.env.example` documents every variable.
 - **systemd timers** on the server run each engine on its cycle; logs via `journalctl`.
+- **Venue split (2026-10-02, owner decision).** Sports → Polymarket (`sportsbot`
+  `exchange: polymarket`, `polymarket-edge/`). Kalshi → event markets (weather,
+  economics, …): `kalshi-engine` skips the Sports category via
+  `markets.exclude_categories`. Polymarket's main CLOB blocks order placement
+  from US IPs; for a US-based live account the legal route is Polymarket US
+  (separate regulated API, not yet implemented). Never circumvent the geoblock.
 
 ## Roadmap
 

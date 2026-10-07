@@ -29,6 +29,10 @@ polymarket = [
 kalshi = [
     "cryptography>=42.0",
 ]
+judge = [
+    # shadow LLM judgement recorder (sportsbot/signals/judge.py); data only
+    "anthropic>=1.11",
+]
 mlb = [
     "MLB-StatsAPI>=1.7",
 ]
