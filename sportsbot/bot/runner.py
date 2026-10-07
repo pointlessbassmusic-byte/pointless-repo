@@ -38,6 +38,14 @@ from sportsbot.data.store import Store
 from sportsbot.engine.baseball import BaseballModel
 from sportsbot.engine.tabletennis import TableTennisModel
 from sportsbot.engine.tennis import TennisModel
+from sportsbot.signals.sharp import (
+    ODDS_API_KEY_ENV,
+    Grader,
+    OddsApiClient,
+    SharpCollector,
+    SharpConfig,
+    with_sharp_closes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +242,18 @@ class Runner:
         self.adaptive = cfg.get("adaptive", {})
         self.venue = cfg.get("exchange", "polymarket")
         self.scanner = Scanner(self.models)
+        # Sharp-line CLV harness (data only; see signals/sharp.py). Without
+        # an API key it still records market metadata so decisions can be
+        # graded later, once lines are being collected.
+        self.sharp_cfg = SharpConfig.from_cfg(cfg)
+        api_key = os.environ.get(ODDS_API_KEY_ENV, "").strip()
+        sharp_client = None
+        if self.sharp_cfg.enabled and api_key:
+            sharp_client = OddsApiClient(api_key)
+        elif self.sharp_cfg.enabled:
+            log.warning("sharp: %s not set — recording market metadata only; "
+                        "no sportsbook lines will be collected", ODDS_API_KEY_ENV)
+        self.sharp = SharpCollector(self.store, self.sharp_cfg, sharp_client)
         self.executor = Executor(
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
@@ -277,6 +297,40 @@ class Runner:
         # is accepted and ignored rather than making callers special-case it.
         return lambda price, shares, market_id=None: (
             kalshi_fee_per_share(price, mult) * shares)
+
+    # ------------------------------------------------------------------
+    def _sharp_fee_for(self, exchange: str, market_id: str):
+        fn = self.decision_fee_fn(market_id)
+        return lambda price: fn(price, 1.0)
+
+    def _sharp_tick(self, scanned: list) -> dict | None:
+        """Record who each scanned market is between, then take a budgeted
+        sportsbook snapshot if one is due. Telemetry: never raises."""
+        if not self.sharp_cfg.enabled:
+            return None
+        try:
+            self.sharp.record_markets([sm.market for sm in scanned])
+            sports = {sm.market.sport for sm in scanned if sm.market.sport}
+            if not sports:
+                return None
+            summary = self.sharp.snapshot(sports)
+            if summary.get("calls"):
+                log.info("sharp snapshot: %s", summary)
+            return summary
+        except Exception:
+            log.exception("sharp tick failed")
+            return None
+
+    def _sharp_backfill(self) -> int:
+        """Write the sharp close onto bets that do not have one yet."""
+        if not self.sharp_cfg.enabled:
+            return 0
+        try:
+            grader = Grader(self.store, self.sharp_cfg, self._sharp_fee_for)
+            return len(grader.grade_bets(self.mode, write=True, only_missing=True))
+        except Exception:
+            log.exception("sharp backfill failed")
+            return 0
 
     # ------------------------------------------------------------------
     def _mlb_context(self) -> dict[str, dict]:
@@ -378,6 +432,11 @@ class Runner:
         staking, strategy = self.staking, self.strategy
         ad = self.adaptive
         settled = self.store.settled_bets()
+        if self.sharp_cfg.enabled and self.sharp_cfg.enforce_adaptive:
+            # Benchmark the rolling CLV against Pinnacle where a sharp close
+            # exists. `adaptive_overrides` is tighten-only, so this can only
+            # make a sport stricter, never looser.
+            settled = with_sharp_closes(settled)
 
         if bool(ad.get("drawdown_stake_scaling", True)) and settled:
             cum = peak = 0.0
@@ -568,6 +627,7 @@ class Runner:
                    "blocked": None}
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
+        summary["sharp_closes"] = self._sharp_backfill()
         ok, reason = self.risk.check_global()
         if not ok:
             log.warning("cycle blocked by risk: %s", reason)
@@ -608,6 +668,7 @@ class Runner:
         summary["scanned"] = len(scanned)
         summary["dropped"] = len(drops)
         self._record_scan_drops(drops)
+        summary["sharp"] = self._sharp_tick(scanned)
 
         exposure = self.store.exposure_by()
         quoted: dict[str, tuple] = {}
