@@ -5,6 +5,8 @@ All prices are probabilities in [0, 1] unless a function name says otherwise.
 
 from __future__ import annotations
 
+import math
+
 
 def clamp_prob(p: float, lo: float = 1e-6, hi: float = 1.0 - 1e-6) -> float:
     return max(lo, min(hi, p))
@@ -86,3 +88,50 @@ def roi(prob: float, price: float) -> float:
     if price <= 0:
         raise ValueError("price must be positive")
     return (prob - price) / price
+
+
+def shin_devig(implied: list[float], tol: float = 1e-10,
+               max_iter: int = 200) -> list[float]:
+    """Shin (1993) de-vigging: fair probabilities from a book's implied ones.
+
+    Multiplicative de-vigging (`remove_vig_two_way`) spreads the overround
+    evenly, which is known to leave longshots over-priced; Shin models the
+    book pricing against a fraction ``z`` of insider money and takes more
+    of the margin out of the longshot. Štrumbelj (IJF 2014) found Shin the
+    most accurate of the standard methods against outcomes, and it is the
+    de-vig the sharp-line harness grades decisions against.
+
+    With ``pi_i`` the implied probabilities and ``B = sum(pi)`` the book
+    total, the fair probabilities are
+
+        p_i = (sqrt(z^2 + 4 (1 - z) pi_i^2 / B) - z) / (2 (1 - z))
+
+    where ``z`` in [0, 1) is chosen so that the ``p_i`` sum to 1 (bisection:
+    the sum is monotone decreasing in ``z``). A book with no overround
+    returns its inputs unchanged; a book below 1 (an arb) is normalised up.
+    """
+    if len(implied) < 2:
+        raise ValueError("Shin needs at least two outcomes")
+    if any(p <= 0 for p in implied):
+        raise ValueError("implied probabilities must be positive")
+    total = sum(implied)
+    if total <= 1.0 + 1e-12:
+        return [p / total for p in implied]
+
+    def probs(z: float) -> list[float]:
+        return [(math.sqrt(z * z + 4.0 * (1.0 - z) * p * p / total) - z)
+                / (2.0 * (1.0 - z)) for p in implied]
+
+    lo, hi = 0.0, 1.0 - 1e-9
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        s = sum(probs(mid))
+        if abs(s - 1.0) < tol:
+            break
+        if s > 1.0:
+            lo = mid
+        else:
+            hi = mid
+    out = probs((lo + hi) / 2.0)
+    norm = sum(out)
+    return [p / norm for p in out]

@@ -33,7 +33,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   wired into trading without backtest/CLV evidence): `nws.py` (NWS point
   forecasts -> weather-arm baseline, lead-aware sigma, no-backfill rule),
   `chatter.py` (Bluesky public search chatter counts + correlation report;
-  Reddit deliberately not used — it refuses datacenter clients).
+  Reddit deliberately not used — it refuses datacenter clients),
+  `sharp.py` (sharp-line CLV harness: budgeted The Odds API snapshots,
+  Shin de-vig, grades every decision/bet against the Pinnacle close with a
+  pre-registered pass criterion — see `docs/SHARP_CLV.md`; its only
+  trading-path effect is tighten-only via the adaptive layer).
 - `maker/` — standalone paper-only maker research scripts (L2 capture bot
   + replay optimizer), kept as verbatim consolidations with self-tests
   (`python3 maker/<file>.py --self-test`).
@@ -61,6 +65,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - `sportsbot fit|backtest|scan|run|status|dashboard` — CLI (network needed
   except `dashboard`, which is offline unless `--resolve`).
 - Live smoke (reads only, safe): `sportsbot scan`.
+- Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
+  `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
 
 ## Compliance notes (do not remove)
 
@@ -127,7 +133,8 @@ python -m src.backtest             # kalshi-engine: replay history offline
   default to prod (`read_prod: true`) while orders stay on demo.
 - `Market.mid` falls back to stale `last_price` on one-sided books: never
   record it as price history; strategies require two-sided books.
-- The Odds API free tier is 500 requests/month — odds are TTL-cached; don't
+- The Odds API meters CREDITS, not requests (free tier 500/month; one h2h
+  call per sport per bookmaker-group costs 1) — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
 - Live orders use the official `polymarket-client` py-sdk (same SDK as

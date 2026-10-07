@@ -7,6 +7,8 @@
   sportsbot scan                  # one discovery+prediction pass, no orders
   sportsbot run                   # the live/paper loop (what systemd runs)
   sportsbot status                # exposure, PnL, calibration, kill switch
+  sportsbot sharp-snapshot        # one Pinnacle/sportsbook line snapshot
+  sportsbot sharp-report          # CLV of every decision vs the sharp close
   sportsbot doctor                # go-live preflight (config/DB/keys/network)
   sportsbot reset-kill-switch
 """
@@ -281,6 +283,61 @@ def status(config: str = CONFIG_OPT):
                   f"(drawdown ${rep['current_drawdown']:.2f} below peak)")
     ks = store.get_kv("kill_switch_tripped", False)
     console.print(f"kill switch: {ks or 'clear'}")
+
+
+@app.command("sharp-snapshot")
+def sharp_snapshot(config: str = CONFIG_OPT,
+                   sports: str = typer.Option("baseball,tennis",
+                                              help="comma-separated sports"),
+                   force: bool = typer.Option(False, help="ignore the interval")):
+    """Take one budgeted sportsbook snapshot (The Odds API) and store it.
+
+    Needs ODDS_API_KEY in the environment. Credits, not requests, are
+    metered: one call per sport key per snapshot."""
+    cfg = _setup(config)
+    from sportsbot.core.types import Sport
+    from sportsbot.data.store import Store
+    from sportsbot.signals.sharp import (
+        ODDS_API_KEY_ENV,
+        OddsApiClient,
+        SharpCollector,
+        SharpConfig,
+    )
+
+    key = os.environ.get(ODDS_API_KEY_ENV, "").strip()
+    if not key:
+        console.print(f"[red]{ODDS_API_KEY_ENV} not set[/red] — nothing fetched")
+        raise typer.Exit(code=1)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    coll = SharpCollector(store, SharpConfig.from_cfg(cfg), OddsApiClient(key))
+    wanted = [Sport(x.strip()) for x in sports.split(",") if x.strip()]
+    console.print(coll.snapshot(wanted, force=force))
+
+
+@app.command("sharp-report")
+def sharp_report(config: str = CONFIG_OPT,
+                 account: str = typer.Option("sim", help="decision feed to grade"),
+                 mode: str = typer.Option("paper", help="bets book to grade"),
+                 since: str = typer.Option(None, help="ISO timestamp lower bound"),
+                 no_write: bool = typer.Option(False, help="don't persist sharp closes")):
+    """Grade every decision and bet against the sharp (Pinnacle) close.
+
+    The pass criterion is pre-registered: >= 1,000 graded decisions and a
+    mean net CLV on taken bets whose event-clustered 95% CI excludes zero.
+    """
+    cfg = _setup(config)
+    from sportsbot.data.store import Store
+    from sportsbot.signals.sharp import SharpConfig, format_report, run_report
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    scfg = SharpConfig.from_cfg(cfg)
+    rep = run_report(store, scfg, account=account, mode=mode, since_ts=since,
+                     write=not no_write)
+    console.print(format_report(rep, scfg))
+    credits = store.get_kv("sharp:credits_remaining")
+    last = store.get_kv("sharp:last_snapshot_ts")
+    console.print(f"last snapshot: {last or 'never'}; credits remaining: "
+                  f"{credits if credits is not None else 'unknown'}")
 
 
 @app.command("substrate-export")
