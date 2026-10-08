@@ -121,7 +121,7 @@ class TwoBookLogger:
         self._infos: dict[int, tuple] = {}      # pair_id -> (kalshi MarketInfo, pm MarketInfo)
 
     # ------------------------------------------------------------ discovery
-    def discover(self, sports=("tennis", "mlb"), max_pairs: int = 40) -> int:
+    def discover(self, sports=("tennis", "baseball"), max_pairs: int = 40) -> int:
         from sportsbot.exchanges.kalshi import KalshiClient
         from sportsbot.exchanges.polymarket import PolymarketClient
 
@@ -169,7 +169,7 @@ class TwoBookLogger:
         return len(rows)
 
     def run(self, interval: float = 20.0, minutes: float = 30.0, rediscover_every: float = 1800.0,
-            sports=("tennis", "mlb"), max_pairs: int = 40) -> dict:
+            sports=("tennis", "baseball"), max_pairs: int = 40) -> dict:
         t_end = time.time() + minutes * 60
         last_disc = 0.0
         samples = passes = 0

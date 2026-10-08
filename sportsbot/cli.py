@@ -431,7 +431,7 @@ def board(config: str = CONFIG_OPT,
 def twobook_log(config: str = CONFIG_OPT,
                 minutes: float = typer.Option(30.0, help="how long to sample"),
                 interval: float = typer.Option(20.0, help="seconds between passes"),
-                sports: str = typer.Option("tennis,mlb"),
+                sports: str = typer.Option("tennis,baseball"),
                 max_pairs: int = typer.Option(40, help="pairs per sport, highest Polymarket volume first"),
                 db: str = typer.Option("data/twobook.sqlite")):
     """Log both order books for matches listed on Kalshi AND Polymarket.
