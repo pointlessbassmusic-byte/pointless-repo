@@ -55,6 +55,8 @@ class PMGame:
     close_ts: int
     home_won: bool
     volume: float
+    condition_id: str = ""   # Gamma conditionId; keys the public trade tape
+    token_no: str = ""       # YES token of outcomes[1] (the complement)
 
 
 def _pj(v):
@@ -121,7 +123,9 @@ def _games_from_events(events, sport: str, cutoff: float,
                 away=str(outcomes[1]).strip().lower(),
                 token=token, start_ts=start_ts, close_ts=close_ts,
                 home_won=(p0 == 1.0),
-                volume=float(m.get("volumeNum") or 0.0)))
+                volume=float(m.get("volumeNum") or 0.0),
+                condition_id=str(m.get("conditionId") or ""),
+                token_no=str(tokens[1])))
 
 
 def fetch_resolved(sport: str, days: int = 75, window_days: int = 3,
@@ -238,6 +242,29 @@ def price_at_lead(hist: list[dict], start_ts: int, lead_hours: float,
     return round(mid - half, 4), round(mid + half, 4), closing
 
 
+def maker_fill_printed(tape: list[tuple[int, float]], after_ts: int,
+                       start_ts: int, side: str, limit: float) -> bool:
+    """Strict fill model: did a taker print go THROUGH a resting order?
+
+    `tape` is (ts, home-frame price) of taker fills. A YES bid at `limit`
+    fills only if some later pre-start print trades at or below it; a NO
+    bid at `limit` (paid in the away frame) fills only if a print trades
+    at or above 1 - limit in the home frame. Being at the front of the
+    queue is still assumed, so this is an upper bound on fills, but a far
+    tighter one than "every resting order fills".
+    """
+    for ts, p_home in tape:
+        if ts <= after_ts:
+            continue
+        if ts >= start_ts:
+            break
+        if side == "YES" and p_home <= limit:
+            return True
+        if side == "NO" and p_home >= 1.0 - limit:
+            return True
+    return False
+
+
 def _fee(price: float, shares: float, rate: float) -> float:
     """Documented sports fee: rate x p x (1 - p) x shares (rate 0.05 taker,
     0.0 maker). The rebate makers receive is ignored — conservative."""
@@ -250,7 +277,8 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
                  kelly: float = 0.25, bankroll: float = 100.0,
                  max_stake: float = 8.0, fee_rate: float = 0.05,
                  maker: bool = False, maker_fee_rate: float = 0.0,
-                 http=None) -> Result:
+                 http=None, fill_model: str = "optimistic",
+                 tape_fn=None) -> Result:
     """Generic day-batched walk-forward.
 
     `history` is chronological model input (GameResults or MatchResults);
@@ -259,10 +287,19 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
     `update(item)` applies the result. Predictions for a day are made before
     any of that day's updates, so nothing on a date can inform itself.
     `maker=True` prices entry at the bid instead of the ask and charges
-    `maker_fee_rate` (documented: zero, plus a rebate that is ignored here);
-    fills are assumed, which is optimistic, and the caller should say so.
+    `maker_fee_rate` (documented: zero, plus a rebate that is ignored here).
+    `fill_model="optimistic"` assumes every resting order fills, which the
+    caller should say so; `"strict"` books a maker bet only when
+    `tape_fn(game)` -- the market's taker prints as (ts, home price) --
+    shows a later pre-start print through the bid (`maker_fill_printed`),
+    and counts the rest in `Result.unfilled`.
     """
     from sportsbot.core.staking import kelly_binary
+
+    if maker and fill_model not in ("optimistic", "strict"):
+        raise ValueError(f"unknown fill_model {fill_model!r}")
+    if maker and fill_model == "strict" and tape_fn is None:
+        raise ValueError("strict fill model needs tape_fn")
 
     by_key = {}
     for g in games:
@@ -304,6 +341,12 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
             if edge >= min_edge and 0.0 < entry < 1.0:
                 frac = kelly_binary(prob, entry) * kelly
                 stake = min(max_stake, bankroll * max(0.0, frac))
+                if stake >= 1.0 and maker and fill_model == "strict":
+                    decision_ts = int(mg.start_ts - lead_hours * 3600)
+                    if not maker_fill_printed(tape_fn(mg), decision_ts,
+                                              mg.start_ts, side, entry):
+                        res.unfilled += 1
+                        stake = 0.0
                 if stake >= 1.0:
                     won = mg.home_won if side == "YES" else not mg.home_won
                     size = stake / entry

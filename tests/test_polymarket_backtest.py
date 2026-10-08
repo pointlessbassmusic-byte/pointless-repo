@@ -1,5 +1,7 @@
 """Polymarket market backtest: parsing, anchoring, and the price-series quote."""
 
+import pytest
+
 from sportsbot.backtest.polymarket_market import _ts, price_at_lead
 
 
@@ -128,3 +130,47 @@ def test_mlb_backtest_orients_the_prediction_to_polymarkets_visitor_first_listin
     bet = res.bets[0]
     assert bet.side == "NO"            # NO on the visitor's contract = the home side
     assert bet.won is True
+
+
+def test_strict_fill_model_books_a_maker_bet_only_when_a_print_trades_through(monkeypatch):
+    """Optimistic maker fills are an upper bound: a resting bid that nothing
+    ever trades through is not a bet. Under 'strict' the backtest must count
+    it as unfilled, and book it only when the tape shows a later pre-start
+    taker print at or through the bid."""
+    from datetime import datetime, timezone
+
+    from sportsbot.backtest import polymarket_market as pm
+
+    start = 100_000
+    game = pm.PMGame(date=datetime.fromtimestamp(start, timezone.utc), slug="g",
+                     home="a", away="b", token="T0", start_ts=start,
+                     close_ts=start + 7200, home_won=True, volume=1.0,
+                     condition_id="c", token_no="T1")
+    # decision mid 0.48 six hours out (bid 0.475), closing 0.52. Not 0.50:
+    # a leading run of exactly 0.5 is the listing placeholder to the parser.
+    monkeypatch.setattr(pm, "price_history", lambda token, http=None: _hist(
+        [(start - 6 * 3600, 0.48), (start - 600, 0.52)]))
+    history = [("x", "a", "b")]
+    kw = dict(predict=lambda h, a, item: 0.70, update=lambda item: None,
+              key_of=lambda item: (game.date.date(), item[1], item[2]),
+              lead_hours=6.0, min_edge=0.01, maker=True)
+
+    no_print = pm.run_backtest(history, [game], tape_fn=lambda g: [
+        (start - 5 * 3600, 0.49), (start - 3600, 0.53)], fill_model="strict", **kw)
+    assert len(no_print.bets) == 0 and no_print.unfilled == 1
+    assert no_print.summary()["unfilled"] == 1
+
+    through = pm.run_backtest(history, [game], tape_fn=lambda g: [
+        (start - 5 * 3600, 0.47), (start - 3600, 0.53)], fill_model="strict", **kw)
+    assert len(through.bets) == 1 and through.unfilled == 0
+    assert through.bets[0].entry == 0.475
+
+    # a print AFTER the start, or BEFORE the decision, is not a fill
+    too_late = pm.run_backtest(history, [game], tape_fn=lambda g: [
+        (start - 7 * 3600, 0.40), (start + 60, 0.10)], fill_model="strict", **kw)
+    assert too_late.unfilled == 1
+
+    # optimistic stays what it was: every resting order fills
+    assert len(pm.run_backtest(history, [game], **kw).bets) == 1
+    with pytest.raises(ValueError):
+        pm.run_backtest(history, [game], fill_model="strict", **kw)
