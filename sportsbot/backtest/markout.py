@@ -100,7 +100,7 @@ class MarkoutStats:
 
 
 def prematch_cut(fills: Sequence[Fill], jump: float = 0.10,
-                 min_fills: int = 10) -> Optional[int]:
+                 min_fills: int = 10, backoff_s: float = 0.0) -> Optional[int]:
     """Index of the first fill that looks in-play, or None.
 
     Kalshi's `occurrence_datetime` is the expected settle bound, not the
@@ -111,13 +111,25 @@ def prematch_cut(fills: Sequence[Fill], jump: float = 0.10,
     that first jump is pre-match. Returns None when the tape never jumps or
     jumps within the first `min_fills` prints (live from the start, or too
     thin to judge), so the caller skips the market rather than guessing.
+
+    The jump fires LATE: an early break moves a tennis line ~5-8c, so the
+    first >10c print is typically 10-20 min into play (docs/PINNACLE_TENNIS_
+    2026-10-08.md: the gap to the sportsbook close is flat ~1c until ~20 min
+    before the jump, then widens to 7c). `backoff_s` moves the cut back to
+    the last print at least that long before the jump; use >= 1200 for
+    tennis wherever the pre-match price must not carry in-play information.
     """
     if not fills:
         return None
     p0 = fills[0].price
     for i, f in enumerate(fills):
         if abs(f.price - p0) > jump:
-            return i if i >= min_fills else None
+            if i < min_fills:
+                return None
+            if backoff_s <= 0:
+                return i
+            j = bisect_right([g.ts for g in fills[:i]], f.ts - backoff_s)
+            return j if j >= min_fills else None
     return None
 
 

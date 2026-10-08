@@ -122,3 +122,16 @@ def test_prematch_cut_is_none_when_the_tape_never_goes_live():
     from sportsbot.backtest.markout import prematch_cut
     assert prematch_cut(_tape([("ask", 0.50)] * 30)) is None
     assert prematch_cut([]) is None
+
+
+def test_prematch_cut_backoff_drops_the_late_in_play_prints():
+    # quiet line every 10 min, then in-play noise every 30 s for 20 min before the >10c jump
+    from sportsbot.backtest.markout import prematch_cut
+    tape = [Fill(i * 600, 0.50, "ask") for i in range(12)]                       # ts 0 .. 6600
+    tape += [Fill(7000 + k * 30, 0.50 + (0.06 if k % 2 else -0.04), "ask") for k in range(40)]
+    tape += [Fill(8300, 0.65, "ask")]
+    jump_i = len(tape) - 1
+    assert prematch_cut(tape) == jump_i
+    cut = prematch_cut(tape, backoff_s=1200)       # back to prints at or before ts 7100
+    assert all(f.ts <= 8300 - 1200 for f in tape[:cut]) and tape[cut].ts > 8300 - 1200
+    assert prematch_cut(tape, backoff_s=10_000) is None   # nothing left -> skip, never guess

@@ -2,6 +2,7 @@
 Usage: python research/pinnacle_clv/run.py ATP.xlsx WTA.xlsx <tape_dir> [<tape_dir> ...]
 Env ODDS=PS (Pinnacle, default) or ODDS=Avg (bookmaker-average close; amendment 3)
 and SPLIT=YYYY-MM-DD (default 2026-09-05; amendment 2 uses 2026-04-16).
+BACKOFF=seconds (default 0 = as pre-registered; 1200 = post-hoc in-play-leak check, see results doc).
 Tape dirs hold <ticker>.json trade tapes ([ts, yes_price, count, taker_side])."""
 import datetime as dt
 import json
@@ -95,7 +96,8 @@ def main(atp, wta, tape_dirs):
             if not ticker.startswith(SERIES) or ev in seen_events: continue                  # one market per match
             tr = json.load(open(os.path.join(tdir, fn)))
             if len(tr) < 20: continue
-            cut = prematch_cut([Fill(ts=t, price=p, taker_book_side=s) for t, p, n, s in tr])
+            cut = prematch_cut([Fill(ts=t, price=p, taker_book_side=s) for t, p, n, s in tr],
+                              backoff_s=float(os.environ.get("BACKOFF", "0")))
             if cut is None or cut < 20: stats["no_cut"] += 1; continue
             m = market_meta(ticker, cache)
             if not m or m["sv"] is None: stats["no_meta"] += 1; continue
