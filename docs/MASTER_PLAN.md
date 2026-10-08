@@ -136,6 +136,17 @@ Pipeline per cycle:
 - [x] Weather-arm triple-null on real settlements (`sportsbot weather-score`):
       coin 0.2500 → climatology 0.1828 → market 0.0751 across 168 settled rows
 - [x] `sportsbot doctor` go-live preflight; exit-rule replay backtest
+- [x] Capital allocation and learning loop (`sportsbot/bot/portfolio.py`,
+      `config/allocation.yaml`, `docs/ALLOCATION.md`): strategy arms
+      `sport/signal/style` with per-arm evidence and gate; money from manual
+      weights → evidence shares (CLV interval lower bound) → a bounded learning
+      budget with a weekly loss stop; equity-mode bankroll (profits roll in);
+      fractional risk limits; the sharp line as a selectable model
+      (`engine/sharpline.py`); dashboard arms/results panels. Tighten-only
+      throughout; the file cannot turn trading on.
+- [x] Result 14 (`backtest/wallet_follow.py`): copying wallets is dead as a
+      taker; informed MLB flow exists (+1.0 pt) but a copy nets −0.7 pt.
+      Strict maker fill model and backtest policy parity landed with it.
 - [x] Sharp-line CLV harness (`sportsbot/signals/sharp.py`, rank 1 of
       `reports/Beating prediction market prices.md`): budgeted Pinnacle snapshots
       via The Odds API, Shin de-vig, every decision and bet graded against the

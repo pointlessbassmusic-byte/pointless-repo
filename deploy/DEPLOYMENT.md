@@ -126,6 +126,13 @@ Start live with ~10% of intended bankroll. The kill switches (drawdown,
 daily loss, calibration decay) will stop the bot; investigate before
 resetting them.
 
+The gate is now applied **per strategy arm** (`sport/signal/style`) by
+`bot/portfolio.py`, and real money reaches an arm three ways only: a
+manual weight in `config/allocation.yaml`, a green per-arm gate (200
+CLV-graded fills, CLV interval above zero, Brier < 0.25, fees verified),
+or a bounded learning budget for arms marked `learn: true`. See
+`docs/ALLOCATION.md` for the $100–250 starting path.
+
 ## Server hardening included in setup
 
 - UFW: inbound SSH only; fail2ban; unattended security upgrades.

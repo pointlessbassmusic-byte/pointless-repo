@@ -16,6 +16,7 @@ from sportsbot.bot.matching import match_entity
 from sportsbot.core.types import MarketInfo, Prediction, Sport
 from sportsbot.engine.base import EventInput, SportModel
 from sportsbot.engine.baseball import BaseballModel
+from sportsbot.engine.sharpline import SharpLineModel
 from sportsbot.engine.tabletennis import TableTennisModel
 from sportsbot.engine.tennis import TennisModel
 
@@ -62,6 +63,8 @@ class Scanner:
             return list(model.elo.ratings.keys())
         if isinstance(model, TableTennisModel):
             return list(model.elo.ratings.keys())
+        if isinstance(model, SharpLineModel):
+            return model.rated_entities()
         return []
 
     def scan(self, markets: list[MarketInfo],

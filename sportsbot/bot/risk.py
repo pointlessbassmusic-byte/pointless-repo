@@ -45,6 +45,24 @@ class RiskConfig:
     calibration_min_bets: int = 50
     calibration_max_brier: float = 0.26
     bankroll: float = 1000.0
+    # Optional fractions of the CURRENT bankroll. When set, the effective
+    # limit is the TIGHTER of the dollar figure and fraction x bankroll, so
+    # a $100 account funded under defaults written for $1,000 still stops
+    # at a loss that means the same thing in percentage terms.
+    daily_loss_fraction: Optional[float] = None
+    max_drawdown_fraction: Optional[float] = None
+
+    def effective_daily_loss(self) -> float:
+        lim = abs(self.daily_loss_limit)
+        if self.daily_loss_fraction is not None:
+            lim = min(lim, abs(self.daily_loss_fraction) * self.bankroll)
+        return lim
+
+    def effective_max_drawdown(self) -> float:
+        lim = abs(self.max_drawdown)
+        if self.max_drawdown_fraction is not None:
+            lim = min(lim, abs(self.max_drawdown_fraction) * self.bankroll)
+        return lim
 
 
 class RiskManager:
@@ -52,6 +70,12 @@ class RiskManager:
         self.cfg = cfg
         self.store = store
         self.mode = mode
+
+    def set_bankroll(self, bankroll: float) -> None:
+        """Rolling-equity sizing: the limits that scale with the bankroll
+        follow it. Called once per cycle by the runner."""
+        if bankroll > 0:
+            self.cfg.bankroll = float(bankroll)
 
     # ------------------------------------------------------------------
     def live_allowed(self) -> bool:
@@ -82,15 +106,16 @@ class RiskManager:
                 cum += r.get("pnl") or 0.0
                 peak = max(peak, cum)
                 drawdown = max(drawdown, peak - cum)
-            if drawdown >= self.cfg.max_drawdown:
-                self.trip_kill_switch(f"max drawdown {drawdown:.2f} >= {self.cfg.max_drawdown}")
+            max_dd = self.cfg.effective_max_drawdown()
+            if drawdown >= max_dd:
+                self.trip_kill_switch(f"max drawdown {drawdown:.2f} >= {max_dd:.2f}")
                 return False, "max drawdown"
 
             today = self.store.bets_today()
             realized_today = sum(
                 (r.get("pnl") or 0.0) for r in today if r.get("pnl") is not None
             )
-            if realized_today <= -abs(self.cfg.daily_loss_limit):
+            if realized_today <= -self.cfg.effective_daily_loss():
                 return False, f"daily loss limit ({realized_today:.2f})"
 
             staked_today = sum(r.get("stake") or 0.0 for r in today)
