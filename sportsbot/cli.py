@@ -548,6 +548,7 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
                     min_edge: float = typer.Option(0.03),
                     maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee"),
                     fill_model: str = typer.Option("optimistic", help="polymarket maker fills: optimistic (every resting order fills) | strict (a later pre-start taker print must trade through the bid; uses the public trade tape)"),
+                    policy: str = typer.Option("backtest", help="polymarket: backtest (this harness's own rules) | live (the bot's evaluate_market_verbose under config/default.yaml — no drift possible)"),
                     days: int = typer.Option(32, help="polymarket: resolved-market lookback (CLOB keeps ~30 days of prices)"),
                     max_pages: int = typer.Option(40, help="settled-market pages to pull")):
     """Walk-forward backtest against REAL exchange prices and outcomes.
@@ -557,7 +558,7 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
     histories are cached, so repeat runs are offline."""
     if exchange == "polymarket":
         _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days,
-                                    fill_model=fill_model)
+                                    fill_model=fill_model, policy=policy)
         return
     if exchange != "kalshi":
         raise typer.BadParameter("exchange must be kalshi | polymarket")
@@ -614,11 +615,13 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
 
 def _polymarket_market_backtest(sport: str, cfg: dict, lead_hours: float,
                                 min_edge: float, maker: bool, days: int,
-                                fill_model: str = "optimistic") -> None:
+                                fill_model: str = "optimistic",
+                                policy: str = "backtest") -> None:
     from sportsbot.backtest import polymarket_market as pm
+    from sportsbot.bot.runner import staking_from_cfg, strategy_from_cfg
 
     tape_fn = None
-    if maker and fill_model == "strict":
+    if fill_model == "strict" and (maker or policy == "live"):
         from sportsbot.backtest import wallet_follow as wf
 
         def tape_fn(game):
@@ -630,13 +633,17 @@ def _polymarket_market_backtest(sport: str, cfg: dict, lead_hours: float,
     bank = cfg.get("bankroll", {})
     common = dict(
         lead_hours=lead_hours, min_edge=min_edge, maker=maker,
-        fill_model=fill_model, tape_fn=tape_fn,
+        fill_model=fill_model, tape_fn=tape_fn, policy=policy, sport=sport,
+        staking_cfg=staking_from_cfg(cfg), strategy_cfg=strategy_from_cfg(cfg),
         model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
         slippage=float(cfg.get("execution", {}).get("slippage_buffer", 0.005)),
         kelly=float(bank.get("kelly_multiplier", 0.25)),
         bankroll=float(bank.get("amount", 100.0)),
         max_stake=float(bank.get("max_stake_per_market", 8.0)),
     )
+    if policy == "live":
+        console.print("policy=live: the bot's own strategy under this config "
+                      "decides; --min-edge/--maker are ignored")
     console.print(f"fetching resolved Polymarket {sport} markets ({days} days)…")
     games = pm.fetch_resolved(sport, days=days)
     if sport == "tennis":

@@ -271,6 +271,35 @@ def _fee(price: float, shares: float, rate: float) -> float:
     return rate * price * (1.0 - price) * shares
 
 
+BIG_DEPTH = 1_000_000.0   # synthetic book depth: the series carries no book
+
+
+def live_inputs(mg: PMGame, bid: float, ask: float, p_home: float,
+                sport: str = "baseball"):
+    """The (MarketInfo, MarketQuote, Prediction) the live strategy would see
+    for a backtest game: a one-level book at the recorded bid/ask with
+    unbounded depth (depth is not in the data, so it cannot bind here)."""
+    from sportsbot.core.types import (
+        BookLevel,
+        Exchange,
+        MarketInfo,
+        MarketQuote,
+        Prediction,
+        Sport,
+    )
+
+    sp = Sport(sport)
+    mid = mg.condition_id or mg.token
+    market = MarketInfo(exchange=Exchange.POLYMARKET, market_id=mid, slug=mg.slug,
+                        sport=sp, home=mg.home, away=mg.away, start_time=mg.date,
+                        tick_size=0.01, min_order_size=5.0)
+    quote = MarketQuote(market_id=mid, bid=bid, ask=ask,
+                        bids=[BookLevel(price=bid, size=BIG_DEPTH)],
+                        asks=[BookLevel(price=ask, size=BIG_DEPTH)])
+    pred = Prediction(market_id=mid, sport=sp, model="backtest", prob_yes=p_home)
+    return market, quote, pred
+
+
 def run_backtest(history, games: list[PMGame], predict, update, key_of,
                  lead_hours: float = 6.0, min_edge: float = 0.03,
                  model_weight: float = 0.30, slippage: float = 0.005,
@@ -278,7 +307,9 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
                  max_stake: float = 8.0, fee_rate: float = 0.05,
                  maker: bool = False, maker_fee_rate: float = 0.0,
                  http=None, fill_model: str = "optimistic",
-                 tape_fn=None) -> Result:
+                 tape_fn=None, policy: str = "backtest",
+                 staking_cfg=None, strategy_cfg=None,
+                 sport: str = "baseball") -> Result:
     """Generic day-batched walk-forward.
 
     `history` is chronological model input (GameResults or MatchResults);
@@ -293,13 +324,35 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
     `tape_fn(game)` -- the market's taker prints as (ts, home price) --
     shows a later pre-start print through the bid (`maker_fill_printed`),
     and counts the rest in `Result.unfilled`.
+
+    `policy="live"` replaces this function's own blend/edge/Kelly rules
+    with the bot's `evaluate_market_verbose` on `live_inputs`, driven by
+    `staking_cfg` / `strategy_cfg` (build them with `runner.staking_from_cfg`
+    and `strategy_from_cfg`). Then `min_edge`, `model_weight`, `slippage`,
+    `kelly`, `bankroll`, `max_stake` and `maker` are ignored: the live
+    policy decides maker vs taker itself, and the fill model applies to
+    whatever it rests. Same config, same function, same decision -- a
+    backtest that cannot drift from the bot.
     """
     from sportsbot.core.staking import kelly_binary
 
-    if maker and fill_model not in ("optimistic", "strict"):
+    if fill_model not in ("optimistic", "strict"):
         raise ValueError(f"unknown fill_model {fill_model!r}")
-    if maker and fill_model == "strict" and tape_fn is None:
+    if fill_model == "strict" and tape_fn is None and (maker or policy == "live"):
         raise ValueError("strict fill model needs tape_fn")
+    if policy not in ("backtest", "live"):
+        raise ValueError(f"unknown policy {policy!r}")
+    if policy == "live":
+        from sportsbot.bot.strategy import evaluate_market_verbose
+
+        if staking_cfg is None or strategy_cfg is None:
+            raise ValueError("policy='live' needs staking_cfg and strategy_cfg")
+
+        def live_fee_fn(price, shares, market_id=None):
+            return _fee(price, shares, fee_rate)
+
+        def live_maker_fee_fn(price, market_id=""):
+            return _fee(price, 1.0, maker_fee_rate)
 
     by_key = {}
     for g in games:
@@ -328,20 +381,37 @@ def run_backtest(history, games: list[PMGame], predict, update, key_of,
             p_home = predict(mg.home, mg.away, item)
             if p_home is None:
                 continue
-            blend = (1.0 - model_weight) * mid + model_weight * p_home
-            if maker:
-                yes_entry, no_entry, fb = bid, 1.0 - ask, maker_fee_rate
+            if policy == "live":
+                market, quote, pred = live_inputs(mg, bid, ask, p_home, sport)
+                intent, _why = evaluate_market_verbose(
+                    market, quote, pred, staking_cfg, strategy_cfg,
+                    live_fee_fn, {}, maker_fee_fn=live_maker_fee_fn)
+                if intent is None:
+                    continue
+                side = intent.side.value.upper()
+                prob, entry, edge = intent.prob, intent.price, intent.edge
+                is_maker = intent.reason.endswith("maker")
+                fb = maker_fee_rate if is_maker else fee_rate
+                close_px = closing if side == "YES" else 1.0 - closing
+                stake = round(entry * intent.size, 2)
             else:
-                yes_entry, no_entry, fb = ask, 1.0 - bid, fee_rate
-            yes_edge = blend - yes_entry - _fee(yes_entry, 1.0, fb) - slippage
-            no_edge = (1.0 - blend) - no_entry - _fee(no_entry, 1.0, fb) - slippage
-            side, prob, entry, edge, close_px = (
-                ("YES", blend, yes_entry, yes_edge, closing) if yes_edge >= no_edge
-                else ("NO", 1.0 - blend, no_entry, no_edge, 1.0 - closing))
-            if edge >= min_edge and 0.0 < entry < 1.0:
-                frac = kelly_binary(prob, entry) * kelly
-                stake = min(max_stake, bankroll * max(0.0, frac))
-                if stake >= 1.0 and maker and fill_model == "strict":
+                blend = (1.0 - model_weight) * mid + model_weight * p_home
+                is_maker = maker
+                if maker:
+                    yes_entry, no_entry, fb = bid, 1.0 - ask, maker_fee_rate
+                else:
+                    yes_entry, no_entry, fb = ask, 1.0 - bid, fee_rate
+                yes_edge = blend - yes_entry - _fee(yes_entry, 1.0, fb) - slippage
+                no_edge = (1.0 - blend) - no_entry - _fee(no_entry, 1.0, fb) - slippage
+                side, prob, entry, edge, close_px = (
+                    ("YES", blend, yes_entry, yes_edge, closing) if yes_edge >= no_edge
+                    else ("NO", 1.0 - blend, no_entry, no_edge, 1.0 - closing))
+                stake = 0.0
+                if edge >= min_edge and 0.0 < entry < 1.0:
+                    frac = kelly_binary(prob, entry) * kelly
+                    stake = min(max_stake, bankroll * max(0.0, frac))
+            if stake >= 1.0:
+                if is_maker and fill_model == "strict":
                     decision_ts = int(mg.start_ts - lead_hours * 3600)
                     if not maker_fill_printed(tape_fn(mg), decision_ts,
                                               mg.start_ts, side, entry):

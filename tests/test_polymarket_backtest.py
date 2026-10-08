@@ -174,3 +174,72 @@ def test_strict_fill_model_books_a_maker_bet_only_when_a_print_trades_through(mo
     assert len(pm.run_backtest(history, [game], **kw).bets) == 1
     with pytest.raises(ValueError):
         pm.run_backtest(history, [game], fill_model="strict", **kw)
+
+
+def test_live_policy_is_the_bots_own_decision(monkeypatch):
+    """Under policy='live' the backtest books exactly what
+    `evaluate_market_verbose` returns for the same inputs, and applies the
+    bot's filters (here the entry band) that the harness's own rules lack."""
+    from datetime import datetime, timezone
+
+    from sportsbot.backtest import polymarket_market as pm
+    from sportsbot.bot.runner import staking_from_cfg, strategy_from_cfg
+    from sportsbot.bot.strategy import evaluate_market_verbose
+
+    start = 100_000
+    game = pm.PMGame(date=datetime.fromtimestamp(start, timezone.utc), slug="g",
+                     home="a", away="b", token="T0", start_ts=start,
+                     close_ts=start + 7200, home_won=True, volume=1.0,
+                     condition_id="c", token_no="T1")
+    cfg = {"bankroll": {"amount": 1000.0, "min_stake": 5.0, "max_stake_per_market": 50.0},
+           "execution": {"min_entry_price": 0.15, "max_entry_price": 0.85}}
+    staking, strategy = staking_from_cfg(cfg), strategy_from_cfg(cfg)
+    history = [("x", "a", "b")]
+    kw = dict(predict=lambda h, a, item: 0.70, update=lambda item: None,
+              key_of=lambda item: (game.date.date(), item[1], item[2]),
+              lead_hours=6.0, policy="live", staking_cfg=staking,
+              strategy_cfg=strategy, sport="baseball")
+
+    monkeypatch.setattr(pm, "price_history", lambda token, http=None: _hist(
+        [(start - 6 * 3600, 0.48), (start - 600, 0.52)]))
+    res = pm.run_backtest(history, [game], **kw)
+    assert len(res.bets) == 1
+    bet = res.bets[0]
+    market, quote, pred = pm.live_inputs(game, 0.475, 0.485, 0.70, "baseball")
+    intent, _ = evaluate_market_verbose(
+        market, quote, pred, staking, strategy,
+        lambda p, s, m=None: pm._fee(p, s, 0.05), {},
+        maker_fee_fn=lambda p, m="": 0.0)
+    assert intent is not None
+    assert bet.side == intent.side.value.upper()
+    assert bet.entry == pytest.approx(intent.price)         # taker at the ask on a 1-tick book
+    assert bet.stake == pytest.approx(round(intent.price * intent.size, 2))
+    assert bet.model_prob == pytest.approx(intent.prob)
+
+    # the bot refuses a mid outside its entry band; the harness's own rules would bet
+    monkeypatch.setattr(pm, "price_history", lambda token, http=None: _hist(
+        [(start - 6 * 3600, 0.90), (start - 600, 0.92)]))
+    assert pm.run_backtest(history, [game], **kw).bets == []
+    own = pm.run_backtest(history, [game], predict=lambda h, a, i: 0.99,
+                          update=lambda i: None, key_of=kw["key_of"],
+                          lead_hours=6.0, min_edge=0.01)
+    assert len(own.bets) == 1
+
+    with pytest.raises(ValueError):
+        pm.run_backtest(history, [game], **{**kw, "staking_cfg": None})
+
+
+def test_config_builders_match_what_the_runner_used_to_build():
+    from sportsbot.bot.runner import staking_from_cfg, strategy_from_cfg
+
+    cfg = {"bankroll": {"amount": 250.0, "kelly_multiplier": 0.1, "min_edge": 0.04},
+           "blend": {"model_weight": 0.2}, "execution": {"max_spread": 0.02},
+           "sports": {"table_tennis": {"min_edge_override": 0.05,
+                                       "max_stake_override": 20.0},
+                      "tennis": {"enabled": True}}}
+    st, sg = staking_from_cfg(cfg), strategy_from_cfg(cfg)
+    assert (st.bankroll, st.kelly_multiplier, st.min_edge) == (250.0, 0.1, 0.04)
+    assert st.max_stake_per_market == 50.0                   # default kept
+    assert (sg.model_weight, sg.max_spread) == (0.2, 0.02)
+    assert sg.min_edge_override == {"table_tennis": 0.05}
+    assert sg.max_stake_override == {"table_tennis": 20.0}

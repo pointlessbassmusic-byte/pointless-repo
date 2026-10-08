@@ -119,6 +119,49 @@ def _try_load(model: Any, path: str) -> None:
                     "`sportsbot fit` first)", path, model.name)
 
 
+def staking_from_cfg(cfg: dict) -> StakingConfig:
+    """The ONE place config becomes sizing limits. The runner and the
+    market backtest both build from here, so a backtest decision is the
+    live decision under the same config, not a hand copy of it."""
+    bank = cfg.get("bankroll", {})
+    return StakingConfig(
+        bankroll=float(bank.get("amount", 1000.0)),
+        kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
+        min_edge=float(bank.get("min_edge", 0.03)),
+        min_stake=float(bank.get("min_stake", 5.0)),
+        max_stake_per_market=float(bank.get("max_stake_per_market", 50.0)),
+        max_fraction_per_market=float(bank.get("max_fraction_per_market", 0.05)),
+        max_fraction_per_sport=float(bank.get("max_fraction_per_sport", 0.20)),
+        max_total_exposure=float(bank.get("max_total_exposure", 0.50)),
+        max_open_positions=int(bank.get("max_open_positions", 20)),
+    )
+
+
+def strategy_from_cfg(cfg: dict) -> StrategyConfig:
+    """Config -> the strategy filters (see `staking_from_cfg`)."""
+    ex = cfg.get("execution", {})
+    sports_cfg = cfg.get("sports", {})
+    return StrategyConfig(
+        model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
+        max_spread=float(ex.get("max_spread", 0.03)),
+        slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
+        max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
+        post_inside_spread=bool(ex.get("post_inside_spread", True)),
+        min_entry_price=float(ex.get("min_entry_price", 0.15)),
+        max_entry_price=float(ex.get("max_entry_price", 0.85)),
+        min_edge_override={
+            k: float(v["min_edge_override"])
+            for k, v in sports_cfg.items()
+            if isinstance(v, dict) and "min_edge_override" in v
+        },
+        max_stake_override={
+            k: float(v["max_stake_override"])
+            for k, v in sports_cfg.items()
+            if isinstance(v, dict) and "max_stake_override" in v
+        },
+    )
+
+
 def build_exchange(cfg: dict):
     """Return (execution_exchange, data_exchange, fee_fn)."""
     from sportsbot.exchanges.paper import PaperExchange
@@ -176,45 +219,15 @@ class Runner:
         # forced to paper above, so its rows land in the sim book, which is
         # where they belong.
         self.account = "real" if self.mode == "live" else "sim"
-        bank = cfg.get("bankroll", {})
         # The equity curve must be anchored to the SAME starting balance the
         # dashboard renders against, or the stored curve and the Equity tile
         # disagree by whatever the two settings differ by.
         from sportsbot.dashboard import starting_balance
 
         self.starting_balance = starting_balance(cfg, self.account)
-        self.staking = StakingConfig(
-            bankroll=float(bank.get("amount", 1000.0)),
-            kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
-            min_edge=float(bank.get("min_edge", 0.03)),
-            min_stake=float(bank.get("min_stake", 5.0)),
-            max_stake_per_market=float(bank.get("max_stake_per_market", 50.0)),
-            max_fraction_per_market=float(bank.get("max_fraction_per_market", 0.05)),
-            max_fraction_per_sport=float(bank.get("max_fraction_per_sport", 0.20)),
-            max_total_exposure=float(bank.get("max_total_exposure", 0.50)),
-            max_open_positions=int(bank.get("max_open_positions", 20)),
-        )
+        self.staking = staking_from_cfg(cfg)
+        self.strategy = strategy_from_cfg(cfg)
         ex = cfg.get("execution", {})
-        sports_cfg = cfg.get("sports", {})
-        self.strategy = StrategyConfig(
-            model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
-            max_spread=float(ex.get("max_spread", 0.03)),
-            slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
-            max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
-            post_inside_spread=bool(ex.get("post_inside_spread", True)),
-            min_entry_price=float(ex.get("min_entry_price", 0.15)),
-            max_entry_price=float(ex.get("max_entry_price", 0.85)),
-            min_edge_override={
-                k: float(v["min_edge_override"])
-                for k, v in sports_cfg.items()
-                if isinstance(v, dict) and "min_edge_override" in v
-            },
-            max_stake_override={
-                k: float(v["max_stake_override"])
-                for k, v in sports_cfg.items()
-                if isinstance(v, dict) and "max_stake_override" in v
-            },
-        )
         risk_cfg = cfg.get("risk", {})
         self.risk = RiskManager(
             RiskConfig(
