@@ -74,7 +74,9 @@ class RiskManager:
             if self.kill_switch_tripped():
                 return False, f"kill switch: {self.store.get_kv(KILL_SWITCH_KEY)}"
 
-            settled = self.store.settled_bets()
+            # This book only: the paper and live ledgers may share a file,
+            # and every limit here is about the money THIS process risks.
+            settled = self.store.settled_bets(limit=1_000_000, mode=self.mode)
             cum = 0.0
             peak = 0.0
             drawdown = 0.0
@@ -86,7 +88,7 @@ class RiskManager:
                 self.trip_kill_switch(f"max drawdown {drawdown:.2f} >= {self.cfg.max_drawdown}")
                 return False, "max drawdown"
 
-            today = self.store.bets_today()
+            today = self.store.bets_today(mode=self.mode)
             realized_today = sum(
                 (r.get("pnl") or 0.0) for r in today if r.get("pnl") is not None
             )

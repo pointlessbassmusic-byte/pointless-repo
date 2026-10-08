@@ -220,14 +220,15 @@ def run(config: str = CONFIG_OPT):
     Runner(cfg).run_forever()
 
 
-def _category_report(cfg: dict, store) -> dict:
-    """Per-category performance + adaptive-layer state from config + store."""
+def _category_report(cfg: dict, store, mode: str | None = None) -> dict:
+    """Per-category performance + adaptive-layer state from config + store,
+    for one book when `mode` is given."""
     from sportsbot.bot.positions import category_report
 
     bank = cfg.get("bankroll", {})
     sports_cfg = cfg.get("sports", {})
     return category_report(
-        store.settled_bets(),
+        store.settled_bets(limit=1_000_000, mode=mode),
         cfg.get("adaptive", {}),
         float(bank.get("min_edge", 0.03)),
         float(bank.get("max_stake_per_market", 50.0)),
@@ -240,6 +241,57 @@ def _category_report(cfg: dict, store) -> dict:
     )
 
 
+def _effective_mode(cfg: dict) -> str:
+    """The book a config actually writes: live only with BOTH switches."""
+    import os
+    live = cfg.get("mode", "paper") == "live" and os.environ.get("SPORTSBOT_LIVE") == "1"
+    return "live" if live else "paper"
+
+
+@app.command()
+def allocation(config: str = CONFIG_OPT,
+               account: str = typer.Option("", help="sim | real (default: the book this config trades)")):
+    """Where the allocator lets money go right now, and why — plus the log
+    of every change. Manual control: `allocation.manual` / `allocation.paused`
+    in config/local.yaml (see bot/allocation.py)."""
+    cfg = _setup(config)
+    from sportsbot.bot.allocation import allocate, manual_settings
+    from sportsbot.bot.ledger import account_equity
+    from sportsbot.dashboard import rated_counts, ratings_provenance, starting_balance
+    from sportsbot.data.store import Store
+
+    acct = account or ("real" if _effective_mode(cfg) == "live" else "sim")
+    mode = {"sim": "paper", "real": "live"}[acct]
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    eq = account_equity(store, acct, starting_balance(cfg, acct))
+    bankroll = max(0.0, min(float(cfg.get("bankroll", {}).get("amount", 0.0)), eq["equity"]))
+    rep = _category_report(cfg, store, mode=mode)
+    alloc = allocate(bankroll, cfg, rep["by_sport"],
+                     {k: v > 0 for k, v in rated_counts(cfg).items()},
+                     provisional=ratings_provenance(cfg))
+    manual, paused = manual_settings(cfg)
+    console.print(f"[{acct}] equity ${eq['equity']:.2f}; allocator bankroll ${bankroll:.2f} "
+                  f"(min of configured amount and equity); manual={manual or 'none'} "
+                  f"paused={sorted(paused) or 'none'}")
+    table = Table(title="sleeves")
+    for col in ("sport", "weight", "budget", "mean CLV", "n", "bound by"):
+        table.add_column(col)
+    for sport, sl in alloc["sleeves"].items():
+        table.add_row(sport, f"{sl['weight']:.0%}", f"${sl['budget']:.2f}",
+                      "—" if sl.get("mean_clv") is None else f"{sl['mean_clv']:+.4f}",
+                      str(sl.get("n", 0)), sl["bound_by"])
+    console.print(table)
+    log_rows = store.allocation_log(acct, limit=15)
+    if log_rows:
+        t2 = Table(title="learning log (latest changes)")
+        for col in ("when", "sport", "budget", "weight", "reason"):
+            t2.add_column(col)
+        for r in log_rows:
+            t2.add_row(r["ts"][:16], r["sport"], f"${r['budget']:.2f}",
+                       f"{(r['weight'] or 0):.0%}", r["bound_by"] or "")
+        console.print(t2)
+
+
 @app.command()
 def status(config: str = CONFIG_OPT):
     """Exposure, PnL, calibration, per-category performance, kill switch."""
@@ -248,11 +300,16 @@ def status(config: str = CONFIG_OPT):
     from sportsbot.data.store import Store
 
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
-    exp = store.exposure_by()
-    console.print(f"open exposure: ${exp['total']:.2f} across "
+    # The book this config trades, not everything in the file: a live
+    # config's status must not mix in the paper book's rows.
+    mode = _effective_mode(cfg)
+    exp = store.exposure_by(mode=mode)
+    console.print(f"[{mode}] open exposure: ${exp['total']:.2f} across "
                   f"{exp['open_positions']} positions {exp['by_sport']}")
     tracker = PerformanceTracker()
-    for r in store.settled_bets():
+    # settled_bets() is newest first; drawdown is a path statistic and must
+    # be walked oldest first or peak-to-trough comes out of a reversed path.
+    for r in reversed(store.settled_bets(limit=1_000_000, mode=mode)):
         tracker.add(BetRecord(
             market_id=r["market_id"], side=r["side"], model_prob=r["model_prob"],
             entry_price=r["entry_price"], stake=r["stake"],
@@ -262,7 +319,7 @@ def status(config: str = CONFIG_OPT):
     console.print(tracker.summary())
     console.print(f"max drawdown: ${tracker.drawdown():.2f}")
 
-    rep = _category_report(cfg, store)
+    rep = _category_report(cfg, store, mode=mode)
     if rep["by_sport"]:
         table = Table(title="per category (adaptive layer state)")
         for col in ("sport", "bets", "PnL", "mean CLV", "hit", "state",
@@ -582,7 +639,8 @@ def _write_ops_json(cfg: dict, store, path: str) -> None:
 
     tracker = PerformanceTracker()
     cum, cum_pnl = 0.0, []
-    for r in store.settled_bets():
+    mode = _effective_mode(cfg)
+    for r in reversed(store.settled_bets(limit=1_000_000, mode=mode)):   # oldest first
         tracker.add(BetRecord(
             market_id=r["market_id"], side=r["side"], model_prob=r["model_prob"],
             entry_price=r["entry_price"], stake=r["stake"],
@@ -595,12 +653,12 @@ def _write_ops_json(cfg: dict, store, path: str) -> None:
         "generated": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
         "mode": f"{cfg.get('mode', 'paper')}/{cfg.get('exchange', 'polymarket')}",
         "bankroll": cfg.get("bankroll", {}).get("amount"),
-        "exposure": store.exposure_by(),
+        "exposure": store.exposure_by(mode=mode),
         "summary": tracker.summary(),
         "max_drawdown": tracker.drawdown(),
         "kill_switch": bool(store.get_kv("kill_switch_tripped", False)),
         "cum_pnl": cum_pnl,
-        "categories": _category_report(cfg, store),
+        "categories": _category_report(cfg, store, mode=mode),
     }
     with open(path, "w") as fh:
         json.dump(ops, fh, indent=1)

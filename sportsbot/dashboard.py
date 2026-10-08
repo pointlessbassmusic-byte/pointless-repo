@@ -175,8 +175,9 @@ def _allocation(alloc: dict) -> str:
     for sport, s in alloc["sleeves"].items():
         state = ("active" if s["active"] else "idle")
         clv = ("—" if s.get("mean_clv") is None else f'{s["mean_clv"]:+.4f}')
+        hand = (' <span class="pill">manual</span>' if s.get("manual") else "")
         rows.append(
-            f'<tr class="{state}"><td><strong>{_e(sport)}</strong>'
+            f'<tr class="{state}"><td><strong>{_e(sport)}</strong>{hand}'
             f'<div class="evidence">{_e(s["evidence"])}</div></td>'
             f'<td class="num">{s["weight"] * 100:.0f}%</td>'
             f'<td class="num">{_money(s["budget"])}</td>'
@@ -195,7 +196,70 @@ def _allocation(alloc: dict) -> str:
         f'<tbody>{"".join(rows)}{excl}</tbody></table>'
         f'<div class="foot">Allocated {_money(alloc["allocated"])} of '
         f'{_money(alloc["bankroll"])}; the rest stays uncommitted. Weights move '
-        'with measured closing-line value, never with a losing streak.</div>')
+        'with measured closing-line value, never with a losing streak. Manual '
+        'control: <code>allocation.manual</code> / <code>allocation.paused</code> '
+        'in <code>config/local.yaml</code>; the measurements and caps still '
+        'apply on top.</div>')
+
+
+def _learning_log(rows: list[dict]) -> str:
+    """Every time the allocator moved a sleeve's budget or its reason."""
+    if not rows:
+        return ('<div class="foot">No allocation changes logged yet. The bot '
+                'logs one row each time a sleeve\'s budget or the reason behind '
+                'it changes.</div>')
+    body = []
+    for r in rows[:20]:
+        clv = "—" if r.get("mean_clv") is None else f'{r["mean_clv"]:+.4f}'
+        body.append(
+            f'<tr><td>{_e(r["ts"][:16].replace("T", " "))}</td>'
+            f'<td><strong>{_e(r["sport"])}</strong></td>'
+            f'<td class="num">{_money(r["budget"])}</td>'
+            f'<td class="num">{(r["weight"] or 0) * 100:.0f}%</td>'
+            f'<td class="num">{_e(clv)}</td>'
+            f'<td><span class="pill">{_e(r["bound_by"] or "")}</span></td></tr>')
+    body = "".join(body)
+    return ('<table class="grid-table"><thead><tr><th>When (UTC)</th><th>Sleeve</th>'
+            '<th class="num">Budget</th><th class="num">Weight</th>'
+            '<th class="num">Mean CLV</th><th>Why</th></tr></thead>'
+            f'<tbody>{body}</tbody></table>')
+
+
+def _ledger(entries: list[dict]) -> str:
+    """The research record: every pre-registered test and its verdict."""
+    if not entries:
+        return '<div class="foot">No research ledger found (docs/research_ledger.json).</div>'
+    rows = []
+    for e in entries:
+        v = str(e.get("verdict", "")).upper()
+        cls = "ok" if v.startswith("PASS") else "down" if v.startswith("FAIL") else ""
+        rows.append(
+            f'<tr><td>{_e(e.get("date", ""))}</td>'
+            f'<td><strong>{_e(e.get("test", ""))}</strong>'
+            f'<div class="evidence">{_e(e.get("result", ""))}</div></td>'
+            f'<td><span class="pill {cls}">{_e(v)}</span></td>'
+            f'<td class="sub">{_e(e.get("doc", ""))}</td></tr>')
+    n_fail = sum(1 for e in entries if str(e.get("verdict", "")).upper().startswith("FAIL"))
+    return ('<table class="grid-table"><thead><tr><th>Date</th><th>Pre-registered test</th>'
+            '<th>Verdict</th><th>Write-up</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>'
+            f'<div class="foot">{len(entries)} tests, {n_fail} failed. A strategy is '
+            'funded only after it passes here AND clears the go-live gate.</div>')
+
+
+def load_ledger(path: str = "docs/research_ledger.json") -> list[dict]:
+    import json
+    import os
+
+    here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), path)
+    for candidate in (path, here):
+        try:
+            with open(candidate) as fh:
+                data = json.load(fh)
+            return sorted(data.get("tests", []), key=lambda e: e.get("date", ""), reverse=True)
+        except (OSError, ValueError):
+            continue
+    return []
 
 
 # Reason prefixes -> the plain-English label the summary groups under.
@@ -360,7 +424,9 @@ def collect(cfg: dict, store) -> dict:
             "allocation": allocate(max(eq["equity"], 0.0), cfg,
                                    reports[acct].get("by_sport", {}), ratings,
                                    provisional=provisional),
+            "allocation_log": store.allocation_log(acct, limit=20),
         }
+    out["ledger"] = load_ledger()
     return out
 
 
@@ -385,8 +451,11 @@ def render(data: dict, refresh: int = 60) -> str:
             f'{_svg_equity(a["series"], a["equity"]["starting_balance"])}</div>'
             f'<div class="card"><h2>Where the money is allowed to go</h2>'
             f'{_allocation(a["allocation"])}</div>'
+            f'<div class="card"><h2>Learning log</h2>'
+            f'{_learning_log(a.get("allocation_log", []))}</div>'
             f'<div class="card"><h2>Decisions</h2>{_decisions(a["decisions"])}</div>'
             f'<div class="card"><h2>Go-live gate</h2>{_gate(a["gate"])}</div>'
+            f'<div class="card"><h2>Research ledger</h2>{_ledger(data.get("ledger", []))}</div>'
             f'</section>')
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -428,6 +497,7 @@ text-transform:uppercase;letter-spacing:.06em}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;
 background:var(--chip);color:var(--muted);font-size:11px;white-space:nowrap}
 .pill.mode{color:var(--accent);font-weight:600}
+.pill.ok{color:var(--up);font-weight:600}.pill.down{color:var(--down);font-weight:600}
 .switch{display:inline-flex;background:var(--chip);border-radius:10px;
 padding:3px;margin-bottom:18px}
 .acct-radio{position:absolute;opacity:0;pointer-events:none}

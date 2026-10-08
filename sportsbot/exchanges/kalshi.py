@@ -706,6 +706,17 @@ class KalshiClient(ExchangeClient):
             return raw
         return "yes" if raw == "bid" else "no"
 
+    def get_order(self, order_id: str) -> Optional[Order]:
+        """One order by venue id, whatever its state — the executor asks for
+        the final fill count once an order has left the resting book."""
+        try:
+            data = self._request("GET", f"{API_ROOT}/portfolio/orders/{order_id}", auth=True)
+        except Exception as exc:
+            log.error("kalshi get_order %s failed: %s", order_id, exc)
+            return None
+        o = data.get("order") if isinstance(data, dict) else None
+        return self._parse_order(o) if o else None
+
     def get_open_orders(self) -> list[Order]:
         try:
             data = self._request(
@@ -714,8 +725,10 @@ class KalshiClient(ExchangeClient):
         except Exception as exc:
             log.error("kalshi get_open_orders failed: %s", exc)
             return []
-        orders = []
-        for o in data.get("orders", []):
+        return [self._parse_order(o) for o in data.get("orders", [])]
+
+    def _parse_order(self, o: dict) -> Order:
+        if True:   # body kept at its original indent: one venue payload -> Order
             outcome = self._order_outcome(o)
             size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
             remaining = self._num(o, "remaining_count_fp", "remaining_count")
@@ -747,21 +760,25 @@ class KalshiClient(ExchangeClient):
                 yes_px = self._num(o, "yes_price_dollars")
                 if yes_px is not None:
                     price = round(1.0 - yes_px, 4)
-            orders.append(
-                Order(
-                    order_id=str(o.get("order_id", "")),
-                    client_id=str(o.get("client_order_id") or ""),
-                    exchange=Exchange.KALSHI,
-                    market_id=o.get("ticker", ""),
-                    side=Side.YES if outcome == "yes" else Side.NO,
-                    price=price or 0.0,
-                    size=size or 0.0,
-                    filled=filled,
-                    status=OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN,
-                    raw=o,
-                )
+            venue_status = str(o.get("status") or "resting").lower()
+            if venue_status in ("executed", "filled"):
+                status = OrderStatus.FILLED
+            elif venue_status in ("canceled", "cancelled", "expired"):
+                status = OrderStatus.CANCELED
+            else:
+                status = OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN
+            return Order(
+                order_id=str(o.get("order_id", "")),
+                client_id=str(o.get("client_order_id") or ""),
+                exchange=Exchange.KALSHI,
+                market_id=o.get("ticker", ""),
+                side=Side.YES if outcome == "yes" else Side.NO,
+                price=price or 0.0,
+                size=size or 0.0,
+                filled=filled,
+                status=status,
+                raw=o,
             )
-        return orders
 
     def get_positions(self) -> list[Position]:
         try:

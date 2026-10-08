@@ -60,8 +60,36 @@ def check_mode(cfg: dict) -> list[Check]:
                          if gate else
                          "mode=live but SPORTSBOT_LIVE!=1 — runner will "
                          "force paper (the double gate, working as designed)"))
+        out.extend(_check_live_book(cfg))
     else:
         out.append(Check("config.live_gate", PASS, "paper mode"))
+    return out
+
+
+SIM_DB = "data/sportsbot.sqlite"
+
+
+def _check_live_book(cfg: dict) -> list[Check]:
+    """A live config must trade its own ledger, sized to money that was
+    actually deposited. Sharing the sim's file would let paper bets count
+    toward the live book's exposure, drawdown and kill switch (and the
+    reverse); a zero starting balance makes the equity curve, the allocator
+    bankroll and the daily limits meaningless."""
+    out = []
+    path = cfg.get("storage", {}).get("sqlite_path", SIM_DB)
+    out.append(_ck("live.own_db", os.path.normpath(path) != os.path.normpath(SIM_DB),
+                   f"live book uses its own DB ({path})",
+                   f"live config points at the sim DB {SIM_DB} — give it its own "
+                   "storage.sqlite_path"))
+    real = float((cfg.get("accounts", {}).get("real") or {}).get("starting_balance", 0.0) or 0.0)
+    out.append(_ck("live.funded", real > 0.0,
+                   f"accounts.real.starting_balance=${real:.2f}",
+                   "accounts.real.starting_balance is 0 — set it to the deposit"))
+    amount = float(cfg.get("bankroll", {}).get("amount", 0.0) or 0.0)
+    out.append(_ck("live.bankroll_le_deposit", 0.0 < amount <= real or real == 0.0,
+                   f"bankroll.amount=${amount:.2f} <= deposit",
+                   f"bankroll.amount=${amount:.2f} exceeds the ${real:.2f} deposit — "
+                   "the bot would size off money that is not there"))
     return out
 
 

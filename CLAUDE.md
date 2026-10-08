@@ -19,7 +19,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
-  closed; kill switches), executor, arb, runner.
+  closed; kill switches), executor, arb, runner, `allocation.py` (per-sport
+  budgets from measured CLV, wired into sizing each cycle; operator
+  overrides via `allocation.manual` / `allocation.paused`; it can only
+  tighten the caps, never loosen them; every change lands in
+  `allocation_log`).
 - `sportsbot/backtest/` — walk-forward with side randomization.
 - `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
   (bot-log export, Kalshi weather snapshots). Data only; never wires
@@ -47,6 +51,13 @@ mode; Kalshi client implements the same interface for the US-legal path.
   config files or logs.
 - Paper mode is the default; live requires BOTH `mode: live` in config and
   `SPORTSBOT_LIVE=1` in the environment. Don't weaken this.
+- A live book trades its OWN sqlite file (`config/pilot.yaml` →
+  `data/pilot.sqlite`); `sportsbot doctor` FAILs a live config on the sim DB
+  or with `accounts.real.starting_balance` 0. Store/risk/runner queries are
+  per-mode — keep new queries that way.
+- `docs/research_ledger.json` is the record of every pre-registered test and
+  its verdict (the board renders it). Never edit a verdict; add a row.
+  Nothing with a FAIL there gets funded.
 - Risk checks fail closed — keep it that way when editing `bot/risk.py`.
 - Loss response only ever REDUCES risk: exits/stops close positions,
   drawdown scales stakes down, negative CLV tightens thresholds
@@ -58,8 +69,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
 
 - `pytest -q` — full suite (fast, no network).
 - `ruff check sportsbot tests` — lint.
-- `sportsbot fit|backtest|scan|run|status|dashboard` — CLI (network needed
-  except `dashboard`, which is offline unless `--resolve`).
+- `sportsbot fit|backtest|scan|run|status|allocation|board|dashboard` — CLI
+  (network needed except `allocation`, `board` and `dashboard`, which are
+  offline unless `--resolve`).
+- Live pilot: `docs/LIVE_PILOT_PLAN_2026-10-08.md` and `config/pilot.yaml`.
 - Live smoke (reads only, safe): `sportsbot scan`.
 
 ## Compliance notes (do not remove)

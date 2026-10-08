@@ -71,7 +71,7 @@ class Executor:
             order = self.exchange.place_order(order, quote=quote)
         else:
             order = self.exchange.place_order(order)
-        self._persist_order(order)
+        self._persist_order(order, intent)
 
         tracked = _Tracked(order=order, intent=intent,
                            placed_at=datetime.now(timezone.utc))
@@ -81,12 +81,23 @@ class Executor:
             self._open[order.client_id] = tracked
         return order
 
-    def _persist_order(self, order: Order) -> None:
+    def _persist_order(self, order: Order, intent: Optional[BetIntent] = None) -> None:
+        raw = dict(order.raw or {})
+        if intent is not None:
+            # Enough of the intent to book a fill after a restart, when the
+            # in-memory tracker is gone: the bets row needs sport, model
+            # probability and edge, not just the venue's price and size.
+            market = intent.market
+            raw["intent"] = {
+                "sport": market.sport.value if market.sport else "unknown",
+                "prob": intent.prob, "edge": intent.edge, "price": intent.price,
+                "side": intent.side.value, "market_id": market.market_id,
+            }
         self.store.record_order(
             client_id=order.client_id, order_id=order.order_id,
             market_id=order.market_id, side=order.side.value,
             price=order.price, size=order.size, filled=order.filled,
-            status=order.status.value, raw=order.raw,
+            status=order.status.value, raw=raw,
         )
 
     def _book_fill(self, tracked: _Tracked, new_total_fill: float) -> None:
@@ -129,11 +140,79 @@ class Executor:
                     self._book_fill(tracked, venue.filled)
                     self._persist_order(tracked.order)
             else:
-                # No longer resting: fully filled or canceled externally.
-                # Conservatively book it as fully filled only if partials
-                # were already seen; otherwise leave the booked exposure.
-                log.info("reconcile: order %s left the book", tracked.order.order_id)
+                # No longer resting: filled, or canceled externally. Ask the
+                # venue for the final fill count — guessing either way leaves
+                # untracked exposure (if it filled) or phantom exposure (if
+                # it was canceled). Venues without get_order keep what was
+                # already booked.
+                final = self._final_fill(tracked.order)
+                if final is not None and final > tracked.order.filled:
+                    tracked.order.filled = final
+                    self._book_fill(tracked, final)
+                tracked.order.status = (OrderStatus.FILLED
+                                        if final and final >= tracked.order.size - 1e-9
+                                        else OrderStatus.CANCELED)
+                self._persist_order(tracked.order)
+                log.info("reconcile: order %s left the book (final fill %s)",
+                         tracked.order.order_id, final)
                 self._open.pop(client_id, None)
+
+    def _final_fill(self, order: Order) -> Optional[float]:
+        get_order = getattr(self.exchange, "get_order", None)
+        if get_order is None or not order.order_id:
+            return None
+        try:
+            venue = get_order(order.order_id)
+        except Exception:
+            log.exception("get_order failed for %s", order.order_id)
+            return None
+        return None if venue is None else float(venue.filled)
+
+    def restore_open_orders(self) -> int:
+        """Startup pass over orders the previous process left resting (the
+        tracker is in memory only). Any fill the venue reports beyond what was
+        booked becomes a bets row; the remainder is canceled, never adopted:
+        a resting order whose edge was computed by a dead process is not one
+        this process has decided to keep. Returns the number handled."""
+        if isinstance(self.exchange, PaperExchange):
+            return 0
+        n = 0
+        for row in self.store.open_orders_rows():
+            raw = row.get("raw") or {}
+            intent = raw.get("intent") or {}
+            order_id = row.get("order_id") or ""
+            final = None
+            if order_id:
+                try:
+                    get_order = getattr(self.exchange, "get_order", None)
+                    venue = get_order(order_id) if get_order else None
+                    final = None if venue is None else float(venue.filled)
+                except Exception:
+                    log.exception("restore: get_order failed for %s", order_id)
+            booked = float(row.get("filled") or 0.0)
+            if final is not None and final > booked and intent:
+                inc = final - booked
+                self.store.record_bet(
+                    market_id=row["market_id"], sport=intent.get("sport", "unknown"),
+                    side=row["side"], model_prob=float(intent.get("prob") or 0.0),
+                    entry_price=float(row["price"]),
+                    stake=round(float(row["price"]) * inc, 2), size=inc,
+                    edge=float(intent.get("edge") or 0.0),
+                    exchange=self.exchange.exchange.value, mode=self.mode)
+                booked = final
+            status = "filled"
+            if final is None or final < float(row.get("size") or 0.0) - 1e-9:
+                ok = self.exchange.cancel_order(order_id or row["client_id"])
+                status = "canceled" if ok else "open"   # retried next start
+                if not ok:
+                    log.warning("restore: cancel failed for %s", order_id)
+            self.store.record_order(
+                client_id=row["client_id"], order_id=order_id,
+                market_id=row["market_id"], side=row["side"], price=row["price"],
+                size=row["size"], filled=booked, status=status, raw=raw)
+            n += 1
+            log.info("restore: order %s -> %s (filled %.2f)", order_id, status, booked)
+        return n
 
     def expire_stale_orders(self) -> int:
         """Cancel resting orders older than the TTL. Returns count canceled.

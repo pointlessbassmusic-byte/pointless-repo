@@ -41,10 +41,15 @@ class StrategyConfig:
     max_entry_price: float = 0.85
     min_edge_override: dict = None    # per-sport {sport: min_edge}
     max_stake_override: dict = None   # per-sport {sport: max_stake}
+    # Per-sport dollar budget from `bot/allocation.py`. It can only tighten
+    # `max_fraction_per_sport`: the allocator decides how much of the cap a
+    # sleeve may use, never more than the cap.
+    sport_budget_override: dict = None
 
     def __post_init__(self) -> None:
         self.min_edge_override = self.min_edge_override or {}
         self.max_stake_override = self.max_stake_override or {}
+        self.sport_budget_override = self.sport_budget_override or {}
 
 
 def evaluate_market(
@@ -112,6 +117,10 @@ def evaluate_market_verbose(
     sport_key = market.sport.value if market.sport else "unknown"
     min_edge = cfg.min_edge_override.get(sport_key, staking.min_edge)
     max_stake = cfg.max_stake_override.get(sport_key, staking.max_stake_per_market)
+    sport_frac = staking.max_fraction_per_sport
+    budget = cfg.sport_budget_override.get(sport_key)
+    if budget is not None and staking.bankroll > 0:
+        sport_frac = min(sport_frac, max(0.0, float(budget)) / staking.bankroll)
 
     tick = market.tick_size or 0.01
 
@@ -158,7 +167,8 @@ def evaluate_market_verbose(
 
         local = StakingConfig(**{**staking.__dict__,
                                  "min_edge": min_edge,
-                                 "max_stake_per_market": max_stake})
+                                 "max_stake_per_market": max_stake,
+                                 "max_fraction_per_sport": sport_frac})
         decision = decide_stake(
             prob=prob,
             price=entry + fee_per_share + cfg.slippage_buffer,

@@ -238,6 +238,9 @@ class Runner:
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
         )
+        # Orders left resting by a previous process: book what filled while
+        # we were away, then cancel the rest. Live-only; paper has none.
+        self.executor.restore_open_orders()
 
     # ------------------------------------------------------------------
     def maker_fee_fn(self, price: float, market_id: str = "") -> float:
@@ -377,7 +380,7 @@ class Runner:
         """
         staking, strategy = self.staking, self.strategy
         ad = self.adaptive
-        settled = self.store.settled_bets()
+        settled = self.store.settled_bets(limit=1_000_000, mode=self.mode)
 
         if bool(ad.get("drawdown_stake_scaling", True)) and settled:
             cum = peak = 0.0
@@ -411,7 +414,67 @@ class Runner:
                 strategy = StrategyConfig(**{**strategy.__dict__,
                                              "min_edge_override": edge_over,
                                              "max_stake_override": stake_over})
+
+        budgets = self._sleeve_budgets(settled)
+        if budgets is not None:
+            strategy = StrategyConfig(**{**strategy.__dict__,
+                                         "sport_budget_override": budgets})
         return staking, strategy
+
+    def _sleeve_budgets(self, settled: list[dict]) -> dict[str, float] | None:
+        """Per-sport dollar budgets from `bot/allocation.py`, sized off THIS
+        book's equity, and logged whenever a sleeve's budget or reason moves.
+
+        The bankroll the allocator divides is min(configured amount, current
+        equity): losses shrink every sleeve at once, gains never size the
+        book past what the operator funded. Any failure here returns None and
+        the base per-sport cap applies — the allocator can tighten the risk
+        layer, never replace it. Returns None when `allocation.enabled` is
+        false.
+        """
+        alloc_cfg = self.cfg.get("allocation", {}) or {}
+        if not bool(alloc_cfg.get("enabled", True)):
+            return None
+        try:
+            from sportsbot.bot.allocation import allocate
+            from sportsbot.bot.ledger import account_equity
+            from sportsbot.bot.positions import category_report
+            from sportsbot.dashboard import rated_counts, ratings_provenance
+
+            bank = self.cfg.get("bankroll", {})
+            sports_cfg = self.cfg.get("sports", {})
+            report = category_report(
+                settled, self.adaptive, self.staking.min_edge,
+                self.staking.max_stake_per_market,
+                self.strategy.min_edge_override, self.strategy.max_stake_override,
+                self.staking.kelly_multiplier, self.risk.cfg.max_drawdown)
+            eq = account_equity(self.store, self.account, self.starting_balance)
+            bankroll = max(0.0, min(float(bank.get("amount", self.staking.bankroll)),
+                                    float(eq["equity"])))
+            ratings = {k: v > 0 for k, v in rated_counts(self.cfg).items()}
+            alloc = allocate(bankroll, self.cfg, report.get("by_sport", {}),
+                             ratings, provisional=ratings_provenance(self.cfg))
+            budgets: dict[str, float] = {}
+            last = self.store.last_allocation(self.account)
+            for sport, sl in alloc["sleeves"].items():
+                if sport not in sports_cfg:
+                    continue
+                budgets[sport] = float(sl["budget"])
+                prev = last.get(sport)
+                moved = (prev is None
+                         or abs(float(prev["budget"] or 0.0) - sl["budget"]) > 0.01
+                         or prev["bound_by"] != sl["bound_by"])
+                if moved:
+                    self.store.record_allocation(
+                        self.account, sport, sl["budget"], sl["weight"],
+                        sl["bound_by"], sl.get("mean_clv"), int(sl.get("n", 0)),
+                        bool(sl.get("manual")))
+                    log.info("allocation[%s] %s -> $%.2f (%s)", self.account,
+                             sport, sl["budget"], sl["bound_by"])
+            return budgets
+        except Exception:
+            log.exception("allocation failed; base per-sport caps apply")
+            return None
 
     def _manage_positions(self, quoted: dict, strategy: StrategyConfig) -> int:
         """Exit pass over open positions with a fresh quote this cycle.
@@ -609,7 +672,7 @@ class Runner:
         summary["dropped"] = len(drops)
         self._record_scan_drops(drops)
 
-        exposure = self.store.exposure_by()
+        exposure = self.store.exposure_by(mode=self.mode)
         quoted: dict[str, tuple] = {}
         for sm in scanned:
             try:
@@ -658,7 +721,7 @@ class Runner:
                 summary["orders"] += 1
                 self._record_decision(sm, "bet", mid, intent=intent, reason=why)
                 # keep exposure fresh within the cycle
-                exposure = self.store.exposure_by()
+                exposure = self.store.exposure_by(mode=self.mode)
             else:
                 self._record_decision(sm, "skip", mid, intent=intent,
                                       reason="order rejected by venue")

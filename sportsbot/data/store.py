@@ -53,6 +53,18 @@ CREATE TABLE IF NOT EXISTS orders (
     status TEXT,
     raw TEXT
 );
+CREATE TABLE IF NOT EXISTS allocation_log (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    account TEXT NOT NULL,
+    sport TEXT NOT NULL,
+    budget REAL,
+    weight REAL,
+    bound_by TEXT,
+    mean_clv REAL,
+    n INTEGER,
+    manual INTEGER
+);
 CREATE TABLE IF NOT EXISTS market_snapshots (
     id INTEGER PRIMARY KEY,
     ts TEXT NOT NULL,
@@ -244,6 +256,48 @@ class Store:
             (account, limit)).fetchall()
         return [dict(r) for r in rows]
 
+    def open_orders_rows(self) -> list[dict]:
+        """Orders persisted as resting (open/partial), raw JSON decoded."""
+        rows = self.conn.execute(
+            "SELECT * FROM orders WHERE status IN ('open', 'partial')").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["raw"] = json.loads(d["raw"]) if d.get("raw") else {}
+            except (TypeError, ValueError):
+                d["raw"] = {}
+            out.append(d)
+        return out
+
+    def record_allocation(self, account: str, sport: str, budget: float,
+                          weight: float, bound_by: str, mean_clv: float | None,
+                          n: int, manual: bool) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO allocation_log (ts, account, sport, budget, weight,"
+                " bound_by, mean_clv, n, manual) VALUES (?,?,?,?,?,?,?,?,?)",
+                (_now(), account, sport, budget, weight, bound_by,
+                 mean_clv, n, int(manual)))
+            self.conn.commit()
+
+    def allocation_log(self, account: str, limit: int = 50) -> list[dict]:
+        """Newest first: every time a sleeve's budget or its reason changed."""
+        rows = self.conn.execute(
+            "SELECT * FROM allocation_log WHERE account=? ORDER BY id DESC LIMIT ?",
+            (account, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def last_allocation(self, account: str) -> dict[str, dict]:
+        """Latest logged row per sport, for change detection."""
+        rows = self.conn.execute(
+            "SELECT * FROM allocation_log WHERE account=? ORDER BY id DESC LIMIT 500",
+            (account,)).fetchall()
+        out: dict[str, dict] = {}
+        for r in rows:
+            out.setdefault(r["sport"], dict(r))
+        return out
+
     def equity_series(self, account: str, limit: int = 1000) -> list[dict]:
         """Oldest-first, so it plots as a curve without the caller reversing it."""
         rows = self.conn.execute(
@@ -287,11 +341,17 @@ class Store:
         return json.loads(row["value"]) if row else default
 
     # --- reads -----------------------------------------------------------
-    def open_bets(self) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT * FROM bets WHERE outcome IS NULL"
-            " AND COALESCE(status, 'open') != 'closed'").fetchall()
-        return [dict(r) for r in rows]
+    def open_bets(self, mode: str | None = None) -> list[dict]:
+        """Open bets, optionally for one book. The paper and live books can
+        share a file, and a live risk check that counts paper exposure (or
+        the reverse) is wrong in both directions."""
+        sql = ("SELECT * FROM bets WHERE outcome IS NULL"
+               " AND COALESCE(status, 'open') != 'closed'")
+        args: list = []
+        if mode is not None:
+            sql += " AND COALESCE(mode, 'paper') = ?"
+            args.append(mode)
+        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 
     def settled_bets(self, limit: int = 1000,
                      mode: str | None = None) -> list[dict]:
@@ -319,12 +379,13 @@ class Store:
             " AND COALESCE(mode, 'paper') = ?", (mode,)).fetchall()
         return [dict(r) for r in rows]
 
-    def bets_today(self) -> list[dict]:
+    def bets_today(self, mode: str | None = None) -> list[dict]:
         today = datetime.now(timezone.utc).date().isoformat()
-        rows = self.conn.execute(
-            "SELECT * FROM bets WHERE ts >= ?", (today,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        sql, args = "SELECT * FROM bets WHERE ts >= ?", [today]
+        if mode is not None:
+            sql += " AND COALESCE(mode, 'paper') = ?"
+            args.append(mode)
+        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 
     def last_snapshot(self, market_id: str) -> Optional[dict]:
         row = self.conn.execute(
@@ -333,9 +394,9 @@ class Store:
         ).fetchone()
         return dict(row) if row else None
 
-    def exposure_by(self) -> dict:
+    def exposure_by(self, mode: str | None = None) -> dict:
         """Open (unsettled) cost-basis exposure: total, per sport, per market."""
-        rows = self.open_bets()
+        rows = self.open_bets(mode)
         total = sum(r["stake"] or 0.0 for r in rows)
         by_sport: dict[str, float] = {}
         by_market: dict[str, float] = {}

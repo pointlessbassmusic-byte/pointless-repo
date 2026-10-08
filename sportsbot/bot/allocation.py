@@ -104,6 +104,26 @@ def clv_multiplier(mean_clv: float | None, n_clv: int, min_bets: int) -> float:
     return max(CLV_FLOOR, min(CLV_CAP, 1.0 + CLV_GAIN * mean_clv))
 
 
+def manual_settings(cfg: dict) -> tuple[dict[str, float], set[str]]:
+    """The operator's hand on the allocator, from `allocation:` in config
+    (config/local.yaml is the place to put it):
+
+        allocation:
+          manual: {tennis: 0.6, baseball: 0.4}   # replaces the evidence priors
+          paused: [table_tennis]                 # budget 0 until removed
+
+    Manual weights replace the PRIOR only. Measured CLV still multiplies them,
+    the per-sport and total caps still bind, and a paused sport gets nothing
+    whatever its evidence says. The operator can therefore shift money
+    between sleeves or stop one, but cannot make the allocator ignore a
+    negative measurement or exceed the risk layer."""
+    a = cfg.get("allocation", {}) or {}
+    manual = {str(k): float(v) for k, v in (a.get("manual") or {}).items()
+              if float(v) >= 0.0}
+    paused = {str(x) for x in (a.get("paused") or [])}
+    return manual, paused
+
+
 def allocate(
     bankroll: float,
     cfg: dict,
@@ -116,7 +136,8 @@ def allocate(
     `by_sport` is `positions.category_report()["by_sport"]`; `has_ratings`
     says which sports currently have fitted ratings on this host, and
     `provisional` which of those came from a market bootstrap rather than a
-    real history.
+    real history. `cfg["allocation"]` (see `manual_settings`) lets the
+    operator replace the priors or pause a sleeve.
 
     Returns {"sleeves": {sport: {...}}, "unallocated", "bankroll"} where each
     sleeve carries its weight, dollar budget, the cap that bound it, and the
@@ -133,9 +154,13 @@ def allocate(
     sport_cap = float(bank_cfg.get("max_fraction_per_sport", 0.20))
     total_cap = float(bank_cfg.get("max_total_exposure", 0.50))
 
+    manual, paused = manual_settings(cfg)
+
     eligible, blocked = [], {}
     for s in SLEEVES:
-        if not sports_cfg.get(s.sport, {}).get("enabled", False):
+        if s.sport in paused:
+            blocked[s.sport] = "paused by operator (allocation.paused)"
+        elif not sports_cfg.get(s.sport, {}).get("enabled", False):
             blocked[s.sport] = "disabled in config"
         elif s.needs_ratings and not has_ratings.get(s.sport, False):
             blocked[s.sport] = "0 rated entities — run `sportsbot fit`"
@@ -153,8 +178,8 @@ def allocate(
         # closing prices must not clear a 30-observation guard.
         n_clv = int(stats.get("n_clv", 0) or 0)
         mult = clv_multiplier(stats.get("mean_clv"), n_clv, min_bets)
-        prior = s.prior_weight * (PROVISIONAL_RATINGS_FACTOR
-                                  if provisional.get(s.sport) else 1.0)
+        prior = manual.get(s.sport, s.prior_weight) * (
+            PROVISIONAL_RATINGS_FACTOR if provisional.get(s.sport) else 1.0)
         weights[s.sport] = prior * mult
 
     total_w = sum(weights.values())
@@ -166,7 +191,8 @@ def allocate(
             sleeves[s.sport] = {
                 "weight": 0.0, "budget": 0.0, "active": False,
                 "bound_by": blocked[s.sport], "evidence": s.evidence,
-                "prior_weight": s.prior_weight,
+                "prior_weight": manual.get(s.sport, s.prior_weight),
+                "manual": s.sport in manual or s.sport in paused,
                 "mean_clv": stats.get("mean_clv"), "n": int(stats.get("n", 0) or 0),
             }
             continue
@@ -181,13 +207,13 @@ def allocate(
             "active": True,
             "provisional": bool(provisional.get(s.sport)),
             "bound_by": ("per-sport cap" if capped < raw - 1e-9
-                         else "provisional ratings (halved)"
-                         if provisional.get(s.sport)
                          else "CLV-adjusted share" if mult != 1.0
+                         else "manual weight" if s.sport in manual
                          else "evidence prior"),
             "clv_multiplier": round(mult, 3),
             "evidence": s.evidence,
-            "prior_weight": s.prior_weight,
+            "prior_weight": manual.get(s.sport, s.prior_weight),
+            "manual": s.sport in manual,
             "mean_clv": stats.get("mean_clv"),
             "n": int(stats.get("n", 0) or 0),
         }

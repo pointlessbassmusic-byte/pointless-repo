@@ -349,6 +349,11 @@ class PolymarketClient(ExchangeClient):
             )
             status = str(data.get("status", "live")).lower()
             order.status = OrderStatus.FILLED if status == "matched" else OrderStatus.OPEN
+            if order.status == OrderStatus.FILLED:
+                # The executor books exposure from `filled`, not `status`;
+                # a matched order with filled=0 was never recorded as a bet.
+                matched = data.get("size_matched") or data.get("sizeMatched")
+                order.filled = float(matched) if matched not in (None, "") else order.size
             order.raw = {"response": data}
         except Exception as exc:  # surface, never crash the loop
             log.error("polymarket order failed: %s", exc)

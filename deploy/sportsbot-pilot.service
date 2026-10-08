@@ -1,0 +1,27 @@
+[Unit]
+Description=sportsbot real-money PILOT book (config/pilot.yaml; live only with SPORTSBOT_LIVE=1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+# The second switch. Remove this line (or set 0) and the runner forces paper
+# mode and writes to the sim book — the double gate, working as designed.
+# Keep KALSHI_ENV=demo in .env for the first week; prod is an explicit change.
+Environment=SPORTSBOT_LIVE=1
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot run -c /opt/sportsbot/config/pilot.yaml
+Restart=on-failure
+RestartSec=60
+MemoryMax=1500M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
