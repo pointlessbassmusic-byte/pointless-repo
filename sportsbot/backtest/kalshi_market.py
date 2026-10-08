@@ -273,6 +273,83 @@ def quote_at_lead(client, series: str, ticker: str, close_ts: int,
     return bid, ask, closing
 
 
+# ---------------------------------------------------------------- live policy
+FILL_MODELS = ("pessimistic", "optimistic")
+
+
+def live_policy_bet(*, ticker: str, sport, date, bid: float, ask: float,
+                    closing: float, prediction, home_won: bool,
+                    fee_multiplier: float, model_weight: float, slippage: float,
+                    min_edge: float, kelly: float, bankroll: float,
+                    max_stake: float, fill_model: str = "pessimistic",
+                    max_uncertainty: float = 0.20,
+                    staking=None) -> Optional["Bet"]:
+    """Decide with the LIVE strategy (`bot.strategy.evaluate_market`) so the
+    backtest cannot drift from what the bot would do: same blend, entry
+    band, spread and uncertainty filters, fee model and sizing.
+
+    `fill_model`:
+      pessimistic — taker at the ask (`post_inside_spread=False`); every
+                    intent is fillable, at the worst price.
+      optimistic  — the live default, a maker one tick inside the spread,
+                    ASSUMED filled at that price. An upper bound: queue and
+                    adverse selection are invisible to candle data.
+    A "strict" model (fill only when a later trade prints through the quote)
+    needs the trade tape; see research/settle_vpin and research/lip_hist.
+    """
+    from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
+    from sportsbot.core.staking import StakingConfig
+    from sportsbot.core.types import BookLevel, Exchange, MarketInfo, MarketQuote, Side
+    from sportsbot.exchanges.kalshi import (
+        kalshi_fee_per_share,
+        kalshi_maker_fee_per_share,
+        kalshi_taker_fee,
+    )
+
+    if fill_model not in FILL_MODELS:
+        raise ValueError(f"fill_model must be one of {FILL_MODELS}; "
+                         "'strict' needs a trade tape (research/settle_vpin)")
+    cfg = StrategyConfig(model_weight=model_weight, slippage_buffer=slippage,
+                         post_inside_spread=(fill_model == "optimistic"),
+                         max_uncertainty=max_uncertainty)
+    staking = staking or StakingConfig(bankroll=bankroll, kelly_multiplier=kelly,
+                                       min_edge=min_edge, min_stake=1.0,
+                                       max_stake_per_market=max_stake)
+    market = MarketInfo(exchange=Exchange.KALSHI, market_id=ticker, sport=sport)
+    deep = 1e6   # candles carry no depth; the live depth cap cannot bind here
+    quote = MarketQuote(market_id=ticker, bid=bid, ask=ask,
+                        bids=[BookLevel(price=bid, size=deep)],
+                        asks=[BookLevel(price=ask, size=deep)])
+
+    def fee_fn(price, shares, market_id=None):   # noqa: ARG001
+        return kalshi_fee_per_share(price, fee_multiplier) * shares
+
+    def maker_fee_fn(price, market_id=""):        # noqa: ARG001
+        return kalshi_maker_fee_per_share(ticker, fee_multiplier, price=price)
+
+    exposure = {"total": 0.0, "by_sport": {}, "by_market": {}, "by_event": {},
+                "open_positions": 0}
+    intent, _why = evaluate_market_verbose(market, quote, prediction, staking, cfg,
+                                           fee_fn, exposure, maker_fee_fn=maker_fee_fn)
+    if intent is None:
+        return None
+    yes = intent.side == Side.YES
+    entry, size = float(intent.price), float(intent.size)
+    taker_px = ask if yes else 1.0 - bid
+    if fill_model == "optimistic" and entry < taker_px - 1e-9:
+        fee = kalshi_maker_fee_per_share(ticker, fee_multiplier, price=entry) * size
+    else:
+        fee = kalshi_taker_fee(entry, size, fee_multiplier)
+    stake = size * entry
+    won = home_won if yes else not home_won
+    pnl = (size if won else 0.0) - stake - fee
+    return Bet(date=date, market=ticker, side="YES" if yes else "NO",
+               model_prob=round(float(intent.prob), 4), entry=round(entry, 4),
+               close=round(closing if yes else 1.0 - closing, 4),
+               stake=round(stake, 2), edge=round(float(intent.edge), 4),
+               won=won, pnl=round(pnl, 2))
+
+
 def _match_key(when: datetime, home: str, away: str) -> tuple:
     return (when.date(), home, away)
 
@@ -288,8 +365,14 @@ def run_backtest(history, games: list[MarketGame], client,
                  max_stake: float = 8.0,
                  home_advantage: float = 24.0,
                  prob_shrink: float = 0.8,
-                 fee_multiplier: Optional[float] = None) -> Result:
+                 fee_multiplier: Optional[float] = None,
+                 policy: str = "live",
+                 fill_model: str = "pessimistic") -> Result:
     """Walk forward through `history` (MLB GameResults, chronological).
+
+    `policy="live"` decides with the live strategy (`live_policy_bet`);
+    `policy="legacy"` reproduces the pre-2026-10-08 hand-rolled taker rule
+    that the dated docs were produced with.
 
     Every game is predicted with ratings built only from earlier games, then
     used to update them. Games that have a settled Kalshi market are priced
@@ -338,11 +421,24 @@ def run_backtest(history, games: list[MarketGame], client,
                 # Predict BEFORE the update: ratings hold only earlier games.
                 # Go through the real `predict` path so the backtest cannot
                 # drift from what the live scanner computes.
-                p_home = model.predict(EventInput(
+                pred = model.predict(EventInput(
                     sport=Sport.BASEBALL, home=g.home, away=g.away,
                     start_time=g.date,
                     context={"home_sp": g.home_sp, "away_sp": g.away_sp},
-                )).prob_yes
+                ))
+                p_home = pred.prob_yes
+                if policy == "live":
+                    bet = live_policy_bet(
+                        ticker=mg.home_ticker, sport=Sport.BASEBALL, date=g.date,
+                        bid=bid, ask=ask, closing=closing, prediction=pred,
+                        home_won=mg.home_won, fee_multiplier=fee_multiplier,
+                        model_weight=model_weight, slippage=slippage,
+                        min_edge=min_edge, kelly=kelly, bankroll=bankroll,
+                        max_stake=max_stake, fill_model=fill_model)
+                    if bet is not None:
+                        res.bets.append(bet)
+                    model.update_result(g)
+                    continue
                 q = (1.0 - model_weight) * mid + model_weight * p_home
 
                 yes_fee = kalshi_taker_fee(ask, 1.0, fee_multiplier)
@@ -455,8 +551,12 @@ def run_tennis_backtest(history, games: list[MarketGame], client,
                         max_stake: float = 8.0,
                         surface_weight: float = 0.5,
                         min_matches: int = 10,
-                        max_uncertainty: float = 0.20) -> Result:
+                        max_uncertainty: float = 0.20,
+                        policy: str = "live",
+                        fill_model: str = "pessimistic") -> Result:
     """Walk forward through tennis `history` (MatchResults, day-granular).
+
+    `policy` / `fill_model`: as in `run_backtest`.
 
     Dates come from tickers with no time of day, so matches are batched by
     day: every match on a date is predicted with the model as it stood at the
@@ -506,6 +606,17 @@ def run_tennis_backtest(history, games: list[MarketGame], client,
                                             away=mg.away, best_of=3))
             if pred.uncertainty > max_uncertainty:
                 continue          # the live scanner would not price this one
+            if policy == "live":
+                bet = live_policy_bet(
+                    ticker=mg.home_ticker, sport=Sport.TENNIS, date=mg.date,
+                    bid=bid, ask=ask, closing=closing, prediction=pred,
+                    home_won=mg.home_won, fee_multiplier=mult(mg.home_ticker),
+                    model_weight=model_weight, slippage=slippage, min_edge=min_edge,
+                    kelly=kelly, bankroll=bankroll, max_stake=max_stake,
+                    fill_model=fill_model, max_uncertainty=max_uncertainty)
+                if bet is not None:
+                    res.bets.append(bet)
+                continue
             q = (1.0 - model_weight) * mid + model_weight * pred.prob_yes
             fm = mult(mg.home_ticker)
             yes_fee = kalshi_taker_fee(ask, 1.0, fm)

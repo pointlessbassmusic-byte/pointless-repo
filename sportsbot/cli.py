@@ -466,7 +466,9 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
                     min_edge: float = typer.Option(0.03),
                     maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee (fills assumed)"),
                     days: int = typer.Option(32, help="polymarket: resolved-market lookback (CLOB keeps ~30 days of prices)"),
-                    max_pages: int = typer.Option(40, help="settled-market pages to pull")):
+                    max_pages: int = typer.Option(40, help="settled-market pages to pull"),
+                    policy: str = typer.Option("live", help="kalshi: live = the bot's own strategy; legacy = pre-2026-10-08 taker rule"),
+                    fill_model: str = typer.Option("pessimistic", help="kalshi: pessimistic (taker at ask) | optimistic (maker fills assumed)")):
     """Walk-forward backtest against REAL exchange prices and outcomes.
 
     Answers the profitability question `backtest` cannot: not "is the model
@@ -504,6 +506,7 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
             max_stake=float(bank.get("max_stake_per_market", 8.0)),
             surface_weight=float(cfg["sports"]["tennis"].get("surface_weight", 0.5)),
             min_matches=int(cfg["sports"]["tennis"].get("min_matches", 10)),
+            policy=policy, fill_model=fill_model,
         )
         console.print(res.summary())
         return
@@ -524,6 +527,7 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
         max_stake=float(bank.get("max_stake_per_market", 8.0)),
         home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)),
         prob_shrink=float(cfg["sports"]["baseball"].get("prob_shrink", 0.8)),
+        policy=policy, fill_model=fill_model,
     )
     console.print(res.summary())
 
