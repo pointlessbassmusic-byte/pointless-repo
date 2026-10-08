@@ -61,6 +61,17 @@ risk:
   calibration_min_bets: 50       # start monitoring after N settled bets
   calibration_max_brier: 0.26    # pause betting if rolling Brier exceeds this
 
+sharp:                           # sharp-line CLV harness (signals/sharp.py) — data only
+  enabled: true                  # needs ODDS_API_KEY in .env to collect lines
+  bookmakers: [pinnacle]         # Odds API bookmaker keys to store (first group = 1 credit/call)
+  sharp_book: pinnacle           # the book every decision is graded against
+  snapshot_interval_minutes: 15  # 15 min x (1 MLB + ~6 tennis keys) ~ 26k credits/month
+  min_lead_minutes: 10           # close = last quote at/before start - this (never in-play)
+  credits_reserve: 50            # pause snapshots when the API reports fewer credits left
+  match_threshold: 0.85          # both participants must clear this vs the book's names
+  time_slack_hours: 6            # venue start vs book commence_time tolerance
+  enforce_adaptive: true         # rolling CLV for the tighten-only layer uses the sharp close
+
 scan:
   interval_seconds: 300
   sports: [tennis, baseball, table_tennis]

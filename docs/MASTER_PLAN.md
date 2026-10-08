@@ -136,6 +136,13 @@ Pipeline per cycle:
 - [x] Weather-arm triple-null on real settlements (`sportsbot weather-score`):
       coin 0.2500 → climatology 0.1828 → market 0.0751 across 168 settled rows
 - [x] `sportsbot doctor` go-live preflight; exit-rule replay backtest
+- [x] Sharp-line CLV harness (`sportsbot/signals/sharp.py`, rank 1 of
+      `reports/Beating prediction market prices.md`): budgeted Pinnacle snapshots
+      via The Odds API, Shin de-vig, every decision and bet graded against the
+      pre-start sharp close net of fees, event-clustered bootstrap CI, and the
+      pre-registered PASS/FAIL criterion (≥1,000 graded decisions, CI excluding
+      zero). Tighten-only enforcement through the adaptive layer. Paper mode;
+      collection starts once `ODDS_API_KEY` is set.
 - [ ] Score the first cohort carrying decision-time NWS baselines (84 markets,
       targets Sep 21–22) — does the forecast arm beat climatology? beat the market?
 - [ ] Deploy `main` to the Linode box and let the paper stack accrue toward the
