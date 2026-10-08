@@ -147,3 +147,16 @@ def test_many_distinct_reasons_still_collapse_to_one_row():
     assert "entity unrated" in reason
     assert "player 0" in reason          # a few named...
     assert "and 45 more" in reason       # ...the rest counted
+
+
+def test_a_discovery_error_lands_in_the_feed_as_a_failure():
+    """A venue call that raises must not leave the cycle looking like an
+    empty slate: the feed gets one row naming the sport and the error."""
+    store = _RecordingStore()
+    stub = SimpleNamespace(store=store, account="sim",
+                           _record_discovery_failure=Runner._record_discovery_failure)
+    stub._record_discovery_failure(stub, "tennis", ValueError("422 unknown order param"))
+    (row,) = store.rows
+    assert row["action"] == "skip" and row["sport"] == "tennis"
+    assert "discovery error" in row["reason"] and "ValueError" in row["reason"]
+    assert "422" in row["reason"]

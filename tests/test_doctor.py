@@ -1,5 +1,7 @@
 """`sportsbot doctor` preflight checks (offline paths)."""
 
+import pytest
+
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -104,3 +106,22 @@ def test_run_checks_offline_skips_network(tmp_path):
                        "ratings_dir": str(tmp_path / "r")}}
     names = {c.name for c in run_checks(cfg, offline=True)}
     assert not any(n.startswith("net.") for n in names)
+
+
+def test_fee_floor_rejects_an_edge_bar_the_venue_eats():
+    """An entry bar at or under the taker fee at mid plus slippage admits
+    trades that lose to the venue on expectation; the doctor must FAIL it
+    for the base bar and for every per-sport override, on both venues."""
+    from sportsbot.bot.doctor import FAIL, PASS, check_params, fee_floor
+
+    assert fee_floor({"exchange": "polymarket"}) == pytest.approx(0.0125 + 0.005)
+    assert fee_floor({"exchange": "kalshi"}) == pytest.approx(0.0175 + 0.005)
+    ok = {"exchange": "polymarket", "bankroll": {"min_edge": 0.03},
+          "sports": {"table_tennis": {"min_edge_override": 0.05}}}
+    assert all(c.level == PASS for c in check_params(ok) if "fee_floor" in c.name)
+    bad = {"exchange": "kalshi", "bankroll": {"min_edge": 0.02},
+           "sports": {"tennis": {"min_edge_override": 0.015}}}
+    levels = {c.name: c.level for c in check_params(bad) if "fee_floor" in c.name}
+    assert levels["params.fee_floor[bankroll.min_edge]"] == FAIL
+    assert levels["params.fee_floor[sports.tennis.min_edge_override]"] == FAIL
+    assert all(c.level == PASS for c in check_params({}) if "fee_floor" in c.name)

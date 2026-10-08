@@ -583,6 +583,24 @@ class Runner:
         except Exception:
             log.exception("decision record failed")
 
+    def _record_discovery_failure(self, sport_key: str, exc: BaseException) -> None:
+        """A discovery error is a failure, not a warning: a cycle that saw 0
+        markets because the venue call raised must say so in the feed, or
+        "the bot placed no bets" reads as "nothing was worth betting". The
+        reason carries the exception type so a 422 from a renamed query
+        parameter (which once silently emptied the slate) is visible."""
+        try:
+            self.store.record_decision(
+                account=self.account,
+                market_id=f"({sport_key} discovery)",
+                sport=sport_key,
+                title=f"{sport_key} market discovery failed",
+                action="skip",
+                reason=f"discovery error — {type(exc).__name__}: {str(exc)[:160]}",
+            )
+        except Exception:
+            log.exception("discovery-failure record failed")
+
     def _record_scan_drops(self, drops: list) -> None:
         """Put the scanner's funnel loss in the decision feed, AGGREGATED.
 
@@ -655,8 +673,9 @@ class Runner:
                 continue
             try:
                 markets.extend(self.data_client.list_sports_markets(sport_key))
-            except Exception:
+            except Exception as exc:
                 log.exception("market discovery failed for %s", sport_key)
+                self._record_discovery_failure(sport_key, exc)
         summary["markets"] = len(markets)
 
         # Attach MLB probable-pitcher context by fuzzy-pairing team names.

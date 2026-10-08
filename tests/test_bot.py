@@ -412,3 +412,29 @@ def test_polymarket_mlb_lists_the_visitor_first_so_home_field_is_outcomes_1():
     (ten,) = _moneyline_markets_from_event(
         {**ev, "markets": [{**ev["markets"][0], "outcomes": '["A","B"]'}]}, Sport.TENNIS)
     assert "home_field" not in ten.meta
+
+
+def test_outrights_and_futures_never_enter_the_slate():
+    """A season future ('will-iga-swiatek-win-the-2026-womens-us-open') was
+    once traded as if it were a live match. Discovery keys on Gamma's
+    sportsMarketType == 'moneyline'; an outright carries no such type and
+    no gameStartTime, and must be dropped even when it sits under the
+    sport's tag with two outcomes."""
+    from datetime import datetime, timedelta, timezone
+    from sportsbot.exchanges.polymarket import PolymarketClient
+    parse = PolymarketClient()._moneyline_markets_from_event
+    future = {"slug": "will-iga-swiatek-win-the-2026-womens-us-open", "markets": [
+        {"conditionId": "f1", "slug": "will-iga-swiatek-win-the-2026-womens-us-open",
+         "outcomes": '["Yes","No"]', "clobTokenIds": '["y","n"]',
+         "acceptingOrders": True, "enableOrderBook": True},
+        {"conditionId": "f2", "sportsMarketType": "winner",
+         "slug": "2026-womens-us-open-winner",
+         "outcomes": '["Iga Swiatek","Aryna Sabalenka"]', "clobTokenIds": '["a","b"]',
+         "acceptingOrders": True, "enableOrderBook": True}]}
+    assert parse(future, Sport.TENNIS) == []
+    start = (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S+00")
+    match = {"slug": "wta-swiatek-sabalenka-2026-10-09", "markets": [
+        {"conditionId": "m1", "sportsMarketType": "moneyline", "gameStartTime": start,
+         "outcomes": '["Iga Swiatek","Aryna Sabalenka"]', "clobTokenIds": '["a","b"]',
+         "acceptingOrders": True, "enableOrderBook": True}]}
+    assert len(parse(match, Sport.TENNIS)) == 1
