@@ -180,44 +180,53 @@ def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0
     return math.ceil(round(raw * 100.0, 6)) / 100.0
 
 
-# Kalshi reports a per-series `fee_type` on /series/<ticker>. Both sports
-# series this bot trades return "quadratic_with_maker_fees" (verified live
-# 2026-09-23, KXATPMATCH and KXMLBGAME), i.e. RESTING ORDERS ARE NOT FREE.
-# The strategy layer prefers maker execution (`post_inside_spread`), so
-# modelling maker fills at zero understates the cost of the bot's own
-# preferred path on every quote it posts.
+# Kalshi reports a per-series `fee_type` on /series/<ticker>:
+#   "quadratic"                  -> takers pay, RESTING orders pay nothing
+#   "quadratic_with_maker_fees"  -> resting orders pay too
+# Verified live 2026-10-08: KXATPMATCH, KXWTAMATCH (mult 1) and KXMLBGAME
+# (mult 0.5) charge makers; KXATPCHALLENGERMATCH and KXITFMATCH do not.
 #
-# The per-contract rate is NOT verified here: kalshi.com returned 429 on
-# every fee-schedule URL when this was written, and guessing a rate the
-# venue will actually charge is worse than making the gap explicit. Set
-# KALSHI_MAKER_FEE_PER_CONTRACT from the live fee schedule before trusting
-# any maker-side PnL. The default is deliberately non-zero so an unset
-# environment errs toward over-costing rather than toward a free lunch.
+# Maker rate: 0.0175 × mult × C × P × (1−P), rounded up to the cent per
+# order (a quarter of the 0.07 taker coefficient). Source: secondary fee
+# write-ups (rivermarkets.com/insights/kalshi-fees, ingame.com) quoting the
+# Kalshi fee schedule, consistent with the series' fee_type naming. The
+# primary PDF (kalshi.com/docs/kalshi-fee-schedule.pdf) returned 429 again
+# on 2026-10-08 — re-verify it before trusting maker-side PnL to the cent.
+# KALSHI_MAKER_FEE_PER_CONTRACT still overrides with a flat per-contract
+# rate, and with no price given the old flat default applies (errs toward
+# over-costing).
 MAKER_FEE_ENV = "KALSHI_MAKER_FEE_PER_CONTRACT"
 DEFAULT_MAKER_FEE = 0.0025
+MAKER_FEE_RATE = 0.0175
+MAKER_FEE_FREE_SERIES = frozenset({"KXATPCHALLENGERMATCH", "KXITFMATCH"})
 
 
 def kalshi_maker_fee_per_share(market_id: str = "",
-                               fee_multiplier: Optional[float] = None) -> float:
-    """Per-contract fee for a RESTING order, in dollars.
+                               fee_multiplier: Optional[float] = None,
+                               price: Optional[float] = None) -> float:
+    """MARGINAL fee per contract for a RESTING order, in dollars.
 
-    Flat per contract, not quadratic: the venue's maker charge does not
-    shape with p(1-p) the way the taker fee does, so it bites hardest on
-    the cheap contracts where the taker fee is smallest.
+    With `price`: 0.0175 × mult × p(1−p) (no rounding — marginal, like
+    `kalshi_fee_per_share`). Series whose fee_type is plain "quadratic"
+    charge makers nothing. Without `price`, or with the env override set,
+    a flat per-contract rate is used.
     """
+    series = (market_id or "").split("-")[0]
+    if series in MAKER_FEE_FREE_SERIES:
+        return 0.0
+    mult = (kalshi_fee_multiplier(market_id) if fee_multiplier is None
+            else fee_multiplier)
     raw = os.environ.get(MAKER_FEE_ENV)
     if raw not in (None, ""):
         try:
-            rate = float(raw)
+            return max(0.0, float(raw) * mult)
         except ValueError:
             log.warning("%s=%r is not a number; using %.4f",
                         MAKER_FEE_ENV, raw, DEFAULT_MAKER_FEE)
-            rate = DEFAULT_MAKER_FEE
-    else:
-        rate = DEFAULT_MAKER_FEE
-    mult = (kalshi_fee_multiplier(market_id) if fee_multiplier is None
-            else fee_multiplier)
-    return max(0.0, rate * mult)
+            return max(0.0, DEFAULT_MAKER_FEE * mult)
+    if price is None:
+        return max(0.0, DEFAULT_MAKER_FEE * mult)
+    return MAKER_FEE_RATE * mult * price * (1.0 - price)
 
 
 def kalshi_fee_per_share(price: float, fee_multiplier: float = 1.0) -> float:

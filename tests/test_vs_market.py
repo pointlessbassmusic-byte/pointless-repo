@@ -136,13 +136,24 @@ def test_maker_fee_carries_the_series_multiplier():
     assert abs(mlb - atp * 0.5) < 1e-12
 
 
-def test_maker_fee_is_flat_so_it_bites_hardest_on_cheap_contracts():
-    """The taker fee shapes with p(1-p); the maker fee does not. Near the
-    wings a resting order is barely cheaper than crossing the spread, which
-    is the opposite of the intuition maker-first quoting relies on."""
-    maker = kalshi_maker_fee_per_share("KXATPMATCH-X")
-    assert maker > kalshi_fee_per_share(0.02, 1.0)     # cheaper to take
-    assert maker < kalshi_fee_per_share(0.50, 1.0)     # cheaper to post
+def test_maker_fee_is_quarter_of_taker_when_priced():
+    """With a price the maker fee is 0.0175·mult·p(1−p): a quarter of the
+    taker coefficient, shaped the same way."""
+    for p in (0.1, 0.5, 0.85):
+        maker = kalshi_maker_fee_per_share("KXATPMATCH-X", price=p)
+        assert abs(maker - kalshi_fee_per_share(p, 1.0) / 4) < 1e-12
+    assert abs(kalshi_maker_fee_per_share("KXMLBGAME-X", price=0.5)
+               - 0.0175 * 0.5 * 0.25) < 1e-12
+
+
+def test_fee_free_series_charge_makers_nothing():
+    # fee_type "quadratic" (verified live 2026-10-08)
+    assert kalshi_maker_fee_per_share("KXITFMATCH-26OCT08X-Y", price=0.5) == 0.0
+    assert kalshi_maker_fee_per_share("KXATPCHALLENGERMATCH-X") == 0.0
+
+
+def test_unpriced_maker_fee_keeps_flat_overcosting_default():
+    assert kalshi_maker_fee_per_share("KXATPMATCH-X") == DEFAULT_MAKER_FEE
 
 
 def test_maker_fee_override_from_env(monkeypatch):

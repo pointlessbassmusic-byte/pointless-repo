@@ -252,7 +252,7 @@ class Runner:
             return 0.0          # Polymarket makers pay no taker fee
         from sportsbot.exchanges.kalshi import kalshi_maker_fee_per_share
 
-        return kalshi_maker_fee_per_share(market_id)
+        return kalshi_maker_fee_per_share(market_id, price=price)
 
     def decision_fee_fn(self, market_id: str):
         """Fee function for EDGE/SIZING/EXIT math on one market.
