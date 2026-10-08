@@ -53,3 +53,9 @@ pre-match cut (589 had none; 10 were too thin). Taker contracts: 208.8M YES vs
 - With MLB already dead, passive quoting on Kalshi tennis and MLB moneylines is
   closed as a business for a slow entrant.
 - This is consistent with the sharps result: the money is in speed.
+
+## Erratum (2026-10-08): pre-match window includes in-play trading
+`prematch_cut` fires 10–20 minutes into play on tennis tapes (measured in
+`docs/PINNACLE_TENNIS_2026-10-08.md`), so the "pre-match" fills here include
+early in-play fills. The verdicts above are FAILs, and this contamination cannot
+rescue them. Re-runs should use `prematch_cut(..., backoff_s=1200)`.
