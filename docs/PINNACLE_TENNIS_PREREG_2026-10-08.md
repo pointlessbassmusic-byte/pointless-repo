@@ -50,3 +50,25 @@ Kalshi's own prices. No real Pinnacle number had been seen.
   ("O'Connell C." → connell/c). Exact-duplicate tennis-data rows are collapsed.
 - **Smoke result:** 45/45 synthetic matches; Brier gap −0.0004 (the expected
   ≈0, since "Pinnacle" was Kalshi there). Plumbing check only, not evidence.
+
+## Amendment 2 (2026-10-08, before either odds file was downloaded): data window
+tennis-data.co.uk blocks datacenter IPs, and the user cannot open it either. The
+only copies obtainable are Internet Archive snapshots, both captured 2026-08-03:
+- `web.archive.org/web/20260803192930/http://www.tennis-data.co.uk/2026/2026.xlsx` (ATP)
+- `web.archive.org/web/20260803192940/http://www.tennis-data.co.uk/2026w/2026.xlsx` (WTA)
+
+They end before the original Aug 5 – Oct 5 window, so the test moves to the
+period they cover. Everything else (rules, fee, pass bars) is unchanged.
+- **Kalshi markets:** KXATPMATCH/KXWTAMATCH from `/historical/markets`, closing
+  2026-01-01 to 2026-08-01 inclusive, with volume > 0. This is 11,060 sides by
+  close month (counted from Kalshi metadata only).
+  - One side per event, chosen at random. Then a random sample of 1,600 events.
+    Both draws use `random.Random(7)` over the ticker-sorted list.
+  - Trade tapes come from `/historical/trades`.
+- **Split:** close before 2026-04-16 vs from 2026-04-16. That is about half the
+  sides each, by the month counts above.
+- **Status:** this run is the decision test. If later tennis-data files become
+  obtainable, the original Aug–Oct window becomes a second out-of-sample check,
+  and that rerun cannot rescue a FAIL here.
+- **Disclosed:** an archived file can miss corrections the site made after
+  Aug 3. Rows without PSW/PSL are dropped, as before.
