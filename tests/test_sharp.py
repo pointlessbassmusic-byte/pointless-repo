@@ -452,3 +452,20 @@ def test_config_parses_bookmakers_from_list_or_string():
         == ("pinnacle", "betfair_ex_eu")
     assert sh.SharpConfig.from_cfg({}).bookmakers == ("pinnacle",)
     assert sh.SharpConfig.from_cfg({"sharp": {"enabled": False}}).enabled is False
+
+
+def test_grader_charges_the_recorded_per_market_fee_rate(tmp_path):
+    """A Polymarket market discovered with feeSchedule rate 0.03 must be
+    graded at 0.03, not the flat 0.05, when the default fee table is in
+    use; a market without a recorded rate keeps the documented default."""
+    store = _store(tmp_path)
+    _seed(store)
+    store.record_market("M1", "polymarket", "baseball",
+                        "Los Angeles Dodgers", "San Francisco Giants", T0, fee_rate=0.03)
+    assert store.market_meta("M1")["fee_rate"] == 0.03
+    store.record_bet("M1", "baseball", "yes", 0.65, 0.60, 6.0, 10, 0.03, "paper", "paper")
+    (g,) = sh.Grader(store, sh.SharpConfig()).grade_bets("paper", write=False)
+    assert g.fee == pytest.approx(0.03 * 0.60 * 0.40)
+    store.record_market("M1", "polymarket", "baseball",
+                        "Los Angeles Dodgers", "San Francisco Giants", T0, fee_rate=None)
+    assert store.market_meta("M1")["fee_rate"] == 0.03          # a missing rate never erases one

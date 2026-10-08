@@ -119,6 +119,49 @@ def _try_load(model: Any, path: str) -> None:
                     "`sportsbot fit` first)", path, model.name)
 
 
+def staking_from_cfg(cfg: dict) -> StakingConfig:
+    """The ONE place config becomes sizing limits. The runner and the
+    market backtest both build from here, so a backtest decision is the
+    live decision under the same config, not a hand copy of it."""
+    bank = cfg.get("bankroll", {})
+    return StakingConfig(
+        bankroll=float(bank.get("amount", 1000.0)),
+        kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
+        min_edge=float(bank.get("min_edge", 0.03)),
+        min_stake=float(bank.get("min_stake", 5.0)),
+        max_stake_per_market=float(bank.get("max_stake_per_market", 50.0)),
+        max_fraction_per_market=float(bank.get("max_fraction_per_market", 0.05)),
+        max_fraction_per_sport=float(bank.get("max_fraction_per_sport", 0.20)),
+        max_total_exposure=float(bank.get("max_total_exposure", 0.50)),
+        max_open_positions=int(bank.get("max_open_positions", 20)),
+    )
+
+
+def strategy_from_cfg(cfg: dict) -> StrategyConfig:
+    """Config -> the strategy filters (see `staking_from_cfg`)."""
+    ex = cfg.get("execution", {})
+    sports_cfg = cfg.get("sports", {})
+    return StrategyConfig(
+        model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
+        max_spread=float(ex.get("max_spread", 0.03)),
+        slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
+        max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
+        post_inside_spread=bool(ex.get("post_inside_spread", True)),
+        min_entry_price=float(ex.get("min_entry_price", 0.15)),
+        max_entry_price=float(ex.get("max_entry_price", 0.85)),
+        min_edge_override={
+            k: float(v["min_edge_override"])
+            for k, v in sports_cfg.items()
+            if isinstance(v, dict) and "min_edge_override" in v
+        },
+        max_stake_override={
+            k: float(v["max_stake_override"])
+            for k, v in sports_cfg.items()
+            if isinstance(v, dict) and "max_stake_override" in v
+        },
+    )
+
+
 def build_exchange(cfg: dict):
     """Return (execution_exchange, data_exchange, fee_fn)."""
     from sportsbot.exchanges.paper import PaperExchange
@@ -147,7 +190,11 @@ def build_exchange(cfg: dict):
 
         data_client = PolymarketClient()
 
-        fee_fn = taker_fee   # already matches the fee_fn contract
+        def fee_fn(price, shares, market_id=None):
+            """Per-market rate from Gamma's feeSchedule (discovery fills it);
+            the documented 0.05 for anything not yet discovered."""
+            return taker_fee(price, shares, market_id,
+                             fee_rate=data_client.fee_rate_for(market_id))
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
         return (exec_client if venue == "kalshi" else data_client), data_client, fee_fn
     paper = PaperExchange(
@@ -176,45 +223,15 @@ class Runner:
         # forced to paper above, so its rows land in the sim book, which is
         # where they belong.
         self.account = "real" if self.mode == "live" else "sim"
-        bank = cfg.get("bankroll", {})
         # The equity curve must be anchored to the SAME starting balance the
         # dashboard renders against, or the stored curve and the Equity tile
         # disagree by whatever the two settings differ by.
         from sportsbot.dashboard import starting_balance
 
         self.starting_balance = starting_balance(cfg, self.account)
-        self.staking = StakingConfig(
-            bankroll=float(bank.get("amount", 1000.0)),
-            kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
-            min_edge=float(bank.get("min_edge", 0.03)),
-            min_stake=float(bank.get("min_stake", 5.0)),
-            max_stake_per_market=float(bank.get("max_stake_per_market", 50.0)),
-            max_fraction_per_market=float(bank.get("max_fraction_per_market", 0.05)),
-            max_fraction_per_sport=float(bank.get("max_fraction_per_sport", 0.20)),
-            max_total_exposure=float(bank.get("max_total_exposure", 0.50)),
-            max_open_positions=int(bank.get("max_open_positions", 20)),
-        )
+        self.staking = staking_from_cfg(cfg)
+        self.strategy = strategy_from_cfg(cfg)
         ex = cfg.get("execution", {})
-        sports_cfg = cfg.get("sports", {})
-        self.strategy = StrategyConfig(
-            model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
-            max_spread=float(ex.get("max_spread", 0.03)),
-            slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
-            max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
-            post_inside_spread=bool(ex.get("post_inside_spread", True)),
-            min_entry_price=float(ex.get("min_entry_price", 0.15)),
-            max_entry_price=float(ex.get("max_entry_price", 0.85)),
-            min_edge_override={
-                k: float(v["min_edge_override"])
-                for k, v in sports_cfg.items()
-                if isinstance(v, dict) and "min_edge_override" in v
-            },
-            max_stake_override={
-                k: float(v["max_stake_override"])
-                for k, v in sports_cfg.items()
-                if isinstance(v, dict) and "max_stake_override" in v
-            },
-        )
         risk_cfg = cfg.get("risk", {})
         self.risk = RiskManager(
             RiskConfig(
@@ -570,6 +587,24 @@ class Runner:
         except Exception:
             log.exception("decision record failed")
 
+    def _record_discovery_failure(self, sport_key: str, exc: BaseException) -> None:
+        """A discovery error is a failure, not a warning: a cycle that saw 0
+        markets because the venue call raised must say so in the feed, or
+        "the bot placed no bets" reads as "nothing was worth betting". The
+        reason carries the exception type so a 422 from a renamed query
+        parameter (which once silently emptied the slate) is visible."""
+        try:
+            self.store.record_decision(
+                account=self.account,
+                market_id=f"({sport_key} discovery)",
+                sport=sport_key,
+                title=f"{sport_key} market discovery failed",
+                action="skip",
+                reason=f"discovery error — {type(exc).__name__}: {str(exc)[:160]}",
+            )
+        except Exception:
+            log.exception("discovery-failure record failed")
+
     def _record_scan_drops(self, drops: list) -> None:
         """Put the scanner's funnel loss in the decision feed, AGGREGATED.
 
@@ -642,8 +677,9 @@ class Runner:
                 continue
             try:
                 markets.extend(self.data_client.list_sports_markets(sport_key))
-            except Exception:
+            except Exception as exc:
                 log.exception("market discovery failed for %s", sport_key)
+                self._record_discovery_failure(sport_key, exc)
         summary["markets"] = len(markets)
 
         # Attach MLB probable-pitcher context by fuzzy-pairing team names.

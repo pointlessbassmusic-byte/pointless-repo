@@ -103,6 +103,30 @@ def _parse_dt(value: Any) -> Optional[datetime]:
 # $0.50 -> $1.25. Gamma's per-market feeSchedule agrees:
 # {"rate": 0.05, "exponent": 1, "takerOnly": true, "rebateRate": 0.15}.
 SPORTS_TAKER_FEE_RATE = 0.05
+SPORTS_MAKER_REBATE = 0.15
+
+
+def fee_schedule_rates(raw) -> tuple[float, float]:
+    """(taker rate, maker rebate share) from a Gamma `feeSchedule`, which
+    arrives as a dict or a JSON string: {"rate": 0.05, "exponent": 1,
+    "takerOnly": true, "rebateRate": 0.15}. Missing or malformed -> the
+    documented sports default and rebate."""
+    sched = raw
+    if isinstance(raw, str):
+        try:
+            sched = json.loads(raw)
+        except ValueError:
+            sched = None
+    if not isinstance(sched, dict):
+        return SPORTS_TAKER_FEE_RATE, SPORTS_MAKER_REBATE
+    try:
+        rate = float(sched.get("rate", SPORTS_TAKER_FEE_RATE))
+        rebate = float(sched.get("rebateRate", SPORTS_MAKER_REBATE))
+    except (TypeError, ValueError):
+        return SPORTS_TAKER_FEE_RATE, SPORTS_MAKER_REBATE
+    if not (0.0 <= rate <= 0.2):
+        return SPORTS_TAKER_FEE_RATE, SPORTS_MAKER_REBATE
+    return rate, rebate
 
 
 def taker_fee(price: float, shares: float, market_id: str | None = None,
@@ -138,6 +162,17 @@ class PolymarketClient(ExchangeClient):
         self.signature_type = int(sig_env) if sig_env else signature_type
         self.http = httpx.Client(timeout=timeout, headers={"User-Agent": "sportsbot/1.0"})
         self._sdk = None  # lazily created SecureClient
+        # conditionId -> taker fee rate from Gamma's per-market feeSchedule,
+        # filled in by discovery. Rates differ by category (checked live
+        # 2026-10-08: MLB and ATP moneylines 0.05 with a 15% rebate, the
+        # MLB champion future 0.03 with 25%), so one flat number is wrong
+        # for part of the slate whichever it picks.
+        self._fee_rates: dict[str, float] = {}
+
+    def fee_rate_for(self, market_id: Optional[str]) -> float:
+        """Taker fee rate for a discovered market; the documented sports
+        default for one discovery has not seen (fail toward over-costing)."""
+        return self._fee_rates.get(str(market_id or ""), SPORTS_TAKER_FEE_RATE)
 
     # ------------------------------------------------------------------
     # Discovery (Gamma, public)
@@ -220,13 +255,17 @@ class PolymarketClient(ExchangeClient):
             tokens = _parse_json_field(m.get("clobTokenIds"))
             if len(outcomes) != 2 or len(tokens) != 2:
                 continue
+            fee_rate, rebate_rate = fee_schedule_rates(m.get("feeSchedule"))
             meta = {
                 "event_slug": ev.get("slug"),
                 "game_id": m.get("gameId"),
                 "taker_base_fee": m.get("takerBaseFee"),
                 "fees_enabled": m.get("feesEnabled"),
+                "fee_rate": fee_rate,
+                "rebate_rate": rebate_rate,
                 "outcome_prices": _parse_json_field(m.get("outcomePrices")),
             }
+            self._fee_rates[str(m.get("conditionId", ""))] = fee_rate
             # Polymarket lists the VISITOR first on MLB moneylines: measured
             # against MLB Stats on 981 of 981 resolved games, 2026-07-16 to
             # 2026-09-27 (slug mlb-{away}-{home}-{date}). Without this the
