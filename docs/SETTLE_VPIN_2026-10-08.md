@@ -30,3 +30,26 @@ warm-up at −0.26¢; none has t > 2.
   - MLB passive quoting is closed.
   - ATP/WTA gets a powered confirmation on the never-sampled markets:
     `docs/SETTLE_ATPWTA_PREREG_2026-10-08.md`.
+
+## ATP/WTA powered confirmation (`docs/SETTLE_ATPWTA_PREREG_2026-10-08.md`): FAIL
+
+Data: all 2,322 never-sampled ATP/WTA markets (Aug 5 – Oct 5). 1,723 had a clean
+pre-match cut (589 had none; 10 were too thin). Taker contracts: 208.8M YES vs
+29.7M NO.
+
+| | Markets | Mean maker P&L / contract (after fee) | t | Day-clustered (61 days) |
+|---|---|---|---|---|
+| All pre-match fills, held to settlement | 1,723 | **−0.89¢** | −1.03 | −0.84¢, t −1.03 |
+| Contract-weighted, top 2% of fills removed | — | **−15.90¢** | — | — |
+
+## Conclusion
+- **Even the *average* Kalshi ATP/WTA maker does not earn at settlement after
+  fees.** That average includes the fast incumbents.
+- Whatever the market-wide maker surplus is (Becker +1.12%/trade; Bartlett &
+  O'Hara), it is concentrated in a few fills. In this sample that is the top 2%
+  (pooled positive, −15.9¢ without them), most likely the fastest and largest
+  participants.
+- The earlier ATP/WTA +2–3¢ was noise.
+- With MLB already dead, passive quoting on Kalshi tennis and MLB moneylines is
+  closed as a business for a slow entrant.
+- This is consistent with the sharps result: the money is in speed.
