@@ -60,6 +60,39 @@ def remove_vig_two_way(p_a: float, p_b: float) -> tuple[float, float]:
     return p_a / total, p_b / total
 
 
+def remove_vig_shin(implied: list[float], tol: float = 1e-12) -> list[float]:
+    """Shin (1993) vig removal for an n-outcome market.
+
+    Models the margin as protection against insider money, which falls
+    hardest on longshots, so a longshot loses MORE probability than under
+    proportional rescaling. Štrumbelj (2014) found it forecasts better than
+    basic normalisation. `implied` are raw 1/decimal-odds (sum > 1).
+    Solves for the insider share z in [0, 1) by bisection on Σp(z) = 1.
+    """
+    if any(x <= 0 for x in implied):
+        raise ValueError("implied probabilities must be positive")
+    total = sum(implied)
+    if total <= 1.0 + tol:                 # no margin: plain normalisation
+        return [x / total for x in implied]
+
+    def probs(z: float) -> list[float]:
+        return [((z * z + 4.0 * (1.0 - z) * x * x / total) ** 0.5 - z) / (2.0 * (1.0 - z))
+                for x in implied]
+
+    lo, hi = 0.0, 0.999
+    for _ in range(200):
+        mid = (lo + hi) / 2.0
+        if sum(probs(mid)) > 1.0:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    out = probs((lo + hi) / 2.0)
+    s = sum(out)
+    return [x / s for x in out]
+
+
 def overround(p_a: float, p_b: float) -> float:
     """Book margin: sum of implied probs minus 1 (0 = fair)."""
     return p_a + p_b - 1.0

@@ -177,3 +177,15 @@ def test_kelly_sizes_the_position_not_each_order():
 
     over = decide_stake(0.60, 0.50, cfg, current_market_exposure=7.0)
     assert not over.approved                                        # never sells here
+
+
+def test_shin_devig_sums_to_one_and_cuts_longshots_harder():
+    from sportsbot.core.odds import remove_vig_shin, remove_vig_two_way
+    imp = [1 / 1.25, 1 / 4.20]                 # 80% fav vs longshot, ~3.8% margin
+    shin = remove_vig_shin(imp)
+    prop = remove_vig_two_way(*imp)
+    assert abs(sum(shin) - 1.0) < 1e-9
+    assert shin[1] < prop[1] and shin[0] > prop[0]
+    assert remove_vig_shin([0.5, 0.5]) == [0.5, 0.5]          # no margin: unchanged
+    three = remove_vig_shin([0.55, 0.30, 0.20])
+    assert abs(sum(three) - 1.0) < 1e-9 and three[2] < 0.20 / 1.05
