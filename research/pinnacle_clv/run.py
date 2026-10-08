@@ -1,7 +1,14 @@
 """docs/PINNACLE_TENNIS_PREREG_2026-10-08.md
 Usage: python research/pinnacle_clv/run.py ATP.xlsx WTA.xlsx <tape_dir> [<tape_dir> ...]
 Tape dirs hold <ticker>.json trade tapes ([ts, yes_price, count, taker_side])."""
-import json, math, os, sys, time, unicodedata, urllib.request, datetime as dt
+import datetime as dt
+import json
+import math
+import os
+import sys
+import time
+import unicodedata
+import urllib.request
 from collections import defaultdict
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from sportsbot.backtest.markout import Fill, prematch_cut
@@ -17,22 +24,34 @@ def norm(s):
     return "".join(c if c.isalpha() or c == " " else " " for c in s).split()
 
 
-def key_td(name):            # "Sinner J." / "Auger-Aliassime F." -> ("sinner", "j")
-    parts = norm(name)
-    return (" ".join(parts[:-1]) if len(parts) > 1 else parts[0], parts[-1][:1]) if parts else None
+def key_td(name):            # "Auger-Aliassime F." / "Cerundolo J.M." -> ("aliassime", "f") / ("cerundolo", "j")
+    parts = norm(name)       # initials trail the surname: "O'Connell C." -> o, connell, c -> ("connell", "c")
+    last = max((i for i, x in enumerate(parts) if len(x) > 1), default=None)
+    ini = [x for x in parts[last + 1:] if len(x) == 1] if last is not None else []
+    return (parts[last], ini[0]) if ini else None
 
 
-def key_full(name):          # "Jannik Sinner" -> ("sinner", "j")
+def key_full(name):          # "Felix Auger-Aliassime" -> ("aliassime", "f")
     parts = norm(name)
     return (parts[-1], parts[0][:1]) if len(parts) > 1 else None
 
 
+SERIES = ("KXATPMATCH-", "KXWTAMATCH-")   # pre-reg scope; tennis-data covers main tour only
+
+
+def _rows(path):             # tennis-data .xlsx, or the same sheet saved as .csv
+    if path.lower().endswith(".csv"):
+        import csv
+        yield from csv.reader(open(path, newline="", encoding="utf-8-sig"))
+    else:
+        import openpyxl
+        yield from openpyxl.load_workbook(path, read_only=True).active.iter_rows(values_only=True)
+
+
 def load_td(paths):
-    import openpyxl
     rows = []
     for p in paths:
-        ws = openpyxl.load_workbook(p, read_only=True).active
-        it = ws.iter_rows(values_only=True); hdr = [str(h) for h in next(it)]
+        it = _rows(p); hdr = [str(h) for h in next(it)]
         ix = {h: i for i, h in enumerate(hdr)}
         for r in it:
             try:
@@ -40,11 +59,11 @@ def load_td(paths):
                 psw, psl = float(r[ix["PSW"]]), float(r[ix["PSL"]])
             except (TypeError, ValueError, KeyError):
                 continue
-            w, l = key_td(r[ix["Winner"]]), key_td(r[ix["Loser"]])
-            if w and l and psw > 1 and psl > 1:
-                pw, pl = remove_vig_shin([1 / psw, 1 / psl])
-                rows.append((d, w, l, pw))
-    return rows
+            w, lo = key_td(r[ix["Winner"]]), key_td(r[ix["Loser"]])
+            if w and lo and psw > 1 and psl > 1:
+                pw, _ = remove_vig_shin([1 / psw, 1 / psl])
+                rows.append((d, w, lo, pw))
+    return sorted(set(rows))     # identical duplicate rows must not void a match as 'non-unique'
 
 
 def market_meta(ticker, cache):
@@ -63,14 +82,14 @@ def market_meta(ticker, cache):
 def main(atp, wta, tape_dirs):
     td = load_td([atp, wta]); print("tennis-data rows with Pinnacle odds:", len(td))
     by_player = defaultdict(list)
-    for d, w, l, pw in td:
-        by_player[w].append((d, l, pw, True)); by_player[l].append((d, w, pw, False))
+    for d, w, lo, pw in td:
+        by_player[w].append((d, lo, pw, True)); by_player[lo].append((d, w, pw, False))
     cache_f = "kalshi_meta_cache.json"; cache = json.load(open(cache_f)) if os.path.exists(cache_f) else {}
     rows = []; seen_events = set(); stats = defaultdict(int)
     for tdir in tape_dirs:
         for fn in sorted(os.listdir(tdir)):
             ticker = fn[:-5]; ev = ticker.rsplit("-", 1)[0]
-            if ev in seen_events: continue                  # one market per match
+            if not ticker.startswith(SERIES) or ev in seen_events: continue                  # one market per match
             tr = json.load(open(os.path.join(tdir, fn)))
             if len(tr) < 20: continue
             cut = prematch_cut([Fill(ts=t, price=p, taker_book_side=s) for t, p, n, s in tr])
@@ -78,7 +97,11 @@ def main(atp, wta, tape_dirs):
             m = market_meta(ticker, cache)
             if not m or m["sv"] is None: stats["no_meta"] += 1; continue
             k = key_full(m["yes"]); close = dt.datetime.fromisoformat(m["close"].replace("Z", "+00:00")).date()
-            cands = [c for c in by_player.get(k, []) if abs((c[0] - close).days) <= 1]
+            # opponent must match too: surname in the title ("Will A win the A vs B match?"), or its
+            # first 3 letters in the event code (KXATPMATCH-26OCT05WONHEW: WON + HEW)
+            title, code = norm(m["title"]), ev.split("-", 1)[1][7:].lower()
+            opp_ok = lambda o: o[0] in title or o[0][:3] in (code[:3], code[3:])
+            cands = [c for c in by_player.get(k, []) if abs((c[0] - close).days) <= 1 and opp_ok(c[1])]
             if len(cands) != 1: stats["no_unique_match"] += 1; continue
             d, opp, pw, yes_is_winner = cands[0]
             pin_yes = pw if yes_is_winner else 1 - pw

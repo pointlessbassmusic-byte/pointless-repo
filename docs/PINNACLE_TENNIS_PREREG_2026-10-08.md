@@ -36,3 +36,17 @@ de-vigged close. Committed before any Pinnacle data was obtained.
   is an upper bound for a bot that only sees Pinnacle a few minutes earlier.
   A FAIL is therefore decisive; a PASS needs a forward test with live Pinnacle
   snapshots taken at least 10 minutes out.
+
+## Amendment 1 (2026-10-08, before any Pinnacle data was obtained)
+These are harness fixes from a smoke test on a *synthetic* odds file built from
+Kalshi's own prices. No real Pinnacle number had been seen.
+- **Scope:** "Kalshi ATP/WTA" means exactly the KXATPMATCH-/KXWTAMATCH- tickers.
+  The tape directories also hold Challenger/ITF markets, which tennis-data does
+  not cover, so those are excluded.
+- **Opponent check:** newer Kalshi titles read "<Player> wins" with no opponent.
+  The opponent counts as matched if their surname is in the title, or the first 3
+  letters of their surname form one half of the event code (`…26OCT05WONHEW`).
+- **Names:** initials are read only after the last surname token
+  ("O'Connell C." → connell/c). Exact-duplicate tennis-data rows are collapsed.
+- **Smoke result:** 45/45 synthetic matches; Brier gap −0.0004 (the expected
+  ≈0, since "Pinnacle" was Kalshi there). Plumbing check only, not evidence.
