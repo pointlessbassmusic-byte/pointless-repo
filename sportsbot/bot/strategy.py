@@ -41,10 +41,17 @@ class StrategyConfig:
     max_entry_price: float = 0.85
     min_edge_override: dict = None    # per-sport {sport: min_edge}
     max_stake_override: dict = None   # per-sport {sport: max_stake}
+    # Portfolio allocator outputs (see bot/portfolio.py): the execution
+    # style each sport's funded arms allow ("maker" | "taker" | "both" |
+    # "none") and the dollar budget per sport. Both only ever restrict.
+    style_override: dict = None       # per-sport {sport: style}
+    sport_budget: dict = None         # per-sport {sport: dollars}
 
     def __post_init__(self) -> None:
         self.min_edge_override = self.min_edge_override or {}
         self.max_stake_override = self.max_stake_override or {}
+        self.style_override = self.style_override or {}
+        self.sport_budget = self.sport_budget or {}
 
 
 def evaluate_market(
@@ -112,14 +119,28 @@ def evaluate_market_verbose(
     sport_key = market.sport.value if market.sport else "unknown"
     min_edge = cfg.min_edge_override.get(sport_key, staking.min_edge)
     max_stake = cfg.max_stake_override.get(sport_key, staking.max_stake_per_market)
+    style = cfg.style_override.get(sport_key, "both")
+    if style == "none":
+        return None, "no funded arm for this sport (portfolio allocation is zero)"
+    budget = cfg.sport_budget.get(sport_key)
 
     tick = market.tick_size or 0.01
+    # Float noise: 0.50 - 0.49 is a hair over 0.01, and "spread > tick" then
+    # posts at bid + tick == the ask, which is a taker fill wearing a
+    # maker label. A book is one tick wide up to that noise.
+    one_tick = spread <= tick + 1e-9
+    # A maker-only arm never crosses: on a one-tick book there is nowhere
+    # to post inside, so the market is skipped rather than taken.
+    post_inside = (cfg.post_inside_spread or style == "maker") and style != "taker"
+    if style == "maker" and one_tick:
+        return None, (f"maker-only arm: spread {spread:.3f} leaves no room to "
+                      f"post inside — not crossing")
 
     candidates = []
     # --- YES side: buy outcome A -----------------------------------------
     yes_levels = [(lvl.price, lvl.size) for lvl in quote.asks]
     depth_yes = sum(s for _, s in yes_levels[:5]) * cfg.max_depth_fraction
-    if cfg.post_inside_spread and spread > tick:
+    if post_inside and not one_tick:
         entry_yes = round(quote.bid + tick, 4)   # maker: improve best bid
         fill_cap_yes = depth_yes                  # sizing bound only
         maker_yes = True
@@ -131,7 +152,7 @@ def evaluate_market_verbose(
     # --- NO side: buy outcome B ------------------------------------------
     no_levels = [(round(1.0 - lvl.price, 6), lvl.size) for lvl in quote.bids]  # ascending
     depth_no = sum(s for _, s in no_levels[:5]) * cfg.max_depth_fraction
-    if cfg.post_inside_spread and spread > tick:
+    if post_inside and not one_tick:
         entry_no = round((1.0 - quote.ask) + tick, 4)
         fill_cap_no = depth_no
         maker_no = True
@@ -173,6 +194,7 @@ def evaluate_market_verbose(
             current_sport_exposure=exposure.get("by_sport", {}).get(sport_key, 0.0),
             current_total_exposure=exposure.get("total", 0.0),
             open_positions=exposure.get("open_positions", 0),
+            sport_budget=budget,
         )
         if not decision.approved:
             miss(eff_edge, (f"{side.value} edge {eff_edge:+.4f} vs the "

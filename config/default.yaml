@@ -49,10 +49,15 @@ adaptive:                        # profit optimization: tighten-only, anti-marti
   tighten_edge: 0.02             # added to a negative-CLV sport's min edge
   stake_cut: 0.5                 # stake-cap multiplier for a negative-CLV sport
 
+allocation:
+  path: config/allocation.yaml   # the operator's file: manual weights, learning budget, bankroll mode
+
 risk:
   daily_loss_limit: 100.0        # stop for the day past this realized loss
+  daily_loss_fraction: 0.10      # ...or 10% of the current bankroll, whichever is TIGHTER
   max_daily_new_risk: 0.25       # new stakes per day <= this fraction of bankroll
   max_drawdown: 250.0            # kill switch: stop entirely, require manual reset
+  max_drawdown_fraction: 0.25    # ...or 25% of the current bankroll, whichever is TIGHTER
   stale_quote_seconds: 120       # skip markets with quotes older than this
   min_minutes_before_start: 10   # don't enter pre-match bets after this cutoff
   max_pre_match_move: 0.08       # refuse entry once the mid has moved this far from
@@ -79,11 +84,13 @@ scan:
 sports:
   tennis:
     enabled: true
+    signal: model               # model | sharp
     best_of_default: 3
     surface_weight: 0.50        # blend: (1-w)*overall + w*surface (Tennis Abstract optimum)
     min_matches: 10             # skip players with fewer rated matches
   baseball:
     enabled: true
+    signal: model               # model (Elo + SP) | sharp (Pinnacle-anchored fair value from the harness)
     home_advantage_elo: 24.0
     rest_advantage_elo: 2.3     # per rest-day differential, capped
     sp_enabled: true            # starting-pitcher adjustment

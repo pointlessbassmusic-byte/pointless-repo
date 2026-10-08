@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sportsbot.bot.portfolio import arm_of_intent
 from sportsbot.core.types import (
     BetIntent,
     MarketQuote,
@@ -96,9 +97,10 @@ class Executor:
             return
         intent = tracked.intent
         market = intent.market
+        sport = market.sport.value if market.sport else "unknown"
         self.store.record_bet(
             market_id=market.market_id,
-            sport=market.sport.value if market.sport else "unknown",
+            sport=sport,
             side=intent.side.value,
             model_prob=intent.prob,
             entry_price=intent.price,
@@ -107,6 +109,7 @@ class Executor:
             edge=intent.edge,
             exchange=self.exchange.exchange.value,
             mode=self.mode,
+            arm=arm_of_intent(sport, intent.reason),
         )
         tracked.booked_fill = new_total_fill
 

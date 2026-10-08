@@ -156,6 +156,8 @@ class Store:
         if "sharp_closing_price" not in cols:  # sharp-line CLV harness
             self.conn.execute(
                 "ALTER TABLE bets ADD COLUMN sharp_closing_price REAL")
+        if "arm" not in cols:  # strategy arm (sport/signal/style) the fill belongs to
+            self.conn.execute("ALTER TABLE bets ADD COLUMN arm TEXT")
         mcols = [r[1] for r in self.conn.execute("PRAGMA table_info(market_meta)")]
         if "fee_rate" not in mcols:
             self.conn.execute("ALTER TABLE market_meta ADD COLUMN fee_rate REAL")
@@ -179,13 +181,13 @@ class Store:
 
     def record_bet(self, market_id: str, sport: str, side: str, model_prob: float,
                    entry_price: float, stake: float, size: float, edge: float,
-                   exchange: str, mode: str) -> int:
+                   exchange: str, mode: str, arm: str | None = None) -> int:
         with self._lock:
             cur = self.conn.execute(
                 "INSERT INTO bets (ts, market_id, sport, side, model_prob, entry_price,"
-                " stake, size, edge, exchange, mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " stake, size, edge, exchange, mode, arm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (_now(), market_id, sport, side, model_prob, entry_price,
-                 stake, size, edge, exchange, mode),
+                 stake, size, edge, exchange, mode, arm),
             )
             self.conn.commit()
             return int(cur.lastrowid)

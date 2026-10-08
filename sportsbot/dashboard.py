@@ -17,6 +17,13 @@ import html
 from datetime import datetime, timezone
 
 from sportsbot.bot.allocation import allocate
+from sportsbot.bot.portfolio import (
+    RESULTS,
+    allocate_arms,
+    load_allocation,
+    running_arms_for,
+    summarise_for_dashboard,
+)
 from sportsbot.bot.gate import evidence_gate
 from sportsbot.bot.ledger import ACCOUNTS, account_equity
 
@@ -281,6 +288,71 @@ def _decisions(rows: list[dict], show: int = 12) -> str:
             f'<tbody>{"".join(out)}</tbody></table>{more}')
 
 
+def _arms(port: dict) -> str:
+    """Per-arm evidence, gate and budget — the table the operator reads to
+    see where money may go and why, and where the learning budget stands."""
+    rows = []
+    for r in summarise_for_dashboard(port):
+        if r["budget"] > 0:
+            state, pill = "ok", ("live" if r["gate_ready"] else
+                                 "learning" if r["learn"] and not r["gate_ready"]
+                                 else "paper" if port.get("mode") == "paper" else "manual")
+        elif not r["enabled"]:
+            state, pill = "idle", "off"
+        elif not r["running"]:
+            state, pill = "idle", "not running"
+        else:
+            state, pill = "pending", "unfunded"
+        ci = ("—" if r["mean_clv"] is None else
+              f'{r["mean_clv"]:+.4f}' + ("" if r["clv_lo"] is None else
+                                         f' [{r["clv_lo"]:+.4f}, {r["clv_hi"]:+.4f}]'))
+        manual = ("auto" if r["manual_weight"] is None else f'{r["manual_weight"]:.0%}')
+        sharp = (f'{r["sharp_share"]:.0%} vs Pinnacle' if r["n_clv"] else "")
+        brier = ("—" if r["brier"] is None else f'{r["brier"]:.4f}')
+        rows.append(
+            f'<tr class="{state}"><td><strong>{_e(r["arm"])}</strong>'
+            f'<div class="evidence">{_e(r["source"])}</div></td>'
+            f'<td class="num">{_money(r["budget"])}<div class="sub">{_e(manual)}</div></td>'
+            f'<td class="num">{r["n_clv"]}<div class="sub">{r["n_settled"]} settled</div></td>'
+            f'<td class="num">{_e(ci)}<div class="sub">{_e(sharp)}</div></td>'
+            f'<td class="num">{_e(brier)}</td>'
+            f'<td class="barcell">{_bar(r["gate_progress"])}</td>'
+            f'<td><span class="pill">{_e(pill)}</span></td></tr>')
+    learn = port.get("learning", {})
+    learn_line = ""
+    if learn.get("budget_usd"):
+        learn_line = (f' Learning budget {_money(learn["budget_usd"])} across '
+                      f'{len(learn.get("arms", []))} arm(s); 7-day realised '
+                      f'{learn.get("loss_7d", 0.0):+.2f}; '
+                      f'{"PAUSED" if learn.get("paused") else "active"} '
+                      f'(stop at −{_money(learn.get("weekly_loss_stop_usd", 0.0))}).')
+    return (
+        '<table class="grid-table"><thead><tr><th>Arm &amp; why it has this budget</th>'
+        '<th class="num">Budget<div class="sub">weight</div></th>'
+        '<th class="num">CLV n</th><th class="num">Mean CLV [95% CI]</th>'
+        '<th class="num">Brier</th><th>Gate</th><th></th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table>'
+        f'<div class="foot">Allocated {_money(port["allocated"])} of the '
+        f'{_money(port["total_cap"])} exposure cap on a {_money(port["bankroll"])} '
+        f'bankroll ({_e(port.get("bankroll_mode", "config"))} mode).{_e(learn_line)} '
+        f'Change weights, learning money and the bankroll mode in '
+        f'<code>{_e(port.get("path", "config/allocation.yaml"))}</code>; the bot '
+        f're-reads it every cycle. Budgets move with measured CLV intervals, '
+        f'never with a losing streak.</div>')
+
+
+def _results() -> str:
+    rows = "".join(
+        f'<tr><td class="num">{_e(n)}</td><td><strong>{_e(t)}</strong></td>'
+        f'<td class="why">{_e(v)}</td></tr>' for n, t, v in RESULTS)
+    return ('<table class="grid-table"><thead><tr><th class="num">#</th>'
+            '<th>Measured</th><th>Verdict</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table>'
+            '<div class="foot">Every line is a measurement on real prices after '
+            'fees (docs/EDGE_VERDICT_2026-09-23.md). Nothing here is re-litigated '
+            'without new data.</div>')
+
+
 def _gate(gate: dict) -> str:
     rows = []
     for c in gate["criteria"]:
@@ -342,6 +414,14 @@ def collect(cfg: dict, store) -> dict:
 
     reports = {acct: report_for(mode) for acct, mode in ACCOUNTS.items()}
     cat = reports["sim"]
+    alloc_cfg = load_allocation(str(cfg.get("allocation", {}).get("path",
+                                                                 "config/allocation.yaml")))
+    try:
+        running = running_arms_for(cfg)
+    except ValueError:
+        running = set()
+    fees = store.get_kv("fees_verified")
+    fees_ok = isinstance(fees, dict) and bool(fees.get("verified"))
     counts = rated_counts(cfg)
     ratings = {k: v > 0 for k, v in counts.items()}
     provisional = ratings_provenance(cfg)
@@ -360,6 +440,12 @@ def collect(cfg: dict, store) -> dict:
             "allocation": allocate(max(eq["equity"], 0.0), cfg,
                                    reports[acct].get("by_sport", {}), ratings,
                                    provisional=provisional),
+            "portfolio": allocate_arms(
+                max(eq["equity"], 0.0) if alloc_cfg.bankroll_mode == "equity"
+                else float(bank.get("amount", 100.0)),
+                cfg, alloc_cfg,
+                store.settled_bets(limit=1_000_000, mode=ACCOUNTS[acct]),
+                running, fees_verified=fees_ok, mode=ACCOUNTS[acct]),
         }
     return out
 
@@ -383,10 +469,13 @@ def render(data: dict, refresh: int = 60) -> str:
             f'{_tiles(a["equity"])}'
             f'<div class="card"><h2>Equity</h2>'
             f'{_svg_equity(a["series"], a["equity"]["starting_balance"])}</div>'
-            f'<div class="card"><h2>Where the money is allowed to go</h2>'
+            f'<div class="card"><h2>Strategy arms: evidence, gate, budget</h2>'
+            f'{_arms(a["portfolio"])}</div>'
+            f'<div class="card"><h2>Sport sleeves (legacy view)</h2>'
             f'{_allocation(a["allocation"])}</div>'
             f'<div class="card"><h2>Decisions</h2>{_decisions(a["decisions"])}</div>'
-            f'<div class="card"><h2>Go-live gate</h2>{_gate(a["gate"])}</div>'
+            f'<div class="card"><h2>Go-live gate (account)</h2>{_gate(a["gate"])}</div>'
+            f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
             f'</section>')
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">

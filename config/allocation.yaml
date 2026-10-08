@@ -1,0 +1,35 @@
+# Capital allocation — the one file you change by hand.
+#
+# How money reaches an arm (sport/signal/style), in priority order; each step
+# can only tighten the risk caps in default.yaml, never widen them:
+#   1. a manual `weight` here pins that arm's share of the exposure cap;
+#   2. an arm whose gate is green (>= 200 CLV-graded fills, 95% CI of mean
+#      CLV above zero, Brier < 0.25, fees verified) shares the rest of the
+#      cap by the LOWER bound of its CLV interval;
+#   3. an arm marked `learn: true` that has not passed its gate risks an
+#      equal slice of learning.budget_usd so real fills accrue evidence —
+#      paused for the week once the learning arms' 7-day realised loss
+#      reaches learning.weekly_loss_stop_usd.
+# Everything else gets $0 and the dashboard says why.
+#
+# `weight: null` means automatic. Live orders still need BOTH `mode: live`
+# in the config AND SPORTSBOT_LIVE=1 in the environment; this file cannot
+# turn trading on.
+
+bankroll_mode: equity        # equity: stakes track live equity (profits roll in) | config: bankroll.amount
+
+learning:
+  budget_usd: 0.0            # most $ at risk at once across learning arms (set when you fund the account)
+  weekly_loss_stop_usd: 0.0  # pause learning arms once their 7-day realised loss reaches this (0 = off)
+
+arms:
+  baseball/sharp/maker:   {weight: null, learn: false}   # rank 2 of the research report: start here, on MLB, when lines flow
+  baseball/sharp/taker:   {weight: null, learn: false}
+  baseball/model/maker:   {weight: null, learn: false}
+  baseball/model/taker:   {weight: null, learn: false}
+  tennis/sharp/maker:     {weight: null, learn: false}
+  tennis/sharp/taker:     {weight: null, learn: false}
+  tennis/model/maker:     {weight: null, learn: false}
+  tennis/model/taker:     {weight: null, learn: false}
+  table_tennis/model/maker: {weight: 0.0, learn: false, enabled: false}   # no sharp line, integrity record: off
+  table_tennis/model/taker: {weight: 0.0, learn: false, enabled: false}
