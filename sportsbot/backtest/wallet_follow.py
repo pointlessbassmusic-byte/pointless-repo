@@ -263,6 +263,8 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
         chosen = select_wallets(table, key, top, min_trades)
         own, own_c, own_pnl = [], [], []
         copy_clv, copy_c, copy_pnl, skipped = [], [], [], 0
+        copy_gross = []                      # close - next print, no costs
+        per_wallet: dict[str, list[float]] = {}
         for g in test:
             k = g.condition_id or g.token
             trades = tapes.get(k, [])
@@ -277,6 +279,7 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
                 won = g.home_won if t.direction > 0 else not g.home_won
                 own.append(side_price(close, t.direction) - side_price(t.p_home, t.direction))
                 own_c.append(k)
+                per_wallet.setdefault(t.wallet, []).append(own[-1])
                 own_pnl.append(((1.0 - side_price(t.p_home, t.direction))
                                 / side_price(t.p_home, t.direction)) if won else -1.0)
                 cp = copy_price(trades, i, delay, g.start_ts, half_spread)
@@ -284,6 +287,7 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
                     skipped += 1
                     continue
                 fee = taker_fee(cp, fee_rate)
+                copy_gross.append(side_price(close, t.direction) - (cp - half_spread))
                 copy_clv.append(side_price(close, t.direction) - cp - fee)
                 copy_c.append(k)
                 copy_pnl.append(((1.0 - cp - fee) / cp) if won else (-(cp + fee) / cp))
@@ -292,9 +296,12 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
             "train_stats": {w: table[w] for w in chosen},
             "own_price_clv": _ci(own, own_c),
             "own_price_pnl": _ci(own_pnl, own_c),
+            "copy_gross_clv": _ci(copy_gross, copy_c),
             "copy_net_clv": _ci(copy_clv, copy_c),
             "copy_net_pnl": _ci(copy_pnl, copy_c),
             "copies_skipped_no_later_print": skipped,
+            "test_per_wallet": {w: {"n": len(v), "mean_clv": sum(v) / len(v)}
+                                for w, v in per_wallet.items()},
         }
     return res
 
@@ -323,8 +330,15 @@ def format_report(res: dict, sport: str) -> str:
         lines.append(f"top {len(d['wallets'])} train wallets by {label}, graded on TEST games:")
         lines.append(f"  own-price CLV      {_fmt(d['own_price_clv'])}")
         lines.append(f"  own-price return/$ {_fmt(d['own_price_pnl'])}")
+        lines.append(f"  next-print CLV     {_fmt(d['copy_gross_clv'])}  "
+                     f"(close - next print >= delay later, no costs: the information left)")
         lines.append(f"  copy net CLV       {_fmt(d['copy_net_clv'])}  "
-                     f"(next print >= delay later, half spread, taker fee; "
+                     f"(+ half spread + taker fee; "
                      f"{d['copies_skipped_no_later_print']} uncopyable)")
         lines.append(f"  copy net return/$  {_fmt(d['copy_net_pnl'])}")
+        pw = sorted(d["test_per_wallet"].items(), key=lambda kv: -kv[1]["n"])
+        if pw:
+            top = ", ".join(f"{w[:6]}…×{v['n']} ({v['mean_clv']:+.4f})" for w, v in pw[:5])
+            lines.append(f"  test trades by wallet: {len(pw)} active of {len(d['wallets'])}; "
+                         f"busiest {top}")
     return "\n".join(lines)
