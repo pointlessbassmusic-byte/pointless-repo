@@ -438,3 +438,41 @@ def test_outrights_and_futures_never_enter_the_slate():
          "outcomes": '["Iga Swiatek","Aryna Sabalenka"]', "clobTokenIds": '["a","b"]',
          "acceptingOrders": True, "enableOrderBook": True}]}
     assert len(parse(match, Sport.TENNIS)) == 1
+
+
+def test_discovery_reads_the_per_market_fee_rate_and_the_runner_charges_it(monkeypatch):
+    """Gamma's feeSchedule differs by market (0.05 on game moneylines, 0.03
+    on futures, both with their own rebate). Discovery must carry the rate
+    and the venue fee function must charge THAT market's rate, with the
+    documented 0.05 for anything not discovered."""
+    from datetime import datetime, timedelta, timezone
+    from sportsbot.exchanges.polymarket import (
+        PolymarketClient,
+        fee_schedule_rates,
+        taker_fee,
+    )
+
+    assert fee_schedule_rates({"rate": 0.03, "rebateRate": 0.25}) == (0.03, 0.25)
+    assert fee_schedule_rates('{"rate": 0.05, "rebateRate": 0.15}') == (0.05, 0.15)
+    assert fee_schedule_rates(None) == (0.05, 0.15)
+    assert fee_schedule_rates({"rate": "x"}) == (0.05, 0.15)
+    assert fee_schedule_rates({"rate": 5}) == (0.05, 0.15)          # not a rate
+
+    client = PolymarketClient()
+    start = (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S+00")
+    ev = {"slug": "mlb-x-y", "markets": [{
+        "sportsMarketType": "moneyline", "conditionId": "c-cheap",
+        "feeSchedule": {"exponent": 1, "rate": 0.03, "takerOnly": True, "rebateRate": 0.25},
+        "outcomes": '["A","B"]', "clobTokenIds": '["t0","t1"]', "gameStartTime": start,
+        "acceptingOrders": True, "enableOrderBook": True}]}
+    (m,) = client._moneyline_markets_from_event(ev, Sport.BASEBALL)
+    assert m.meta["fee_rate"] == 0.03 and m.meta["rebate_rate"] == 0.25
+    assert client.fee_rate_for("c-cheap") == 0.03
+    assert client.fee_rate_for("never-seen") == 0.05
+
+    from sportsbot.bot.runner import build_exchange
+    monkeypatch.setattr("sportsbot.exchanges.polymarket.PolymarketClient", lambda: client)
+    _paper, data_client, fee_fn = build_exchange({"exchange": "polymarket", "mode": "paper"})
+    assert data_client is client
+    assert fee_fn(0.5, 100.0, "c-cheap") == pytest.approx(0.75)
+    assert fee_fn(0.5, 100.0, "never-seen") == pytest.approx(taker_fee(0.5, 100.0))

@@ -190,7 +190,11 @@ def build_exchange(cfg: dict):
 
         data_client = PolymarketClient()
 
-        fee_fn = taker_fee   # already matches the fee_fn contract
+        def fee_fn(price, shares, market_id=None):
+            """Per-market rate from Gamma's feeSchedule (discovery fills it);
+            the documented 0.05 for anything not yet discovered."""
+            return taker_fee(price, shares, market_id,
+                             fee_rate=data_client.fee_rate_for(market_id))
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
         return (exec_client if venue == "kalshi" else data_client), data_client, fee_fn
     paper = PaperExchange(

@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS market_meta (
     home TEXT,
     away TEXT,
     start_time TEXT,
-    updated_ts TEXT NOT NULL
+    updated_ts TEXT NOT NULL,
+    fee_rate REAL
 );
 CREATE TABLE IF NOT EXISTS sharp_quotes (
     id INTEGER PRIMARY KEY,
@@ -155,6 +156,9 @@ class Store:
         if "sharp_closing_price" not in cols:  # sharp-line CLV harness
             self.conn.execute(
                 "ALTER TABLE bets ADD COLUMN sharp_closing_price REAL")
+        mcols = [r[1] for r in self.conn.execute("PRAGMA table_info(market_meta)")]
+        if "fee_rate" not in mcols:
+            self.conn.execute("ALTER TABLE market_meta ADD COLUMN fee_rate REAL")
         self.conn.commit()
 
     def close(self) -> None:
@@ -304,20 +308,22 @@ class Store:
     # --- sharp-line CLV harness --------------------------------------------
     def record_market(self, market_id: str, exchange: str | None,
                       sport: str | None, home: str | None, away: str | None,
-                      start_time: Optional[datetime]) -> None:
+                      start_time: Optional[datetime],
+                      fee_rate: Optional[float] = None) -> None:
         """Remember who a market is between (and when), so a decision row
         can be matched to a sportsbook event long after the venue has
         delisted the market. Upsert: the latest sighting wins."""
         with self._lock:
             self.conn.execute(
                 "INSERT INTO market_meta (market_id, exchange, sport, home, away,"
-                " start_time, updated_ts) VALUES (?,?,?,?,?,?,?)"
+                " start_time, updated_ts, fee_rate) VALUES (?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(market_id) DO UPDATE SET exchange=excluded.exchange,"
                 " sport=excluded.sport, home=excluded.home, away=excluded.away,"
                 " start_time=COALESCE(excluded.start_time, market_meta.start_time),"
-                " updated_ts=excluded.updated_ts",
+                " updated_ts=excluded.updated_ts,"
+                " fee_rate=COALESCE(excluded.fee_rate, market_meta.fee_rate)",
                 (market_id, exchange, sport, home, away,
-                 start_time.isoformat() if start_time else None, _now()))
+                 start_time.isoformat() if start_time else None, _now(), fee_rate))
             self.conn.commit()
 
     def market_meta(self, market_id: str) -> Optional[dict]:
