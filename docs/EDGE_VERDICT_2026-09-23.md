@@ -953,6 +953,19 @@ Informed-flow direction therefore joins the sharp line as a second
 candidate signal for the maker-only experiment, data-logged alongside it;
 it earns no stake on its own, least of all one wallet's.
 
+**Tennis (600 highest-volume resolved markets, 32 days, 78,469 pre-game
+taker fills).** Nothing persists. Population taker CLV −0.47 points in
+the ranking window (CI excludes zero), −0.03 [−0.35, +0.35] in the test
+window (n 22,802). The 20 best-CLV wallets from the ranking window carry
+**−0.36 [−1.48, +1.07]** at their own price out of sample (189 trades)
+and −1.65 [−2.76, −0.17] copied; the 20 most profitable carry +1.84
+[−0.07, +3.78] at their own price and +0.48 [−1.79, +2.51] copied (306
+trades), with realised returns of +0.66 per dollar inside a CI that spans
+−0.09 to +2.04 — longshot noise, not information. Tennis intervals are an
+order of magnitude wider than MLB's because the informed activity, where
+it exists, is spread thin across many small wallets; no selection rule
+produces a wallet set that is still informed the following weeks.
+
 **Parity check (same session).** The Polymarket market backtest can now
 run the bot's own `evaluate_market_verbose` under `config/default.yaml`
 (`--policy live`) instead of the harness's own rules: MLB 303 priced, 4
