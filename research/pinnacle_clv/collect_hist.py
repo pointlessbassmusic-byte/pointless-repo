@@ -44,7 +44,7 @@ for m in ms:
     by_ev.setdefault(m["ticker"].rsplit("-", 1)[0], []).append(m)
 picked = [rng.choice(v) for _, v in sorted(by_ev.items())]       # one random side per event
 rng.shuffle(picked)
-picked = picked[:1600]
+picked = picked[:int(os.environ.get("N", "1600"))]   # amendment 3: N=all events
 print("sides in window", len(ms), "events", len(by_ev), "sampled", len(picked), flush=True)
 json.dump({m["ticker"]: {"yes": m["yes_sub_title"], "title": m["title"], "close": m["close_time"],
                          "sv": m["settlement_value_dollars"]} for m in ms}, open("kalshi_meta_cache.json", "w"))

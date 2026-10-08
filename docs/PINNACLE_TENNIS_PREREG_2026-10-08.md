@@ -72,3 +72,22 @@ period they cover. Everything else (rules, fee, pass bars) is unchanged.
   and that rerun cannot rescue a FAIL here.
 - **Disclosed:** an archived file can miss corrections the site made after
   Aug 3. Rows without PSW/PSL are dropped, as before.
+
+## Amendment 3 (2026-10-08, before any odds row was compared with a Kalshi price): benchmark and sample size
+**What was looked at, in full:** only column coverage by month in the archived
+files. No odds value was compared with any Kalshi price or outcome.
+- **Finding:** tennis-data stopped publishing Pinnacle odds (PSW/PSL) after
+  January 2026. Only 71 ATP and 101 WTA rows have them, all from January.
+  The bookmaker-average close (AvgW/AvgL: the mean across the books Oddsportal
+  lists) covers about 100% of rows.
+- **Benchmark (decision):** the de-vigged (Shin) *bookmaker-average close*
+  replaces Pinnacle in H1 and H2.
+  - This is a softer benchmark than Pinnacle.
+  - The question becomes: does Kalshi's close lag the sportsbook consensus? That
+    consensus is what `polymarket-edge/` anchors to.
+  - A FAIL also means consensus-anchoring has no tradable edge on Kalshi tennis.
+- **Pinnacle (descriptive only):** the January rows that have PSW/PSL are
+  reported as a side H1 Brier comparison, with no decision attached.
+- **Sample:** all events in the Amendment 2 window, not 1,600. Rationale: the
+  rule only trades when the gap exceeds 2¢ + fee, so 1,600 events risked falling
+  under the ≥100-trades-per-half bar. Same window, split and pass bars.

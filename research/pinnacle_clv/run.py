@@ -1,5 +1,7 @@
 """docs/PINNACLE_TENNIS_PREREG_2026-10-08.md
 Usage: python research/pinnacle_clv/run.py ATP.xlsx WTA.xlsx <tape_dir> [<tape_dir> ...]
+Env ODDS=PS (Pinnacle, default) or ODDS=Avg (bookmaker-average close; amendment 3)
+and SPLIT=YYYY-MM-DD (default 2026-09-05; amendment 2 uses 2026-04-16).
 Tape dirs hold <ticker>.json trade tapes ([ts, yes_price, count, taker_side])."""
 import datetime as dt
 import json
@@ -15,7 +17,8 @@ from sportsbot.backtest.markout import Fill, prematch_cut
 from sportsbot.core.odds import remove_vig_shin
 
 API = "https://api.elections.kalshi.com/trade-api/v2"
-SPLIT = dt.date(2026, 9, 5)
+SPLIT = dt.date.fromisoformat(os.environ.get("SPLIT", "2026-09-05"))
+ODDS = os.environ.get("ODDS", "PS")          # column prefix: PSW/PSL or AvgW/AvgL
 fee = lambda p: 0.07 * p * (1 - p)
 
 
@@ -56,7 +59,7 @@ def load_td(paths):
         for r in it:
             try:
                 d = r[ix["Date"]]; d = d.date() if hasattr(d, "date") else dt.date.fromisoformat(str(d)[:10])
-                psw, psl = float(r[ix["PSW"]]), float(r[ix["PSL"]])
+                psw, psl = float(r[ix[ODDS + "W"]]), float(r[ix[ODDS + "L"]])
             except (TypeError, ValueError, KeyError):
                 continue
             w, lo = key_td(r[ix["Winner"]]), key_td(r[ix["Loser"]])
@@ -80,7 +83,7 @@ def market_meta(ticker, cache):
 
 
 def main(atp, wta, tape_dirs):
-    td = load_td([atp, wta]); print("tennis-data rows with Pinnacle odds:", len(td))
+    td = load_td([atp, wta]); print(f"tennis-data rows with {ODDS} odds:", len(td))
     by_player = defaultdict(list)
     for d, w, lo, pw in td:
         by_player[w].append((d, lo, pw, True)); by_player[lo].append((d, w, pw, False))
