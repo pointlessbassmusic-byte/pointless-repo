@@ -882,6 +882,100 @@ venues, and Polymarket's tennis book follows Kalshi's in active sessions
 maker orders on Polymarket US or Kalshi, minimum size, logged against the
 Kalshi signal — and nothing measurable from here advances it further.
 
+## Result 14 (Polymarket MLB): informed taker flow exists, and copying it does not pay
+
+_2026-10-08 22:30–23:15Z. Prompted by three X posts on "copy the smart
+wallets" (memecoin bots, influencer-wallet tracking). The claim reduces
+to two questions on the public taker tape (`data-api.polymarket.com/
+trades`, `takerOnly=true`; 685 resolved MLB moneylines, 60 days, 760,382
+taker fills; `sportsbot wallet-follow`). Everything is PRE-GAME: the
+close is the last pre-start print (rail-guarded), so an in-play fill has
+no closing line and a copier could not match in-play latency anyway.
+Wallets are ranked on the first 70% of games by start time and graded
+only on the last 30% — ranking on the trades you then copy is
+survivorship dressed as skill. CIs are percentile bootstraps clustered by
+market. Fee: the MLB moneyline `feeSchedule` on Gamma reads rate 0.05
+(checked live 2026-10-08; the 0.03 in Result 11 is the futures/champion
+market's rate), so the copy leg pays 0.05·p(1−p) plus half a one-tick
+spread._
+
+**1. Is taker flow informed?** As a population, no: takers pay over the
+close. Own-price CLV of every pre-game taker trade: ranking window
+**−0.0033 [−0.0045, −0.0021]** (n 131,832, 479 markets); test window
+**−0.0014 [−0.0028, −0.0001]** (n 55,609, 206 markets). That is the
+"takers lose to makers" result from the Kalshi literature reproduced on
+Polymarket MLB, at a third of a point.
+
+**2. Can the best wallets be copied?** Two selections of 20 wallets from
+the ranking window (≥ 20 trades over ≥ 5 markets; 1,023 of 18,034 wallets
+qualified), graded on the test games:
+
+| selection | test trades | own-price CLV | next-print CLV (no costs) | copy net CLV (30 s) | copy net CLV (300 s) |
+|---|---|---|---|---|---|
+| top 20 by realised profit/$ (what a leaderboard shows) | 63 | +0.0008 [−0.0041, +0.0055] | +0.0056 | **−0.0114 [−0.0159, −0.0069]** | −0.0126 |
+| top 20 by closing-line value | 966 | **+0.0101 [+0.0073, +0.0132]** | **+0.0100 [+0.0073, +0.0124]** | **−0.0071 [−0.0098, −0.0047]** | −0.0092 |
+
+Three things in that table:
+
+* **Leaderboard selection finds nothing.** The wallets with the best
+  realised profit per dollar in the ranking window barely trade out of
+  sample (63 fills) and carry zero CLV there. Profit over a few weeks of
+  binaries is luck; it does not predict the next weeks.
+* **CLV selection finds real information.** The 20 best-CLV wallets keep
+  **+1.0 point at their own price out of sample** (t ≈ 6.7), and the
+  information is still there at the next print 30 s later (+1.0) and
+  five minutes later (+0.8): these trades predict where the line closes,
+  not merely stale quotes they happened to hit.
+* **It is not copyable as a taker.** Crossing the spread 30 s behind
+  them and paying the 0.05 fee nets **−0.7 points** (CI −1.0 to −0.5).
+  The signal survives the delay; the costs eat it. At the 0.03 rate the
+  futures markets carry, the same copy would net −0.2 [−0.5, +0.0] — a
+  lower bound on how far it is from working, not a result.
+
+**Who it is.** 572 of the 966 test trades (59%) come from one wallet
+(`0x2a69…`, public name "UpTheBlues"): 822 pre-game taker fills across
+87 of the 685 games, every one a BUY in a uniform ~$265 clip, median 1.5
+hours before first pitch, median price 0.47, $195k deployed on MLB in 60
+days, +0.8 points CLV out of sample. That profile is a sharp-line taker
+in fixed clips — the strategy this repo's rank-1 harness grades, run by
+someone else — and its gross +0.8 is about the taker fee at mid. The
+other informed wallets are 40–60 fills each at +1.3 to +1.9 points. The
+remaining 6 of 20 traded nothing in the test window.
+
+**What it changes.** Nothing for a taker, and one thing for the maker
+plan. "Copy the smart wallets" is dead in the form the posts sell it:
+leaderboard wallets carry no information and informed wallets cannot be
+followed across the spread. But the +1.0 point that survives at the next
+print is exactly what a resting order in the informed direction would
+collect without crossing or paying the fee — if it fills before the line
+moves, which is the adverse-selection question rank 2 exists to answer.
+Informed-flow direction therefore joins the sharp line as a second
+candidate signal for the maker-only experiment, data-logged alongside it;
+it earns no stake on its own, least of all one wallet's.
+
+**Tennis (600 highest-volume resolved markets, 32 days, 78,469 pre-game
+taker fills).** Nothing persists. Population taker CLV −0.47 points in
+the ranking window (CI excludes zero), −0.03 [−0.35, +0.35] in the test
+window (n 22,802). The 20 best-CLV wallets from the ranking window carry
+**−0.36 [−1.48, +1.07]** at their own price out of sample (189 trades)
+and −1.65 [−2.76, −0.17] copied; the 20 most profitable carry +1.84
+[−0.07, +3.78] at their own price and +0.48 [−1.79, +2.51] copied (306
+trades), with realised returns of +0.66 per dollar inside a CI that spans
+−0.09 to +2.04 — longshot noise, not information. Tennis intervals are an
+order of magnitude wider than MLB's because the informed activity, where
+it exists, is spread thin across many small wallets; no selection rule
+produces a wallet set that is still informed the following weeks.
+
+**Parity check (same session).** The Polymarket market backtest can now
+run the bot's own `evaluate_market_verbose` under `config/default.yaml`
+(`--policy live`) instead of the harness's own rules: MLB 303 priced, 4
+bets, mean CLV −0.005; tennis 9,572 resolved / 7,989 priced, 422 bets,
+mean CLV −0.0062 (24% CLV-positive, paper ROI +7.9% on a 36% hit rate).
+Same shape as Results 8 and 9: the live policy would not have done
+better. The maker variant also gained a strict fill model (a later
+pre-start taker print must trade through the resting bid, from the same
+tape), so "fills assumed" is no longer the only maker number.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two

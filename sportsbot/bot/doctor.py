@@ -99,6 +99,38 @@ def _check_params(cfg: dict) -> list[Check]:
     out.append(_ck("params.adaptive", 0.0 < fl <= 1.0 and 0.0 < sc <= 1.0,
                    f"stake_floor={fl} stake_cut={sc}",
                    f"adaptive knobs outside (0,1]: floor={fl} cut={sc}"))
+    out.extend(_check_fee_floor(cfg))
+    return out
+
+
+def fee_floor(cfg: dict) -> float:
+    """The most a taker pays per share on the configured venue (at p=0.5)
+    plus the slippage buffer: the smallest edge bar under which a "winning"
+    trade can still lose money. Polymarket sports 0.05 x 0.25; Kalshi
+    0.07 x 0.25 at the full series multiplier."""
+    venue = str(cfg.get("exchange", "polymarket")).lower()
+    rate = 0.07 if venue == "kalshi" else 0.05
+    slip = float(cfg.get("execution", {}).get("slippage_buffer", 0.005))
+    return rate * 0.25 + slip
+
+
+def _check_fee_floor(cfg: dict) -> list[Check]:
+    """Every edge bar must clear the fee at mid plus slippage, or the bar
+    admits trades whose expected value is eaten by the venue before the
+    outcome is known. A tuned exit threshold that sat under the round-trip
+    fee once made every winning trade lose; this is the same mistake on
+    the entry side, caught before it runs."""
+    floor = fee_floor(cfg)
+    bars = {"bankroll.min_edge": float(cfg.get("bankroll", {}).get("min_edge", 0.03))}
+    for sport, sc in (cfg.get("sports", {}) or {}).items():
+        if isinstance(sc, dict) and "min_edge_override" in sc:
+            bars[f"sports.{sport}.min_edge_override"] = float(sc["min_edge_override"])
+    out = []
+    for name, bar in bars.items():
+        out.append(_ck(f"params.fee_floor[{name}]", bar > floor,
+                       f"{name}={bar:.4f} > fee+slippage floor {floor:.4f}",
+                       f"{name}={bar:.4f} <= fee+slippage floor {floor:.4f}: "
+                       f"a trade at the bar loses to the venue"))
     return out
 
 

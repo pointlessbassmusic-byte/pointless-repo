@@ -246,9 +246,11 @@ class SharpCollector:
         for m in markets:
             if not m.home or not m.away:
                 continue
+            fee_rate = (m.meta or {}).get("fee_rate")
             self.store.record_market(
                 m.market_id, m.exchange.value if m.exchange else None,
-                m.sport.value if m.sport else None, m.home, m.away, m.start_time)
+                m.sport.value if m.sport else None, m.home, m.away, m.start_time,
+                fee_rate=float(fee_rate) if fee_rate is not None else None)
             n += 1
         return n
 
@@ -536,6 +538,18 @@ class Grader:
             return None
         return meta, ev, yes_is_home, close
 
+    def _fee_fn(self, meta: dict, market_id: str, fallback_exchange: str | None):
+        """The marginal fee at a price for this market. With the default
+        fee table and a Polymarket market whose discovered feeSchedule
+        rate is on record, that rate is used instead of the flat 0.05."""
+        venue = self._venue(meta, fallback_exchange)
+        rate = meta.get("fee_rate")
+        if venue == "polymarket" and rate is not None and self.fee_for is default_fee_for:
+            from sportsbot.exchanges.polymarket import taker_fee
+
+            return lambda p: taker_fee(p, 1.0, fee_rate=float(rate))
+        return self.fee_for(venue, market_id)
+
     @staticmethod
     def _venue(meta: dict, fallback: str | None) -> str:
         """Paper fills record exchange='paper'; the fee belongs to the venue
@@ -587,7 +601,7 @@ class Grader:
                 side = "yes" if model >= mid else "no"
                 price = mid if side == "yes" else 1.0 - mid
             then = quote_at(self.quotes(ev["event_id"]), _parse_ts(d["ts"]))
-            fee = self.fee_for(self._venue(meta, None), d["market_id"])(price)
+            fee = self._fee_fn(meta, d["market_id"], None)(price)
             out.append(Graded(
                 kind="bet" if d["action"] == "bet" else "skip",
                 ref_id=int(d["id"]), ts=d["ts"], sport=d.get("sport") or "unknown",
@@ -620,8 +634,8 @@ class Grader:
             if write and b.get("sharp_closing_price") != close_side:
                 self.store.set_sharp_close(int(b["id"]), close_side)
             then = quote_at(self.quotes(ev["event_id"]), _parse_ts(b["ts"]))
-            fee = self.fee_for(self._venue(meta, b.get("exchange")),
-                               b["market_id"])(float(b["entry_price"]))
+            fee = self._fee_fn(meta, b["market_id"], b.get("exchange"))(
+                float(b["entry_price"]))
             entry_yes = (float(b["entry_price"]) if side == "yes"
                          else 1.0 - float(b["entry_price"]))
             out.append(Graded(

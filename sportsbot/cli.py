@@ -340,6 +340,32 @@ def sharp_report(config: str = CONFIG_OPT,
                   f"{credits if credits is not None else 'unknown'}")
 
 
+@app.command("wallet-follow")
+def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tennis"),
+                  days: int = typer.Option(60, help="resolved-market lookback"),
+                  max_games: int = typer.Option(2000, help="highest-volume games kept"),
+                  top: int = typer.Option(20, help="wallets followed"),
+                  min_trades: int = typer.Option(20, help="train trades a wallet needs"),
+                  delay: float = typer.Option(30.0, help="seconds before the copy print"),
+                  train_frac: float = typer.Option(0.7),
+                  fee_rate: float = typer.Option(0.05, help="Polymarket taker rate (Gamma feeSchedule: 0.05 on MLB/ATP moneylines)")):
+    """Is Polymarket taker flow informed, and can the best wallets be copied
+    after fees? Public trade tape, pre-game only, time-split ranking. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import wallet_follow as wf
+    from sportsbot.backtest.polymarket_market import fetch_resolved
+
+    games = [g for g in fetch_resolved(sport, days=days) if g.condition_id]
+    games.sort(key=lambda g: -g.volume)
+    games = sorted(games[:max_games], key=lambda g: g.start_ts)
+    console.print(f"{len(games)} resolved {sport} games; fetching taker tapes…")
+    tapes = {g.condition_id: wf.orient(wf.fetch_trades(g.condition_id), g)
+             for g in games}
+    res = wf.run(games, tapes, train_frac=train_frac, top=top,
+                 min_trades=min_trades, delay=delay, fee_rate=fee_rate)
+    console.print(wf.format_report(res, sport))
+
+
 @app.command("substrate-export")
 def substrate_export(config: str = CONFIG_OPT,
                      out: str = typer.Option("data/substrate_events.csv"),
@@ -521,7 +547,9 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
                     exchange: str = typer.Option("kalshi", help="kalshi | polymarket"),
                     lead_hours: float = typer.Option(6.0, help="decision point, hours before the pre-match anchor"),
                     min_edge: float = typer.Option(0.03),
-                    maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee (fills assumed)"),
+                    maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee"),
+                    fill_model: str = typer.Option("optimistic", help="polymarket maker fills: optimistic (every resting order fills) | strict (a later pre-start taker print must trade through the bid; uses the public trade tape)"),
+                    policy: str = typer.Option("backtest", help="polymarket: backtest (this harness's own rules) | live (the bot's evaluate_market_verbose under config/default.yaml — no drift possible)"),
                     days: int = typer.Option(32, help="polymarket: resolved-market lookback (CLOB keeps ~30 days of prices)"),
                     max_pages: int = typer.Option(40, help="settled-market pages to pull")):
     """Walk-forward backtest against REAL exchange prices and outcomes.
@@ -530,7 +558,8 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
     calibrated" but "does it beat the price it would have paid". Price
     histories are cached, so repeat runs are offline."""
     if exchange == "polymarket":
-        _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days)
+        _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days,
+                                    fill_model=fill_model, policy=policy)
         return
     if exchange != "kalshi":
         raise typer.BadParameter("exchange must be kalshi | polymarket")
@@ -586,18 +615,36 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
 
 
 def _polymarket_market_backtest(sport: str, cfg: dict, lead_hours: float,
-                                min_edge: float, maker: bool, days: int) -> None:
+                                min_edge: float, maker: bool, days: int,
+                                fill_model: str = "optimistic",
+                                policy: str = "backtest") -> None:
     from sportsbot.backtest import polymarket_market as pm
+    from sportsbot.bot.runner import staking_from_cfg, strategy_from_cfg
+
+    tape_fn = None
+    if fill_model == "strict" and (maker or policy == "live"):
+        from sportsbot.backtest import wallet_follow as wf
+
+        def tape_fn(game):
+            if not game.condition_id:
+                return []
+            return [(t.ts, t.p_home)
+                    for t in wf.orient(wf.fetch_trades(game.condition_id), game)]
 
     bank = cfg.get("bankroll", {})
     common = dict(
         lead_hours=lead_hours, min_edge=min_edge, maker=maker,
+        fill_model=fill_model, tape_fn=tape_fn, policy=policy, sport=sport,
+        staking_cfg=staking_from_cfg(cfg), strategy_cfg=strategy_from_cfg(cfg),
         model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
         slippage=float(cfg.get("execution", {}).get("slippage_buffer", 0.005)),
         kelly=float(bank.get("kelly_multiplier", 0.25)),
         bankroll=float(bank.get("amount", 100.0)),
         max_stake=float(bank.get("max_stake_per_market", 8.0)),
     )
+    if policy == "live":
+        console.print("policy=live: the bot's own strategy under this config "
+                      "decides; --min-edge/--maker are ignored")
     console.print(f"fetching resolved Polymarket {sport} markets ({days} days)…")
     games = pm.fetch_resolved(sport, days=days)
     if sport == "tennis":
