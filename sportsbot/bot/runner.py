@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import yaml
@@ -30,12 +31,20 @@ from sportsbot.bot.positions import (
 )
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
-from sportsbot.bot.ledger import snapshot_equity
+from sportsbot.bot.ledger import account_equity, snapshot_equity
+from sportsbot.bot.portfolio import (
+    allocate_arms,
+    effective_bankroll,
+    load_allocation,
+    running_arms_for,
+    summarise_for_dashboard,
+)
 from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
 from sportsbot.core.staking import StakingConfig
 from sportsbot.core.types import Side, Sport
 from sportsbot.data.store import Store
 from sportsbot.engine.baseball import BaseballModel
+from sportsbot.engine.sharpline import SharpLineModel
 from sportsbot.engine.tabletennis import TableTennisModel
 from sportsbot.engine.tennis import TennisModel
 from sportsbot.signals.sharp import (
@@ -78,17 +87,31 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
-def load_models(cfg: dict, ratings_dir: str) -> dict[Sport, Any]:
+def load_models(cfg: dict, ratings_dir: str, store=None) -> dict[Sport, Any]:
+    """One model per enabled sport. `sports.<sport>.signal: sharp` swaps the
+    rating model for the sharp-line model (needs `store`, which holds the
+    collected lines); the default `model` keeps the Elo-family engines."""
     sports_cfg = cfg.get("sports", {})
     models: dict[Sport, Any] = {}
-    if sports_cfg.get("tennis", {}).get("enabled", True):
+
+    def wants_sharp(key: str) -> bool:
+        sc = sports_cfg.get(key, {}) or {}
+        return str(sc.get("signal", "model")).lower() == "sharp"
+
+    sharp_cfg = SharpConfig.from_cfg(cfg)
+    for key, sport in SPORT_KEYS.items():
+        if sports_cfg.get(key, {}).get("enabled", True) and wants_sharp(key):
+            if store is None:
+                raise ValueError(f"sports.{key}.signal=sharp needs the store")
+            models[sport] = SharpLineModel(store, sport, sharp_cfg)
+    if sports_cfg.get("tennis", {}).get("enabled", True) and Sport.TENNIS not in models:
         m = TennisModel(
             surface_weight=float(sports_cfg["tennis"].get("surface_weight", 0.5)),
             min_matches=int(sports_cfg["tennis"].get("min_matches", 10)),
         )
         _try_load(m, os.path.join(ratings_dir, "tennis.json"))
         models[Sport.TENNIS] = m
-    if sports_cfg.get("baseball", {}).get("enabled", True):
+    if sports_cfg.get("baseball", {}).get("enabled", True) and Sport.BASEBALL not in models:
         b = BaseballModel(
             home_advantage=float(sports_cfg["baseball"].get("home_advantage_elo", 24.0)),
             rest_per_day=float(sports_cfg["baseball"].get("rest_advantage_elo", 2.3)),
@@ -97,7 +120,7 @@ def load_models(cfg: dict, ratings_dir: str) -> dict[Sport, Any]:
         )
         _try_load(b, os.path.join(ratings_dir, "baseball.json"))
         models[Sport.BASEBALL] = b
-    if sports_cfg.get("table_tennis", {}).get("enabled", True):
+    if sports_cfg.get("table_tennis", {}).get("enabled", True) and Sport.TABLE_TENNIS not in models:
         t = TableTennisModel(
             min_matches=int(sports_cfg["table_tennis"].get("min_matches", 8)),
             prob_shrink=float(sports_cfg["table_tennis"].get("prob_shrink", 0.5)),
@@ -211,7 +234,7 @@ class Runner:
         storage = cfg.get("storage", {})
         self.store = Store(storage.get("sqlite_path", "data/sportsbot.sqlite"))
         self.ratings_dir = storage.get("ratings_dir", "data/ratings")
-        self.models = load_models(cfg, self.ratings_dir)
+        self.models = load_models(cfg, self.ratings_dir, store=self.store)
         self.exchange, self.data_client, self.fee_fn = build_exchange(cfg)
         self.mode = cfg.get("mode", "paper")
         if self.mode == "live" and os.environ.get("SPORTSBOT_LIVE") != "1":
@@ -244,6 +267,10 @@ class Runner:
                 calibration_min_bets=int(risk_cfg.get("calibration_min_bets", 50)),
                 calibration_max_brier=float(risk_cfg.get("calibration_max_brier", 0.26)),
                 bankroll=self.staking.bankroll,
+                daily_loss_fraction=(float(risk_cfg["daily_loss_fraction"])
+                                     if risk_cfg.get("daily_loss_fraction") is not None else None),
+                max_drawdown_fraction=(float(risk_cfg["max_drawdown_fraction"])
+                                       if risk_cfg.get("max_drawdown_fraction") is not None else None),
             ),
             self.store,
             mode=self.mode,
@@ -258,6 +285,12 @@ class Runner:
         )
         self.adaptive = cfg.get("adaptive", {})
         self.venue = cfg.get("exchange", "polymarket")
+        # Portfolio allocation: the operator's file decides what may be
+        # overridden by hand; evidence and the learning budget decide the
+        # rest, every cycle, tighten-only against the risk caps.
+        self.alloc_cfg = load_allocation(
+            str(cfg.get("allocation", {}).get("path", "config/allocation.yaml")))
+        self.running_arms = running_arms_for(cfg)
         self.scanner = Scanner(self.models)
         # Sharp-line CLV harness (data only; see signals/sharp.py). Without
         # an API key it still records market metadata so decisions can be
@@ -448,6 +481,49 @@ class Runner:
         """
         staking, strategy = self.staking, self.strategy
         ad = self.adaptive
+
+        # Bankroll: config amount, or the account's live equity when the
+        # allocation file says `bankroll_mode: equity` (profits roll in and
+        # losses roll out). The risk limits that scale with it follow.
+        bankroll = self.staking.bankroll
+        if self.alloc_cfg.bankroll_mode == "equity":
+            try:
+                eq = account_equity(self.store, self.account, self.starting_balance)
+                bankroll = effective_bankroll(self.alloc_cfg, self.staking.bankroll,
+                                              eq["equity"])
+            except Exception:
+                log.exception("equity read failed; sizing on the config bankroll")
+        if bankroll != staking.bankroll:
+            staking = StakingConfig(**{**staking.__dict__, "bankroll": bankroll})
+        self.risk.set_bankroll(bankroll)
+
+        # Portfolio: dollars per arm -> dollars and style per sport.
+        try:
+            fees = self.store.get_kv("fees_verified")
+            port = allocate_arms(
+                bankroll, self.cfg, self.alloc_cfg,
+                self.store.settled_bets(limit=1_000_000, mode=self.mode),
+                self.running_arms,
+                fees_verified=isinstance(fees, dict) and bool(fees.get("verified")),
+                mode=self.mode)
+            self.store.set_kv("portfolio:last", {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "account": self.account, "bankroll": port["bankroll"],
+                "total_cap": port["total_cap"], "allocated": port["allocated"],
+                "sport_budget": port["sport_budget"],
+                "style_by_sport": port["style_by_sport"],
+                "learning": port["learning"], "bankroll_mode": port["bankroll_mode"],
+                "rows": summarise_for_dashboard(port)})
+            strategy = StrategyConfig(**{**strategy.__dict__,
+                                         "sport_budget": port["sport_budget"],
+                                         "style_override": port["style_by_sport"]})
+        except Exception:
+            # Fail closed: with no allocation nothing is funded.
+            log.exception("portfolio allocation failed; no sport is funded this cycle")
+            strategy = StrategyConfig(**{**strategy.__dict__, "sport_budget": {},
+                                         "style_override": {
+                                             s: "none" for s in SPORT_KEYS}})
+
         settled = self.store.settled_bets()
         if self.sharp_cfg.enabled and self.sharp_cfg.enforce_adaptive:
             # Benchmark the rolling CLV against Pinnacle where a sharp close
@@ -700,6 +776,9 @@ class Runner:
                 if best and similarity(m.home, best[0][0]) > 0.85:
                     extra_context[m.market_id] = best[1]
 
+        for model in self.models.values():
+            if isinstance(model, SharpLineModel):
+                model.refresh()
         scanned, drops = self.scanner.scan_verbose(markets, extra_context)
         summary["scanned"] = len(scanned)
         summary["dropped"] = len(drops)

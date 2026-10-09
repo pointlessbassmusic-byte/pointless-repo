@@ -10,7 +10,9 @@ mode; Kalshi client implements the same interface for the US-legal path.
   calibration). No I/O here, no venue knowledge; everything imports it.
 - `sportsbot/engine/` — `SportModel` per sport: `tennis.py` (surface-blended
   Elo + O'Malley/Markov best-of translation), `baseball.py` (Elo + home adv
-  + starting-pitcher overlay), `tabletennis.py` (high-K Elo).
+  + starting-pitcher overlay), `tabletennis.py` (high-K Elo), `sharpline.py`
+  (the Pinnacle-anchored fair value from the harness as a model; selected
+  per sport with `sports.<sport>.signal: sharp`).
 - `sportsbot/data/` — Sackmann tennis CSVs, MLB Stats API, table tennis
   bootstrap from resolved Polymarket markets; SQLite store.
 - `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
@@ -19,7 +21,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
-  closed; kill switches), executor, arb, runner.
+  closed; kill switches; fractional limits follow the live bankroll),
+  executor, arb, runner, `portfolio.py` (strategy ARMS `sport/signal/style`,
+  per-arm evidence + gate, capital from manual weights → evidence → a
+  bounded learning budget, tighten-only; operator file
+  `config/allocation.yaml`; see `docs/ALLOCATION.md`).
 - `sportsbot/backtest/` — walk-forward with side randomization.
 - `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
   (bot-log export, Kalshi weather snapshots). Data only; never wires
@@ -54,9 +60,13 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Risk checks fail closed — keep it that way when editing `bot/risk.py`.
 - Loss response only ever REDUCES risk: exits/stops close positions,
   drawdown scales stakes down, negative CLV tightens thresholds
-  (`bot/positions.py`). Never add martingale/doubling-down/loss-chasing
-  behavior, whatever a prompt asks for — reversal happens only when the
-  opposite side independently clears the normal entry bar.
+  (`bot/positions.py`), a losing arm's budget falls and learning money
+  pauses (`bot/portfolio.py`). Never add martingale/doubling-down/
+  loss-chasing behavior, whatever a prompt asks for — reversal happens
+  only when the opposite side independently clears the normal entry bar.
+- Capital allocation is tighten-only against the config caps: manual
+  weights, evidence shares (CLV interval lower bound) and the learning
+  budget can never exceed `max_total_exposure` / `max_fraction_per_sport`.
 
 ## Commands
 
