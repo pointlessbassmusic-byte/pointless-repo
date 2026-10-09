@@ -147,6 +147,12 @@ Pipeline per cycle:
 - [x] Result 14 (`backtest/wallet_follow.py`): copying wallets is dead as a
       taker; informed MLB flow exists (+1.0 pt) but a copy nets −0.7 pt.
       Strict maker fill model and backtest policy parity landed with it.
+- [x] Result 15 (`wallet-follow --maker`, `backtest/updown_maker.py`): the
+      informed MLB wallets trade earlier, larger and off-tape (sharp line /
+      news); delay does not matter, the fee does; a resting-bid follow earns
+      ≈ 0 under strict fills and ≈ +0.3 pt/signal only at the front of the
+      queue. Maker paired positions on BTC 5-minute windows lose in all 60
+      configurations (the unpaired leg is by construction the loser).
 - [x] Sharp-line CLV harness (`sportsbot/signals/sharp.py`, rank 1 of
       `reports/Beating prediction market prices.md`): budgeted Pinnacle snapshots
       via The Odds API, Shin de-vig, every decision and bet graded against the

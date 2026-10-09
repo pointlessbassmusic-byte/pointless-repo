@@ -268,6 +268,13 @@ the outcome and fabricates longshot edge.
   at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
   not prove the trade; the mechanism's longer record does. Size it so a total
   loss changes nothing.
+- Informed wallets are a pointer to a source, not a signal to follow
+  (EDGE_VERDICT Result 15): the best-CLV MLB wallets trade hours earlier,
+  larger and independent of the tape; copying them loses the fee at any
+  delay, and a resting-bid follow is ≈ 0 under strict fills. Read their
+  source (the sharp-line harness) instead. Maker paired positions on crypto
+  Up/Down windows lose in every configuration: the leg left unpaired is the
+  loser by construction (0 of 701 won).
 - PnL from hundreds of bets cannot settle an edge claim: per-bet return SD on
   50c binaries is ~1.0, so 2% ROI needs ~10,000 bets (PR #22's power
   analysis). Closing-line value needs ~80-500 observations. Judge strategies

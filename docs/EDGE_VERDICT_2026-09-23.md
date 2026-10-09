@@ -976,6 +976,112 @@ better. The maker variant also gained a strict fill model (a later
 pre-start taker print must trade through the resting bid, from the same
 tape), so "fills assumed" is no longer the only maker number.
 
+## Result 15: learning from the wallets instead of copying them — what they do, and the maker versions
+
+_2026-10-09 03:00–05:00Z. Two follow-ups to Result 14 and to a further X
+article (@Dan1ro0, "50+ Polymarket bots… BTC Up/Down 5m"): (a) can the
+informed MLB flow be taken without the delay and the fee, i.e. as a resting
+order; (b) do the article's paired-position structures work as a MAKER,
+since Result 12 measured only their taker versions and the one profitable
+wallet behind these posts is a two-sided maker. Reproduce with
+`sportsbot wallet-follow baseball --maker` and `sportsbot updown-maker`._
+
+**(a) What the informed MLB wallets do.** Same data and split as Result 14
+(683 games, 70/30 by start, the 20 best-CLV wallets chosen on the first
+part only). On the ranking window, against the whole taker population:
+they trade earlier (median **9.2 h** before first pitch vs 5.3 h), larger
+(median $60 vs $9; p90 $1,067 vs $146), and lean to the underdog (40% of
+their trades on the favourite vs 54%). Their test-window CLV is the same
+whatever the price did in the 30 minutes before (+1.04 after a fall,
++1.04 flat, +0.97 after a rise) — they are not reading the tape, they are
+acting on information from outside it — and it is largest at 6 h+ before
+the start (+1.4) and smallest inside the last half hour (+0.8). That is
+the profile of a sharp-line or lineup/pitcher-news trader. Wallet-blind
+proxies for it do not hold up: large prints (≥ $200) carry −0.2 to −0.05
+points in the ranking window and +0.3 to +0.4 in the test window, and a
+broader "informed" set (81 wallets with train t ≥ 2) carries nothing.
+Chasing a move is the one stable population pattern: buying after the
+own-side price rose ≥ 1.5c in 30 minutes returned −1.3 points in the
+ranking window (CI excludes zero; test −0.3, CI spans zero).
+
+**Delay was never the problem; the fee is.** The taker copy nets −0.69 /
+−0.71 / −0.71 points at a 2 / 10 / 30 s delay (n 972). The information
+survives the delay; the 0.05·p(1−p) fee plus half a spread eats it.
+
+**The maker version needs queue position the tape cannot show.** Rest a
+post-only bid in the informed direction instead. A bid AT the informed
+price is only possible when that ask level was used up by their trade; the
+next same-direction print says it was still there in 74% of signals
+(where a bid at that price would cross and pay the fee). So the order is
+placed at the signal price when the ask was consumed (44 of 308 signals)
+and one tick lower otherwise, cancelled after 10 or 60 minutes:
+
+| fill model | cancel | fill rate | filled CLV | per signal |
+|---|---|---|---|---|
+| strict (a print trades THROUGH the bid) | 10 m | 4.9% | +0.0184 [+0.0020, +0.0367] (n 15) | +0.0009 |
+| strict | 60 m | 9.5% | +0.0073 [−0.0039, +0.0176] (n 27) | +0.0007 |
+| front of queue (a print AT the bid fills it) | 10 m | 26.6% | +0.0119 [+0.0075, +0.0158] (n 82) | +0.0032 |
+| front of queue | 60 m | 42.8% | +0.0079 [+0.0049, +0.0114] (n 122) | +0.0034 |
+
+Without the dominant wallet the table is the same to a tenth of a point.
+Under the strict model the order almost never fills; under the
+front-of-queue bound it earns about a third of a point per signal — about
+$0.17 on a $50 order, ~300 signals over the 205 test games. Where the truth sits
+between those rows is queue position, which only real orders measure. The
+first pass of this test showed +0.84 points at a 54% fill: that was bids at
+the informed price that would have crossed the still-standing ask, i.e.
+taker fills booked as maker fills.
+
+**What to take from them.** Their edge is earlier access to the same
+external information, not anything on the Polymarket tape. The
+repository's version of that is the sharp-line harness (rank 1, built,
+waiting on `ODDS_API_KEY`): it reads the source they appear to read, at the
+same time, and can post a resting bid at a Pinnacle-derived fair value
+instead of following anyone. Following wallets adds a delay and a
+dependence on one account (59% of the signal) to a source we can read
+directly.
+
+**(b) BTC Up/Down 5m as a maker: every structure loses, for a structural
+reason.** 2,016 resolved windows, 2026-10-02 03:20Z to 10-09 03:15Z (every
+window in the week; Up won 50.9%), each window's full public taker tape
+(median ~1,500 prints). Rest one-share bids at T on Up and on Down when the
+window opens; when a leg fills, stop bidding that side (inventory limit) and
+either keep the other bid at T or raise it to 1 − (first leg) − m, the
+"working price = fair value − inventory penalty" completion the article
+describes; optionally re-post after a completed set (up to 5); cancel 10 s
+before the end and hold anything unpaired. Maker fee 0; the 20% rebate is
+shown, not added:
+
+| bid T | second leg | strict fills, PnL per window | front-of-queue bound | sets / window | windows left unpaired | rebate |
+|---|---|---|---|---|---|---|
+| 0.20 | m = 0.01 | −0.0386 ± 0.0020 | −0.0171 ± 0.0016 | 0.77 | 23% | +0.004 |
+| 0.30 | m = 0.02 | −0.0478 ± 0.0029 | −0.0319 ± 0.0026 | 0.79 | 21% | +0.005 |
+| 0.40 | hold at T | −0.0721 ± 0.0067 | −0.0596 ± 0.0066 | 0.55 | 45% | +0.005 |
+| 0.45 | m = 0.02 | −0.0875 ± 0.0044 | −0.0781 ± 0.0043 | 0.77 | 23% | +0.006 |
+| 0.49 | hold at T | −0.1133 ± 0.0050 | −0.1078 ± 0.0049 | 0.74 | 26% | +0.006 |
+| 0.45 | m = 0.02, up to 5 sets | −0.2379 ± 0.0056 | −0.2108 ± 0.0057 | 2.72 | 65% | +0.021 |
+
+All 60 cells of the grid (T 0.20–0.49 × hold / m 0.02 / m 0.01 × 1 or 5
+sets × both fill models) are negative, in both halves of the week, and the
+rebate never covers the gap. The mechanism is exact rather than
+statistical: a leg is left unpaired precisely when the price never comes
+back through the other bid, and in a window that ends at 0 or 1 that means
+it lost — **0 of 701 unpaired legs won** (T 0.45, hold). Completed sets earn
+1 − 2T or m; the legs that never pair cost their whole price; and re-posting
+for more sets only adds more chances to be left holding the loser. The
+article's warning ("until the second outcome has been acquired, the
+position is not really arbitrage") is the whole result. The profitable maker
+behind these posts (Result 12) is not doing this with a resting ladder;
+whatever it does needs sub-second quote management against Chainlink, which
+this stack cannot measure (Result 12 addendum) or run.
+
+**Verdict.** Nothing new to trade. (a) The informed MLB direction is real
+but reaching it without a fee depends on queue position (strict fills
+≈ 0, front-of-queue ≈ +0.3 points per signal); the durable lesson is the
+source, which the sharp-line harness already targets. (b) Maker paired
+positions on BTC 5-minute windows lose in every configuration, because the
+unpaired leg is by construction the losing one.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
