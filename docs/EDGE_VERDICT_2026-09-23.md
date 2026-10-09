@@ -593,6 +593,28 @@ follows Kalshi's, closing a quarter of the gap in 90 seconds and half in
 seven minutes, and Kalshi never follows Polymarket. In quiet sessions
 there is nothing to follow.
 
+**Samples 7–11 (Oct 5–9, one 30-minute session a day, 32–40 tennis
+pairs, pair-clustered se).** Polymarket → Kalshi at 90 / 180 / 450 s:
+#7 Mon +0.36 / +0.43 (t 1.5–2.1); #8 Tue +0.10 / +0.11 (t 0.5–1.6); #9
+Wed 0.00 / +0.03 (t ≤ 1.6, active); #10 Thu +0.13 / +0.14 (t 1.2–1.6,
+active); **#11 Fri −0.04 ± 0.08 / −0.09 ± 0.14 / +0.08 ± 0.22 (t −0.5 /
+−0.6 / +0.3, active: mids moved in 14% of steps on both venues)**, with
+the reverse direction, Kalshi → Polymarket, at +0.18 ± 0.11 / +0.25 ±
+0.17 (t 1.6 / 1.4). Sample 11 is the first active session whose point
+estimate flips sign, and neither direction in it is distinguishable from
+zero. Pooled 90 s across nine active samples (inverse-variance): **+0.082
+± 0.017, t 4.9** — still clearly positive on average, down from
++0.126 after six. The honest shape has not changed and has now been seen
+from both sides: Polymarket follows Kalshi on average, two sessions in
+nine were strong, three were flat, and one leaned the other way. A maker
+resting in the Kalshi direction costs nothing to post on a flat day, which
+is why the experiment survives this; a model that assumed the lag was
+there every session would not. The first #11 attempt also logged 5 MLB
+pairs (tennis discovery was rate-limited by concurrent cache fetches):
+Polymarket's MLB mids moved in 0.7% of steps and the mean |gap| was 7.2
+points on 8–21 cent books — wide, dead, and nothing to regress, which is
+the maker opportunity set rank 2 is meant to test rather than a lag.
+
 It is still **not a taker trade** — the gap averages 0.6 points (p90 1.0,
 above 2 points in 7% of grid points), and hitting the lagging ask marks
 out at −1.9 to −2.2 points on Polymarket and −2.0 on Kalshi at every
