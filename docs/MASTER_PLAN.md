@@ -158,6 +158,12 @@ Pipeline per cycle:
       pre-registered PASS/FAIL criterion (≥1,000 graded decisions, CI excluding
       zero). Tighten-only enforcement through the adaptive layer. Paper mode;
       collection starts once `ODDS_API_KEY` is set.
+- [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
+      on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
+      win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
+      $44k on the World Series champion market; the per-team advance markets
+      are already resolved. Too thin to matter this postseason; revisit next
+      October before building.
 - [ ] Score the first cohort carrying decision-time NWS baselines (84 markets,
       targets Sep 21–22) — does the forecast arm beat climatology? beat the market?
 - [ ] Deploy `main` to the Linode box and let the paper stack accrue toward the
