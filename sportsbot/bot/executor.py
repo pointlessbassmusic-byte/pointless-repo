@@ -37,6 +37,10 @@ class _Tracked:
     intent: BetIntent
     placed_at: datetime
     booked_fill: float = 0.0   # fill size already recorded as a bet
+    lookups_failed: int = 0    # get_order failures after it left the book
+
+
+MAX_FINAL_LOOKUPS = 10         # cycles to keep asking the venue for a final fill
 
 
 class Executor:
@@ -155,21 +159,34 @@ class Executor:
                 if venue.filled > tracked.order.filled:
                     tracked.order.filled = venue.filled
                     self._book_fill(tracked, venue.filled)
-                    self._persist_order(tracked.order)
+                    self._persist_order(tracked.order, tracked.intent)
             else:
                 # No longer resting: filled, or canceled externally. Ask the
                 # venue for the final fill count — guessing either way leaves
                 # untracked exposure (if it filled) or phantom exposure (if
-                # it was canceled). Venues without get_order keep what was
-                # already booked.
-                final = self._final_fill(tracked.order)
+                # it was canceled).
+                has_lookup = getattr(self.exchange, "get_order", None) is not None
+                final = self._final_fill(tracked.order) if has_lookup else None
+                if final is None and has_lookup:
+                    # A transient lookup failure must not turn a filled order
+                    # into "canceled": keep asking, up to a bound.
+                    tracked.lookups_failed += 1
+                    if tracked.lookups_failed < MAX_FINAL_LOOKUPS:
+                        log.warning("reconcile: order %s left the book, final fill "
+                                    "unknown (lookup %d/%d); retrying next cycle",
+                                    tracked.order.order_id, tracked.lookups_failed,
+                                    MAX_FINAL_LOOKUPS)
+                        continue
+                    log.error("reconcile: order %s final fill unknown after %d lookups; "
+                              "keeping booked exposure only — RECONCILE MANUALLY",
+                              tracked.order.order_id, MAX_FINAL_LOOKUPS)
                 if final is not None and final > tracked.order.filled:
                     tracked.order.filled = final
                     self._book_fill(tracked, final)
                 tracked.order.status = (OrderStatus.FILLED
                                         if final and final >= tracked.order.size - 1e-9
                                         else OrderStatus.CANCELED)
-                self._persist_order(tracked.order)
+                self._persist_order(tracked.order, tracked.intent)
                 log.info("reconcile: order %s left the book (final fill %s)",
                          tracked.order.order_id, final)
                 self._open.pop(client_id, None)
@@ -207,8 +224,14 @@ class Executor:
                 except Exception:
                     log.exception("restore: get_order failed for %s", order_id)
             booked = float(row.get("filled") or 0.0)
-            if final is not None and final > booked and intent:
+            if final is not None and final > booked:
                 inc = final - booked
+                if not intent:
+                    # Pre-upgrade row with no intent: the exposure is real
+                    # whatever we know about why it was placed, so book it
+                    # with unknown provenance rather than lose it.
+                    log.error("restore: order %s filled %.2f beyond booked with no stored "
+                              "intent; booking as sport=unknown", order_id, inc)
                 bet_id = self.store.record_bet(
                     market_id=row["market_id"], sport=intent.get("sport", "unknown"),
                     side=row["side"], model_prob=float(intent.get("prob") or 0.0),
@@ -246,7 +269,7 @@ class Executor:
             ok = self.exchange.cancel_order(order.order_id or client_id)
             if ok:
                 order.status = OrderStatus.CANCELED
-                self._persist_order(order)
+                self._persist_order(order, tracked.intent)
                 self._open.pop(client_id, None)
                 n += 1
             else:

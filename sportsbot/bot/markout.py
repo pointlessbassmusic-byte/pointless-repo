@@ -96,9 +96,10 @@ class MarkoutRecorder:
     def process_due(self, now: Optional[float] = None) -> int:
         """Mark every due row with one quote per market. Returns rows marked."""
         now = time.time() if now is None else now
-        rows = self.store.conn.execute(
-            "SELECT * FROM fill_marks WHERE mark_ts IS NULL AND due_ts <= ?"
-            " ORDER BY due_ts LIMIT 200", (now,)).fetchall()
+        with self.store._lock:      # shared connection; the main thread writes
+            rows = self.store.conn.execute(
+                "SELECT * FROM fill_marks WHERE mark_ts IS NULL AND due_ts <= ?"
+                " ORDER BY due_ts LIMIT 200", (now,)).fetchall()
         if not rows:
             return 0
         quotes: dict[str, Optional[float]] = {}
@@ -163,12 +164,13 @@ def markout_report(store, mode: Optional[str] = None) -> dict:
     """Mean markout (cents per share) by sport and horizon for one book,
     with n and a t-stat; `missed` counts marks no quote could be had for."""
     try:
-        rows = store.conn.execute(
-            "SELECT f.bet_id AS bet_id, b.sport AS sport, COALESCE(b.mode,'paper') AS mode,"
-            " f.horizon_s AS h,"
-            " f.markout AS markout, f.mark_ts AS mark_ts, f.mid AS mid"
-            " FROM fill_marks f JOIN bets b ON b.id = f.bet_id"
-            " WHERE f.mark_ts IS NOT NULL").fetchall()
+        with store._lock:
+            rows = store.conn.execute(
+                "SELECT f.bet_id AS bet_id, b.sport AS sport, COALESCE(b.mode,'paper') AS mode,"
+                " f.horizon_s AS h,"
+                " f.markout AS markout, f.mark_ts AS mark_ts, f.mid AS mid"
+                " FROM fill_marks f JOIN bets b ON b.id = f.bet_id"
+                " WHERE f.mark_ts IS NOT NULL").fetchall()
     except Exception:
         return {"by_sport": {}, "n_fills": 0}
     cells: dict[tuple[str, int], list[float]] = defaultdict(list)

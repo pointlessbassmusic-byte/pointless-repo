@@ -190,7 +190,7 @@ def scan(config: str = CONFIG_OPT):
             console.print(f"[red]{s} discovery failed: {exc}")
     scanned = runner.scanner.scan(markets)
     console.print(f"{len(markets)} markets, {len(scanned)} matched to models")
-    exposure = runner.store.exposure_by()
+    exposure = runner.store.exposure_by(mode=runner.mode)
     for sm in scanned:
         try:
             quote = runner.exchange.get_quote(sm.market)
@@ -255,7 +255,7 @@ def allocation(config: str = CONFIG_OPT,
     of every change. Manual control: `allocation.manual` / `allocation.paused`
     in config/local.yaml (see bot/allocation.py)."""
     cfg = _setup(config)
-    from sportsbot.bot.allocation import allocate, manual_settings
+    from sportsbot.bot.allocation import allocate, allocation_bankroll, manual_settings
     from sportsbot.bot.ledger import account_equity
     from sportsbot.dashboard import rated_counts, ratings_provenance, starting_balance
     from sportsbot.data.store import Store
@@ -264,7 +264,7 @@ def allocation(config: str = CONFIG_OPT,
     mode = {"sim": "paper", "real": "live"}[acct]
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
     eq = account_equity(store, acct, starting_balance(cfg, acct))
-    bankroll = max(0.0, min(float(cfg.get("bankroll", {}).get("amount", 0.0)), eq["equity"]))
+    bankroll = allocation_bankroll(cfg, eq["equity"])
     rep = _category_report(cfg, store, mode=mode)
     alloc = allocate(bankroll, cfg, rep["by_sport"],
                      {k: v > 0 for k, v in rated_counts(cfg).items()},

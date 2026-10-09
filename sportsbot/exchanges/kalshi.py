@@ -733,57 +733,56 @@ class KalshiClient(ExchangeClient):
         return [self._parse_order(o) for o in data.get("orders", [])]
 
     def _parse_order(self, o: dict) -> Order:
-        if True:   # body kept at its original indent: one venue payload -> Order
-            outcome = self._order_outcome(o)
-            size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
-            remaining = self._num(o, "remaining_count_fp", "remaining_count")
-            explicit = self._num(o, "fill_count_fp", "fill_count")
-            if explicit is None:
-                taker = self._num(o, "taker_fill_count_fp", "taker_fill_count")
-                maker = self._num(o, "maker_fill_count_fp", "maker_fill_count")
-                if taker is not None or maker is not None:
-                    explicit = (taker or 0.0) + (maker or 0.0)
-            if explicit is not None:
-                filled = explicit
-            elif size is not None and remaining is not None:
-                filled = max(0.0, size - remaining)
-            else:
-                # The executor books a maker fill only when the venue reports
-                # MORE filled than it already knows, so a silent 0.0 here
-                # means a partially filled resting order is never booked:
-                # untracked exposure in live mode. Say so loudly instead.
-                filled = 0.0
-                log.warning(
-                    "kalshi order %s: no fill count in payload (keys=%s); "
-                    "fills on this resting order cannot be reconciled",
-                    o.get("order_id"), sorted(o),
-                )
-            # Price of the side we are long, in that side's own terms.
-            price = self._num(o, "yes_price_dollars" if outcome == "yes"
-                              else "no_price_dollars")
-            if price is None:
-                yes_px = self._num(o, "yes_price_dollars")
-                if yes_px is not None:
-                    price = round(1.0 - yes_px, 4)
-            venue_status = str(o.get("status") or "resting").lower()
-            if venue_status in ("executed", "filled"):
-                status = OrderStatus.FILLED
-            elif venue_status in ("canceled", "cancelled", "expired"):
-                status = OrderStatus.CANCELED
-            else:
-                status = OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN
-            return Order(
-                order_id=str(o.get("order_id", "")),
-                client_id=str(o.get("client_order_id") or ""),
-                exchange=Exchange.KALSHI,
-                market_id=o.get("ticker", ""),
-                side=Side.YES if outcome == "yes" else Side.NO,
-                price=price or 0.0,
-                size=size or 0.0,
-                filled=filled,
-                status=status,
-                raw=o,
+        outcome = self._order_outcome(o)
+        size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
+        remaining = self._num(o, "remaining_count_fp", "remaining_count")
+        explicit = self._num(o, "fill_count_fp", "fill_count")
+        if explicit is None:
+            taker = self._num(o, "taker_fill_count_fp", "taker_fill_count")
+            maker = self._num(o, "maker_fill_count_fp", "maker_fill_count")
+            if taker is not None or maker is not None:
+                explicit = (taker or 0.0) + (maker or 0.0)
+        if explicit is not None:
+            filled = explicit
+        elif size is not None and remaining is not None:
+            filled = max(0.0, size - remaining)
+        else:
+            # The executor books a maker fill only when the venue reports
+            # MORE filled than it already knows, so a silent 0.0 here
+            # means a partially filled resting order is never booked:
+            # untracked exposure in live mode. Say so loudly instead.
+            filled = 0.0
+            log.warning(
+                "kalshi order %s: no fill count in payload (keys=%s); "
+                "fills on this resting order cannot be reconciled",
+                o.get("order_id"), sorted(o),
             )
+        # Price of the side we are long, in that side's own terms.
+        price = self._num(o, "yes_price_dollars" if outcome == "yes"
+                          else "no_price_dollars")
+        if price is None:
+            yes_px = self._num(o, "yes_price_dollars")
+            if yes_px is not None:
+                price = round(1.0 - yes_px, 4)
+        venue_status = str(o.get("status") or "resting").lower()
+        if venue_status in ("executed", "filled"):
+            status = OrderStatus.FILLED
+        elif venue_status in ("canceled", "cancelled", "expired"):
+            status = OrderStatus.CANCELED
+        else:
+            status = OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN
+        return Order(
+            order_id=str(o.get("order_id", "")),
+            client_id=str(o.get("client_order_id") or ""),
+            exchange=Exchange.KALSHI,
+            market_id=o.get("ticker", ""),
+            side=Side.YES if outcome == "yes" else Side.NO,
+            price=price or 0.0,
+            size=size or 0.0,
+            filled=filled,
+            status=status,
+            raw=o,
+        )
 
     def get_positions(self) -> list[Position]:
         try:

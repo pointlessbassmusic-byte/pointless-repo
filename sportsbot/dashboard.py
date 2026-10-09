@@ -16,7 +16,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
-from sportsbot.bot.allocation import allocate
+from sportsbot.bot.allocation import allocate, allocation_bankroll
 from sportsbot.bot.gate import evidence_gate
 from sportsbot.bot.ledger import ACCOUNTS, account_equity
 
@@ -453,7 +453,7 @@ def collect(cfg: dict, store) -> dict:
             "series": store.equity_series(acct, limit=500),
             "decisions": store.recent_decisions(acct, limit=300),
             "gate": evidence_gate(store, acct),
-            "allocation": allocate(max(eq["equity"], 0.0), cfg,
+            "allocation": allocate(allocation_bankroll(cfg, eq["equity"]), cfg,
                                    reports[acct].get("by_sport", {}), ratings,
                                    provisional=provisional),
             "allocation_log": store.allocation_log(acct, limit=20),

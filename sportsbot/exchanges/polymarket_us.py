@@ -411,8 +411,18 @@ class PolymarketUSClient(ExchangeClient):
             except Exception as exc:
                 log.error("polymarket_us positions failed: %s", exc)
                 break
-            for slug, p in (data.get("positions") or {}).items():
-                net = float(p.get("netPositionDecimal") or p.get("netPosition") or 0.0)
+            raw = data.get("positions") or {}
+            # Documented as a slug-keyed map; tolerate a list of objects too.
+            items = list(raw.items()) if isinstance(raw, dict) else [
+                ((p.get("marketMetadata") or {}).get("slug") or p.get("marketSlug") or "", p)
+                for p in raw if isinstance(p, dict)]
+            for slug, p in items:
+                try:
+                    net = float(p.get("netPositionDecimal") or p.get("netPosition") or 0.0)
+                except (TypeError, ValueError):
+                    log.warning("polymarket_us position %s: unreadable quantity %r", slug,
+                                p.get("netPositionDecimal"))
+                    continue
                 if net == 0.0 or p.get("expired"):
                     continue
                 size = abs(net)
@@ -437,10 +447,12 @@ class PolymarketUSClient(ExchangeClient):
             return 0.0
         for b in data.get("balances", []) or []:
             if str(b.get("currency") or "USD").upper() == "USD":
-                v = b.get("buyingPower")
+                # Documented as plain decimals, but every other money field
+                # on this API is an Amount object; accept either.
+                v = self._amount(b.get("buyingPower"))
                 if v is None:
-                    v = b.get("currentBalance")
-                return float(v or 0.0)
+                    v = self._amount(b.get("currentBalance"))
+                return v or 0.0
         return 0.0
 
     def close_position(self, market_id: str, side: Side, quote: MarketQuote,

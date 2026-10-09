@@ -258,9 +258,7 @@ class Runner:
 
         self.markouts = MarkoutRecorder(self.store, self.data_client)
         self.executor.on_fill = self.markouts.schedule
-        # Orders left resting by a previous process: book what filled while
-        # we were away, then cancel the rest. Live-only; paper has none.
-        self.executor.restore_open_orders()
+        self._ratings_cache: tuple[float, dict, dict] | None = None
 
     # ------------------------------------------------------------------
     def maker_fee_fn(self, price: float, market_id: str = "") -> float:
@@ -346,7 +344,7 @@ class Runner:
     def _settle_resolved(self) -> int:
         """Settle open bets whose markets have resolved. Returns count settled."""
         settled = 0
-        open_bets = self.store.open_bets()
+        open_bets = self.store.open_bets(mode=getattr(self, "mode", None))   # this book only
         by_market: dict[str, list[dict]] = {}
         for b in open_bets:
             by_market.setdefault(b["market_id"], []).append(b)
@@ -456,12 +454,11 @@ class Runner:
         if not bool(alloc_cfg.get("enabled", True)):
             return None
         try:
-            from sportsbot.bot.allocation import allocate
+            from sportsbot.bot.allocation import allocate, allocation_bankroll
             from sportsbot.bot.ledger import account_equity
             from sportsbot.bot.positions import category_report
             from sportsbot.dashboard import rated_counts, ratings_provenance
 
-            bank = self.cfg.get("bankroll", {})
             sports_cfg = self.cfg.get("sports", {})
             report = category_report(
                 settled, self.adaptive, self.staking.min_edge,
@@ -469,11 +466,17 @@ class Runner:
                 self.strategy.min_edge_override, self.strategy.max_stake_override,
                 self.staking.kelly_multiplier, self.risk.cfg.max_drawdown)
             eq = account_equity(self.store, self.account, self.starting_balance)
-            bankroll = max(0.0, min(float(bank.get("amount", self.staking.bankroll)),
-                                    float(eq["equity"])))
-            ratings = {k: v > 0 for k, v in rated_counts(self.cfg).items()}
+            bankroll = allocation_bankroll(self.cfg, float(eq["equity"]))
+            # Ratings only change on `sportsbot fit`; re-reading every
+            # ratings file each cycle is wasted I/O, so cache for 10 min.
+            now = time.time()
+            if self._ratings_cache is None or now - self._ratings_cache[0] > 600:
+                self._ratings_cache = (now,
+                                       {k: v > 0 for k, v in rated_counts(self.cfg).items()},
+                                       ratings_provenance(self.cfg))
+            _, ratings, provisional = self._ratings_cache
             alloc = allocate(bankroll, self.cfg, report.get("by_sport", {}),
-                             ratings, provisional=ratings_provenance(self.cfg))
+                             ratings, provisional=provisional)
             budgets: dict[str, float] = {}
             last = self.store.last_allocation(self.account)
             for sport, sl in alloc["sleeves"].items():
@@ -764,6 +767,11 @@ class Runner:
         interval = float(self.cfg.get("scan", {}).get("interval_seconds", 300))
         log.info("sportsbot runner starting: mode=%s venue=%s interval=%ss",
                  self.mode, self.exchange.exchange.value, interval)
+        # Orders left resting by a previous process: book what filled while
+        # we were away, then cancel the rest. Done HERE, not in __init__,
+        # so a read-only `sportsbot scan` against a live config can never
+        # cancel the running pilot's orders.
+        self.executor.restore_open_orders()
         self.markouts.start()
         while True:
             started = time.time()

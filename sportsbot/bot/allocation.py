@@ -104,6 +104,16 @@ def clv_multiplier(mean_clv: float | None, n_clv: int, min_bets: int) -> float:
     return max(CLV_FLOOR, min(CLV_CAP, 1.0 + CLV_GAIN * mean_clv))
 
 
+def allocation_bankroll(cfg: dict, equity: float) -> float:
+    """The dollars the allocator divides: min(configured `bankroll.amount`,
+    current equity), floored at 0. Losses shrink every sleeve at once;
+    gains never size the book past what the operator funded. One helper so
+    the runner, the board and `sportsbot allocation` all show the same
+    budgets."""
+    amount = float((cfg.get("bankroll", {}) or {}).get("amount", 0.0) or 0.0)
+    return max(0.0, min(amount, float(equity)))
+
+
 def manual_settings(cfg: dict) -> tuple[dict[str, float], set[str]]:
     """The operator's hand on the allocator, from `allocation:` in config
     (config/local.yaml is the place to put it):
