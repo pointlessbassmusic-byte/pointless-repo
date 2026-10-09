@@ -336,6 +336,19 @@ def status(config: str = CONFIG_OPT):
         console.print(table)
     console.print(f"effective Kelly multiplier: {rep['effective_kelly']:.4f} "
                   f"(drawdown ${rep['current_drawdown']:.2f} below peak)")
+    from sportsbot.bot.markout import markout_report
+
+    mk = markout_report(store, mode=mode)
+    if mk["by_sport"]:
+        t3 = Table(title=f"fill markouts (cents/share after our fills; {mk['n_fills']} fills)")
+        hs = sorted({h for v in mk["by_sport"].values() for h in v})
+        t3.add_column("sport")
+        for h in hs:
+            t3.add_column(f"+{h}s" if h < 60 else f"+{h // 60}m")
+        for sport, cells in sorted(mk["by_sport"].items()):
+            t3.add_row(sport, *["—" if not cells.get(h) or cells[h]["mean_cents"] is None
+                                else f"{cells[h]['mean_cents']:+.2f} (n {cells[h]['n']})" for h in hs])
+        console.print(t3)
     ks = store.get_kv("kill_switch_tripped", False)
     console.print(f"kill switch: {ks or 'clear'}")
 

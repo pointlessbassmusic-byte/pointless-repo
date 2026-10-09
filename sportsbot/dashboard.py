@@ -247,6 +247,36 @@ def _ledger(entries: list[dict]) -> str:
             'funded only after it passes here AND clears the go-live gate.</div>')
 
 
+def _markouts(rep: dict) -> str:
+    """Mean markout per fill by sport and horizon: the price move after our
+    own fills, in cents per share, negative = picked off."""
+    by_sport = rep.get("by_sport") or {}
+    if not by_sport:
+        return ('<div class="foot">No marked fills yet. Each fill is marked at '
+                '+5 s, +60 s, +5 min and +30 min against the live book.</div>')
+    horizons = sorted({h for v in by_sport.values() for h in v})
+    head = "".join(f'<th class="num">+{h}s</th>' if h < 60 else
+                   f'<th class="num">+{h // 60}m</th>' for h in horizons)
+    rows = []
+    for sport, cells in sorted(by_sport.items()):
+        tds = []
+        for h in horizons:
+            c = cells.get(h)
+            if not c or c["mean_cents"] is None:
+                tds.append('<td class="num">—</td>')
+                continue
+            cls = "down" if c["mean_cents"] < 0 else "up"
+            t = "" if c["t"] is None else f' <span class="sub">t {c["t"]:+.1f}</span>'
+            tds.append(f'<td class="num"><span class="value {cls}">{c["mean_cents"]:+.2f}¢</span>'
+                       f'<div class="sub">n {c["n"]}{t}</div></td>')
+        rows.append(f'<tr><td><strong>{_e(sport)}</strong></td>{"".join(tds)}</tr>')
+    return ('<table class="grid-table"><thead><tr><th>Sleeve</th>'
+            f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+            f'<div class="foot">{rep.get("n_fills", 0)} fills marked. A fill that is '
+            'under water at +5 s was picked off; the go-live bar needs these to '
+            'average above the fee.</div>')
+
+
 def load_ledger(path: str = "docs/research_ledger.json") -> list[dict]:
     import json
     import os
@@ -413,7 +443,9 @@ def collect(cfg: dict, store) -> dict:
            "mode": f'{cfg.get("mode", "paper")}/{cfg.get("exchange", "polymarket")}',
            "categories": cat, "rated": counts, "provisional": provisional,
            "accounts": {}}
-    for acct in ACCOUNTS:
+    from sportsbot.bot.markout import markout_report
+
+    for acct, mode in ACCOUNTS.items():
         start = starting_balance(cfg, acct)
         eq = account_equity(store, acct, start)
         out["accounts"][acct] = {
@@ -425,6 +457,7 @@ def collect(cfg: dict, store) -> dict:
                                    reports[acct].get("by_sport", {}), ratings,
                                    provisional=provisional),
             "allocation_log": store.allocation_log(acct, limit=20),
+            "markouts": markout_report(store, mode=mode),
         }
     out["ledger"] = load_ledger()
     return out
@@ -451,6 +484,8 @@ def render(data: dict, refresh: int = 60) -> str:
             f'{_svg_equity(a["series"], a["equity"]["starting_balance"])}</div>'
             f'<div class="card"><h2>Where the money is allowed to go</h2>'
             f'{_allocation(a["allocation"])}</div>'
+            f'<div class="card"><h2>Fill quality (markout)</h2>'
+            f'{_markouts(a.get("markouts", {}))}</div>'
             f'<div class="card"><h2>Learning log</h2>'
             f'{_learning_log(a.get("allocation_log", []))}</div>'
             f'<div class="card"><h2>Decisions</h2>{_decisions(a["decisions"])}</div>'

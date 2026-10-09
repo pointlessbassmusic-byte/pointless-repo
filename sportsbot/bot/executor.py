@@ -17,6 +17,7 @@ from typing import Optional
 
 from sportsbot.core.types import (
     BetIntent,
+    MarketInfo,
     MarketQuote,
     Order,
     OrderStatus,
@@ -46,6 +47,9 @@ class Executor:
         self.mode = mode
         self.order_ttl = order_ttl_seconds
         self._open: dict[str, _Tracked] = {}
+        # Called with (bet_id, market, side, entry_price) for every booked
+        # fill increment — the runner attaches the markout recorder here.
+        self.on_fill = None
 
     # ------------------------------------------------------------------
     def submit(self, intent: BetIntent, quote: Optional[MarketQuote] = None) -> Order:
@@ -111,7 +115,7 @@ class Executor:
             return
         intent = tracked.intent
         market = intent.market
-        self.store.record_bet(
+        bet_id = self.store.record_bet(
             market_id=market.market_id,
             sport=market.sport.value if market.sport else "unknown",
             side=intent.side.value,
@@ -124,6 +128,15 @@ class Executor:
             mode=self.mode,
         )
         tracked.booked_fill = new_total_fill
+        self._notify_fill(bet_id, market, intent.side, intent.price)
+
+    def _notify_fill(self, bet_id: int, market: MarketInfo, side: Side, price: float) -> None:
+        if self.on_fill is None:
+            return
+        try:
+            self.on_fill(bet_id, market, side, price)
+        except Exception:
+            log.exception("on_fill hook failed (fill is booked regardless)")
 
     # ------------------------------------------------------------------
     def reconcile_open_orders(self) -> None:
@@ -196,7 +209,7 @@ class Executor:
             booked = float(row.get("filled") or 0.0)
             if final is not None and final > booked and intent:
                 inc = final - booked
-                self.store.record_bet(
+                bet_id = self.store.record_bet(
                     market_id=row["market_id"], sport=intent.get("sport", "unknown"),
                     side=row["side"], model_prob=float(intent.get("prob") or 0.0),
                     entry_price=float(row["price"]),
@@ -204,6 +217,9 @@ class Executor:
                     edge=float(intent.get("edge") or 0.0),
                     exchange=self.exchange.exchange.value, mode=self.mode)
                 booked = final
+                self._notify_fill(bet_id, MarketInfo(exchange=self.exchange.exchange,
+                                                     market_id=row["market_id"]),
+                                  Side(row["side"]), float(row["price"]))
             status = "filled"
             if final is None or final < float(row.get("size") or 0.0) - 1e-9:
                 ok = self.exchange.cancel_order(order_id or row["client_id"])

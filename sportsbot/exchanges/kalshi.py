@@ -611,6 +611,11 @@ class KalshiClient(ExchangeClient):
             "client_order_id": order.client_id,
             "self_trade_prevention_type": "maker",
         }
+        if order.post_only:
+            # A maker intent was priced to rest: Create Order V2 rejects it
+            # instead of crossing, so it can never become a taker fill at a
+            # price the edge math (maker fee, no walk) never approved.
+            body["post_only"] = True
         try:
             resp = self._request_once(
                 "POST", f"{API_ROOT}/portfolio/events/orders", json_body=body, auth=True

@@ -251,6 +251,13 @@ class Runner:
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
         )
+        # Every booked fill gets marked at +5 s/+60 s/+5 min/+30 min against
+        # the live book (bot/markout.py): the adverse-selection measurement
+        # the pilot exists to make. Data only; runs on paper fills too.
+        from sportsbot.bot.markout import MarkoutRecorder
+
+        self.markouts = MarkoutRecorder(self.store, self.data_client)
+        self.executor.on_fill = self.markouts.schedule
         # Orders left resting by a previous process: book what filled while
         # we were away, then cancel the rest. Live-only; paper has none.
         self.executor.restore_open_orders()
@@ -757,6 +764,7 @@ class Runner:
         interval = float(self.cfg.get("scan", {}).get("interval_seconds", 300))
         log.info("sportsbot runner starting: mode=%s venue=%s interval=%ss",
                  self.mode, self.exchange.exchange.value, interval)
+        self.markouts.start()
         while True:
             started = time.time()
             try:

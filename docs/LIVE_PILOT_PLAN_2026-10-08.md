@@ -81,6 +81,15 @@ or `systemctl stop sportsbot-pilot`.
 6. `mode: live` is already set in `pilot.yaml`; the second switch is `SPORTSBOT_LIVE=1` in the unit's environment. Install `deploy/sportsbot-pilot.service`; the board unit points at `pilot.yaml` too.
 7. First week: `KALSHI_ENV=demo` to prove the plumbing end to end (demo prices are synthetic, so no CLV conclusions), then prod.
 
+## What the pilot measures that simulation cannot
+Every booked fill is marked at +5 s, +60 s, +5 min and +30 min against the
+live book (`bot/markout.py`; board card "Fill quality (markout)",
+`sportsbot status`). A fill under water at +5 s was picked off. The
+promote bar above is read together with this: a sleeve whose fills average
+below the fee at +60 s is adverse-selected whatever its P&L says, and the
+operator pauses it. Maker orders are post-only on both venues, so a resting
+order can never be filled as a taker at a price the edge math never saw.
+
 ## What the operator sees
 - `sportsbot board -c config/pilot.yaml --loop 60` → `data/board.html`: equity curve, sleeve budgets with the reason for every dollar, the learning log, decisions, the go-live gate, and the research ledger.
 - `sportsbot allocation -c config/pilot.yaml` for the same in the terminal.

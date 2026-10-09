@@ -41,8 +41,7 @@ Record the outcome of each in this file (date, result), then run
 - **Maker orders are post-only.** `BetIntent.maker` → `Order.post_only` →
   `participateDontInitiate`. A maker order that would cross is rejected by
   the venue rather than filled as a taker at a price the edge math never
-  approved. (Kalshi ignores the flag today; wiring `post_only` there is a
-  follow-up.)
+  approved. Kalshi gets the same via Create Order V2 `post_only`.
 - **The maker rebate is not counted as edge.** Maker fee is modelled as 0;
   the −0.0125 rebate shows up in realized P&L only. Adverse selection is what
   the pilot measures; a rebate on a bad fill is still a bad fill.
