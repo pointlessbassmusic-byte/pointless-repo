@@ -83,6 +83,8 @@ class SharpLineModel(SportModel):
         if (now - ts).total_seconds() > self.max_age_minutes * 60.0:
             return None
         p = float(q["home_fair"] if yes_is_home else q["away_fair"])
+        q = dict(q)
+        q["commence_time"] = ev.get("commence_time")
         return p, q
 
     def predict(self, event: EventInput) -> Prediction:
@@ -96,4 +98,8 @@ class SharpLineModel(SportModel):
                           prob_yes=p, prob_raw=p, uncertainty=0.0,
                           features={"sharp_book": self.cfg.sharp_book,
                                     "sharp_ts": q["ts"],
-                                    "overround": q.get("overround")})
+                                    "overround": q.get("overround"),
+                                    # Kalshi team-sport tickers carry no time;
+                                    # the book's scheduled start is the only
+                                    # one on record, and the scanner adopts it.
+                                    "sharp_commence": q.get("commence_time")})

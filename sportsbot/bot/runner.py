@@ -357,6 +357,23 @@ class Runner:
             kalshi_fee_per_share(price, mult) * shares)
 
     # ------------------------------------------------------------------
+    def _priceable_sports(self) -> set[str]:
+        """Config keys of the sports whose loaded model has something to
+        price with: rated entities, or sharp lines on record."""
+        out = set()
+        for key, sport in SPORT_KEYS.items():
+            model = self.models.get(sport)
+            if model is None:
+                continue
+            if isinstance(model, SharpLineModel):
+                model.refresh()
+            try:
+                if self.scanner._rated_entities(model):
+                    out.add(key)
+            except Exception:
+                log.exception("rated-entity check failed for %s", key)
+        return out
+
     def _sharp_fee_for(self, exchange: str, market_id: str):
         fn = self.decision_fee_fn(market_id)
         return lambda price: fn(price, 1.0)
@@ -513,7 +530,7 @@ class Runner:
                 self.store.settled_bets(limit=1_000_000, mode=self.mode),
                 self.running_arms,
                 fees_verified=isinstance(fees, dict) and bool(fees.get("verified")),
-                mode=self.mode)
+                mode=self.mode, priceable_sports=self._priceable_sports())
             self.store.set_kv("portfolio:last", {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "account": self.account, "bankroll": port["bankroll"],

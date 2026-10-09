@@ -132,3 +132,61 @@ def test_shipped_configs_enable_team_sports_on_the_sharp_signal():
         assert {"basketball/sharp/maker", "football/sharp/taker", "hockey/sharp/maker"} <= running_arms_for(cfg)
     alloc = load_allocation("config/allocation.yaml")
     assert "basketball/sharp/maker" in alloc.arms and alloc.setting("hockey/sharp/taker").learn is False
+
+
+def test_scanner_adopts_the_sharp_books_start_when_the_venue_has_none(tmp_path):
+    from sportsbot.bot.scanner import Scanner
+    from sportsbot.data.store import Store
+    from sportsbot.engine.sharpline import SharpLineModel
+
+    store = Store(str(tmp_path / "s.sqlite"))
+    now = datetime.now(timezone.utc)
+    start = now + timedelta(hours=7)
+    store.record_sharp_quotes([{
+        "sport_key": "basketball_nba", "event_id": "e1", "commence_time": start.isoformat(),
+        "home_team": "Chicago Bulls", "away_team": "Memphis Grizzlies", "bookmaker": "pinnacle",
+        "home_implied": 0.57, "away_implied": 0.47, "home_fair": 0.55, "away_fair": 0.45,
+        "overround": 0.04}], ts=now.isoformat())
+    sc = Scanner({Sport.BASKETBALL: SharpLineModel(store, Sport.BASKETBALL)})
+    m = MarketInfo(exchange=Exchange.KALSHI, market_id="KXNBAGAME-26OCT09MEMCHI-CHI",
+                   sport=Sport.BASKETBALL, home="Chicago Bulls", away="Memphis Grizzlies",
+                   start_time=None)
+    scanned, drops = sc.scan_verbose([m])
+    assert drops == [] and len(scanned) == 1
+    assert scanned[0].prediction.prob_yes == pytest.approx(0.55)
+    assert scanned[0].market.start_time is not None
+    assert abs((scanned[0].market.start_time - start).total_seconds()) < 1
+    # a venue start is never overwritten
+    m2 = m.model_copy(update={"start_time": now + timedelta(hours=9)})
+    (s2,), _ = sc.scan_verbose([m2])
+    assert s2.market.start_time == now + timedelta(hours=9)
+
+
+def test_sharp_model_without_lines_is_reported_as_such_not_as_unfit(tmp_path):
+    from sportsbot.bot.scanner import Scanner
+    from sportsbot.data.store import Store
+    from sportsbot.engine.sharpline import SharpLineModel
+
+    sc = Scanner({Sport.HOCKEY: SharpLineModel(Store(str(tmp_path / "s.sqlite")), Sport.HOCKEY)})
+    m = MarketInfo(exchange=Exchange.POLYMARKET, market_id="c", sport=Sport.HOCKEY,
+                   home="Boston Bruins", away="Buffalo Sabres")
+    _, drops = sc.scan_verbose([m])
+    assert len(drops) == 1 and drops[0].category == "no sharp line"
+    assert "ODDS_API_KEY" in drops[0].reason and "fit" not in drops[0].reason
+
+
+def test_allocation_parks_nothing_on_a_sport_nothing_can_price():
+    from sportsbot.bot.portfolio import AllocationConfig, allocate_arms
+
+    cfg = {"bankroll": {"max_total_exposure": 0.5, "max_fraction_per_sport": 0.2},
+           "sports": {}, "execution": {}}
+    running = {"baseball/model/maker", "baseball/model/taker",
+               "hockey/sharp/maker", "hockey/sharp/taker"}
+    port = allocate_arms(100.0, cfg, AllocationConfig(), [], running, mode="paper",
+                         priceable_sports={"baseball"})
+    assert port["sport_budget"]["hockey"] == 0.0 and port["sport_budget"]["baseball"] == 20.0
+    assert "nothing can price" in port["arms"]["hockey/sharp/maker"]["source"]
+    assert port["style_by_sport"]["hockey"] == "none"
+    both = allocate_arms(100.0, cfg, AllocationConfig(), [], running, mode="paper",
+                         priceable_sports={"baseball", "hockey"})
+    assert both["sport_budget"] == {"baseball": 20.0, "hockey": 20.0}
