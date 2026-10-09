@@ -43,5 +43,12 @@ substrate/data/
 polymarket-bot/**/data/
 
 # engine-suite runtime state (polymarket-edge / kalshi-engine / arb-scanner)
-data/
+# Anchored: an unanchored `data/` also swallowed sportsbot/data/ (source code),
+# which silently dropped a new module from a push on 2026-10-09.
+/data/
+polymarket-edge/data/
+kalshi-engine/data/
+arb-scanner/data/
+maker/data/
 cryptoarb/data/
+!sportsbot/data/
