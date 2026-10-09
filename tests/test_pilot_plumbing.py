@@ -251,3 +251,56 @@ def test_board_shows_learning_log_and_research_ledger(tmp_path):
     html = render(data)
     assert "Learning log" in html and "$12.50" in html
     assert "Research ledger" in html and "FAIL" in html
+
+
+# ------------------------------------------------ review regressions
+class _Flaky(_Venue):
+    """get_order fails N times before answering; cancel never called."""
+
+    def __init__(self, final_fill, failures):
+        super().__init__(final_fill)
+        self.failures = failures
+        self.lookups = 0
+
+    def get_order(self, order_id):
+        self.lookups += 1
+        if self.lookups <= self.failures:
+            raise RuntimeError("venue 503")
+        return super().get_order(order_id)
+
+
+def test_transient_lookup_failure_keeps_the_order_tracked_until_the_fill_is_known(tmp_path):
+    store = Store(str(tmp_path / "s.sqlite"))
+    venue = _Flaky(final_fill=10.0, failures=2)
+    ex = Executor(venue, store, mode="live")
+    ex.submit(_intent())
+    ex.reconcile_open_orders()                      # lookup fails: still tracked
+    ex.reconcile_open_orders()                      # fails again
+    assert store.open_bets(mode="live") == [] and len(ex._open) == 1
+    assert store.open_orders_rows()[0]["status"] == "open"   # never marked canceled
+    ex.reconcile_open_orders()                      # third lookup succeeds
+    assert store.open_bets(mode="live")[0]["size"] == 10.0 and ex._open == {}
+
+
+def test_partial_fill_reconcile_keeps_the_stored_intent_for_restart(tmp_path):
+    store = Store(str(tmp_path / "s.sqlite"))
+
+    class _Partial(_Venue):
+        def get_open_orders(self):
+            return [Order(order_id="o1", filled=3.0, size=10.0, status=OrderStatus.PARTIAL)]
+
+    ex = Executor(_Partial(final_fill=10.0), store, mode="live")
+    ex.submit(_intent())
+    ex.reconcile_open_orders()                      # books 3, re-persists the row
+    row = store.open_orders_rows()[0]
+    assert row["filled"] == 3.0 and row["raw"]["intent"]["prob"] == 0.6
+
+
+def test_restore_books_a_fill_even_when_the_row_has_no_intent(tmp_path):
+    store = Store(str(tmp_path / "s.sqlite"))
+    store.record_order(client_id="old", order_id="o1", market_id="KXT-A", side="yes",
+                       price=0.49, size=10.0, filled=0.0, status="open", raw={})   # pre-upgrade row
+    venue = _Venue(final_fill=10.0)
+    assert Executor(venue, store, mode="live").restore_open_orders() == 1
+    bets = store.open_bets(mode="live")
+    assert len(bets) == 1 and bets[0]["size"] == 10.0 and bets[0]["sport"] == "unknown"
