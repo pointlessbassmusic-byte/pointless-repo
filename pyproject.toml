@@ -29,6 +29,10 @@ polymarket = [
 kalshi = [
     "cryptography>=42.0",
 ]
+polymarket_us = [
+    # Ed25519 request signing for api.polymarket.us (public reads need nothing)
+    "cryptography>=42.0",
+]
 judge = [
     # shadow LLM judgement recorder (sportsbot/signals/judge.py); data only
     "anthropic>=1.11",

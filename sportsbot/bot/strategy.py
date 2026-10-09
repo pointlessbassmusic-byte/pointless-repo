@@ -221,6 +221,7 @@ def evaluate_market_verbose(
             reason=(f"{prediction.model} p={prediction.prob_yes:.3f} "
                     f"blend={q:.3f} mid={market_mid:.3f} "
                     f"{'maker' if is_maker else 'taker'}"),
+            maker=is_maker,
         )
         if best is None or intent.edge > best.edge:
             best = intent

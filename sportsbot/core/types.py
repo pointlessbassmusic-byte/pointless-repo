@@ -22,7 +22,8 @@ class Sport(str, enum.Enum):
 
 
 class Exchange(str, enum.Enum):
-    POLYMARKET = "polymarket"
+    POLYMARKET = "polymarket"          # international CLOB (geoblocked for US orders)
+    POLYMARKET_US = "polymarket_us"    # QCEX DCM, api.polymarket.us
     KALSHI = "kalshi"
     PAPER = "paper"
 
@@ -137,6 +138,7 @@ class BetIntent(BaseModel):
     edge: float                    # prob - price, after adjustments
     kelly_fraction: float          # fraction of bankroll this represents
     reason: str = ""
+    maker: bool = False            # priced to rest (improve the bid), not to cross
     ts: datetime = Field(default_factory=utcnow)
 
 
@@ -153,6 +155,7 @@ class Order(BaseModel):
     size: float = 0.0
     filled: float = 0.0
     status: OrderStatus = OrderStatus.PENDING
+    post_only: bool = False        # venue must reject rather than fill as taker
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     raw: dict[str, Any] = Field(default_factory=dict)

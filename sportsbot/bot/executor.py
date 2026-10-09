@@ -61,6 +61,10 @@ class Executor:
             order_type=OrderType.LIMIT,
             price=intent.price,
             size=intent.size,
+            # A maker intent was priced to rest; on venues that honour it
+            # (Polymarket US participateDontInitiate) it must not become a
+            # taker fill at a price the edge math never approved.
+            post_only=intent.maker,
         )
         log.info(
             "[%s] %s %s %.2f @ %.3f edge=%.3f (%s)",

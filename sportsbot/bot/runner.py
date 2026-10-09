@@ -134,14 +134,27 @@ def build_exchange(cfg: dict):
             a flat rate is wrong for one of them whichever it picks."""
             return kalshi_taker_fee(price, shares,
                                     data_client.fee_multiplier(market_id))
+    elif venue == "polymarket_us":
+        from sportsbot.exchanges.polymarket_us import (
+            PolymarketUSClient,
+            polymarket_us_taker_fee,
+        )
+
+        pmus = cfg.get("polymarket_us", {}) or {}
+        # Public market data needs no key; orders need the Ed25519 pair
+        # from .env (POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY).
+        data_client = PolymarketUSClient(leagues=pmus.get("leagues"),
+                                         include_live=bool(pmus.get("include_live", False)))
+        exec_client = data_client
+        fee_fn = polymarket_us_taker_fee
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
         data_client = PolymarketClient()
-
+        exec_client = data_client
         fee_fn = taker_fee   # already matches the fee_fn contract
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
-        return (exec_client if venue == "kalshi" else data_client), data_client, fee_fn
+        return exec_client, data_client, fee_fn
     paper = PaperExchange(
         data_client=data_client,
         starting_balance=float(cfg.get("bankroll", {}).get("amount", 1000.0)),

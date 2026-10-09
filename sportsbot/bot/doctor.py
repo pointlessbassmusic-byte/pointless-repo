@@ -51,7 +51,7 @@ def check_mode(cfg: dict) -> list[Check]:
     out.append(_ck("config.mode", mode in ("paper", "live"),
                    f"mode={mode}", f"unknown mode {mode!r}"))
     out.append(_ck("config.exchange",
-                   exchange in ("polymarket", "kalshi", "paper"),
+                   exchange in ("polymarket", "polymarket_us", "kalshi", "paper"),
                    f"exchange={exchange}", f"unknown exchange {exchange!r}"))
     if mode == "live":
         gate = os.environ.get("SPORTSBOT_LIVE") == "1"
@@ -219,6 +219,10 @@ def check_secrets(cfg: dict) -> list[Check]:
         out.append(_ck("secrets.POLYMARKET_PRIVATE_KEY",
                        bool(os.environ.get("POLYMARKET_PRIVATE_KEY")),
                        "set", "not set — live orders impossible"))
+    elif exchange == "polymarket_us" and mode == "live":
+        for var in ("POLYMARKET_US_KEY_ID", "POLYMARKET_US_SECRET_KEY"):
+            out.append(_ck(f"secrets.{var}", bool(os.environ.get(var)),
+                           "set", "not set — live orders impossible"))
     else:
         out.append(Check("secrets", PASS,
                          "paper mode on public data: no keys required"))
@@ -245,6 +249,8 @@ def check_network(cfg: dict) -> list[Check]:
     targets = []
     if exchange in ("polymarket", "paper"):
         targets += [("net.gamma", GAMMA_PING), ("net.clob", CLOB_PING)]
+    if exchange == "polymarket_us":
+        targets.append(("net.polymarket_us", "https://gateway.polymarket.us/v2/sports"))
     if exchange == "kalshi":
         kalshi_env = (os.environ.get("KALSHI_ENV") or "demo").lower()
         targets.append(("net.kalshi",

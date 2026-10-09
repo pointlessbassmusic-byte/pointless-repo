@@ -1,0 +1,107 @@
+# The real-money PILOT book on POLYMARKET US (QCEX DCM): a COMPLETE
+# standalone config, the Kalshi pilot's twin (`config/pilot.yaml`), so the
+# two venues can be compared on real fills, markout and CLV with identical
+# limits. Run with `sportsbot run -c config/pilot_pmus.yaml`.
+#
+# Before the first order: the 1-contract checks in
+# docs/POLYMARKET_US_CLIENT_2026-10-09.md (short-side price terms, position
+# sign, signing of query paths) — the trading half of the client was built
+# from the API reference, not against a funded account.
+#
+# Two switches, both deliberate, both on the host: `mode: live` below AND
+# `SPORTSBOT_LIVE=1` in the environment. Keys live in .env only:
+# POLYMARKET_US_KEY_ID and POLYMARKET_US_SECRET_KEY (from polymarket.us/developer).
+
+mode: live
+exchange: polymarket_us
+
+polymarket_us:
+  include_live: false          # pre-match only: no in-play order placement
+  leagues:                     # gateway league slugs priced per sport
+    tennis: [atp, wta]
+    baseball: [mlb]
+    table_tennis: [setkameua, setkamecz, setkamemd, czechligapro, wtt]
+
+accounts:
+  sim:
+    starting_balance: 0.0
+  real:
+    starting_balance: 150.0    # set to what you ACTUALLY deposited; doctor FAILs on 0
+
+bankroll:
+  amount: 150.0
+  kelly_multiplier: 0.20
+  min_edge: 0.04
+  min_stake: 1.0
+  max_stake_per_market: 6.0
+  max_fraction_per_market: 0.04
+  max_fraction_per_sport: 0.25
+  max_total_exposure: 0.40
+  max_open_positions: 8
+
+allocation:
+  enabled: true
+
+blend:
+  model_weight: 0.30
+
+execution:
+  max_spread: 0.03
+  slippage_buffer: 0.005
+  order_ttl_seconds: 120
+  post_inside_spread: true   # maker-first; the venue enforces it (participateDontInitiate)
+  max_depth_fraction: 0.25
+  min_entry_price: 0.15
+  max_entry_price: 0.85
+
+positions:
+  manage: true
+  exit_edge: -0.05
+  stop_fraction: 0.5
+  min_hold_minutes: 30
+
+adaptive:
+  enabled: true
+  drawdown_stake_scaling: true
+  stake_floor: 0.25
+  clv_window: 50
+  clv_min_bets: 30
+  tighten_edge: 0.02
+  stake_cut: 0.5
+
+risk:
+  daily_loss_limit: 10.0
+  max_daily_new_risk: 0.25
+  max_drawdown: 40.0
+  stale_quote_seconds: 120
+  min_minutes_before_start: 20
+  max_pre_match_move: 0.08
+  calibration_min_bets: 50
+  calibration_max_brier: 0.26
+
+scan:
+  interval_seconds: 300
+  sports: [baseball, tennis]
+
+sports:
+  tennis:
+    enabled: true
+    best_of_default: 3
+    surface_weight: 0.50
+    min_matches: 10
+  baseball:
+    enabled: true
+    home_advantage_elo: 24.0
+    rest_advantage_elo: 2.3
+    sp_enabled: true
+    prob_shrink: 0.8
+  table_tennis:
+    enabled: false
+
+storage:
+  sqlite_path: data/pilot_pmus.sqlite   # its OWN file, never shared with another book
+  ratings_dir: data/ratings
+
+logging:
+  level: INFO
+  file: logs/pilot_pmus.log

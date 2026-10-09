@@ -1,0 +1,27 @@
+[Unit]
+Description=sportsbot real-money PILOT book (config/pilot_pmus.yaml; live only with SPORTSBOT_LIVE=1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+# The second switch. Remove this line (or set 0) and the runner forces paper
+# mode and writes to the sim book — the double gate, working as designed.
+# Polymarket US has no sandbox: do the 1-contract checks in docs/POLYMARKET_US_CLIENT_2026-10-09.md first.
+Environment=SPORTSBOT_LIVE=1
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot run -c /opt/sportsbot/config/pilot_pmus.yaml
+Restart=on-failure
+RestartSec=60
+MemoryMax=1500M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -13,10 +13,14 @@ mode; Kalshi client implements the same interface for the US-legal path.
   + starting-pitcher overlay), `tabletennis.py` (high-K Elo).
 - `sportsbot/data/` — Sackmann tennis CSVs, MLB Stats API, table tennis
   bootstrap from resolved Polymarket markets; SQLite store.
-- `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
+- `sportsbot/exchanges/` — `polymarket.py` (international Gamma/CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
-  archived/dead, never reintroduce it), `kalshi.py` (2026 API: dollar-string
-  prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
+  archived/dead, never reintroduce it), `polymarket_us.py` (QCEX DCM, the
+  US-legal Polymarket path: public `gateway.polymarket.us` reads, Ed25519-
+  signed `api.polymarket.us` orders, post-only via `participateDontInitiate`;
+  see `docs/POLYMARKET_US_CLIENT_2026-10-09.md` for what is and is not
+  verified live), `kalshi.py` (2026 API: dollar-string prices, Create Order
+  V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches), executor, arb, runner, `allocation.py` (per-sport
@@ -72,7 +76,9 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - `sportsbot fit|backtest|scan|run|status|allocation|board|dashboard` — CLI
   (network needed except `allocation`, `board` and `dashboard`, which are
   offline unless `--resolve`).
-- Live pilot: `docs/LIVE_PILOT_PLAN_2026-10-08.md` and `config/pilot.yaml`.
+- Live pilot: `docs/LIVE_PILOT_PLAN_2026-10-08.md`; `config/pilot.yaml`
+  (Kalshi) and `config/pilot_pmus.yaml` (Polymarket US) are twins so the
+  venues can be compared on real fills.
 - Live smoke (reads only, safe): `sportsbot scan`.
 
 ## Compliance notes (do not remove)
