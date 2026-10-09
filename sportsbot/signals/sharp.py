@@ -47,6 +47,7 @@ import httpx
 
 from sportsbot.core.odds import shin_devig
 from sportsbot.core.types import Sport
+from sportsbot.data.teams import canonical_for_odds_key
 from sportsbot.data.store import Store
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ STATIC_SPORT_KEYS: dict[Sport, tuple[str, ...]] = {
     Sport.BASEBALL: ("baseball_mlb",),
     Sport.TENNIS: (),
     Sport.TABLE_TENNIS: (),
+    Sport.BASKETBALL: ("basketball_nba",),
+    Sport.FOOTBALL: ("americanfootball_nfl",),
+    Sport.HOCKEY: ("icehockey_nhl",),
 }
 
 # Pre-registered pass criterion (reports/Beating prediction market prices.md).
@@ -134,9 +138,11 @@ def parse_events(payload: list[dict]) -> list[SharpEvent]:
     for g in payload or []:
         try:
             home, away = str(g["home_team"]), str(g["away_team"])
-            ev = SharpEvent(event_id=str(g["id"]), sport_key=str(g.get("sport_key", "")),
+            key = str(g.get("sport_key", ""))
+            ev = SharpEvent(event_id=str(g["id"]), sport_key=key,
                             commence_time=_parse_ts(g["commence_time"]),
-                            home_team=home, away_team=away)
+                            home_team=canonical_for_odds_key(key, home),
+                            away_team=canonical_for_odds_key(key, away))
         except (KeyError, ValueError, TypeError):
             continue
         for bk in g.get("bookmakers", []) or []:

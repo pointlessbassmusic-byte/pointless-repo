@@ -63,7 +63,10 @@ log = logging.getLogger(__name__)
 _DROP_EXAMPLES = 3
 
 SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
-              "table_tennis": Sport.TABLE_TENNIS}
+              "table_tennis": Sport.TABLE_TENNIS, "basketball": Sport.BASKETBALL,
+              "football": Sport.FOOTBALL, "hockey": Sport.HOCKEY}
+# Sports with no rating engine in this repo: only the sharp line can price them.
+SHARP_ONLY_SPORTS = ("basketball", "football", "hockey")
 
 
 def load_config(path: str = "config/default.yaml",
@@ -100,7 +103,12 @@ def load_models(cfg: dict, ratings_dir: str, store=None) -> dict[Sport, Any]:
 
     sharp_cfg = SharpConfig.from_cfg(cfg)
     for key, sport in SPORT_KEYS.items():
-        if sports_cfg.get(key, {}).get("enabled", True) and wants_sharp(key):
+        enabled = sports_cfg.get(key, {}).get(
+            "enabled", key not in SHARP_ONLY_SPORTS)   # team sports are opt-in
+        if enabled and key in SHARP_ONLY_SPORTS and not wants_sharp(key):
+            raise ValueError(f"sports.{key} has no rating model here; set "
+                             f"sports.{key}.signal: sharp or enabled: false")
+        if enabled and wants_sharp(key):
             if store is None:
                 raise ValueError(f"sports.{key}.signal=sharp needs the store")
             models[sport] = SharpLineModel(store, sport, sharp_cfg)
