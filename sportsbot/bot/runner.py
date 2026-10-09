@@ -63,7 +63,10 @@ log = logging.getLogger(__name__)
 _DROP_EXAMPLES = 3
 
 SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
-              "table_tennis": Sport.TABLE_TENNIS}
+              "table_tennis": Sport.TABLE_TENNIS, "basketball": Sport.BASKETBALL,
+              "football": Sport.FOOTBALL, "hockey": Sport.HOCKEY}
+# Sports with no rating engine in this repo: only the sharp line can price them.
+SHARP_ONLY_SPORTS = ("basketball", "football", "hockey")
 
 
 def load_config(path: str = "config/default.yaml",
@@ -100,7 +103,12 @@ def load_models(cfg: dict, ratings_dir: str, store=None) -> dict[Sport, Any]:
 
     sharp_cfg = SharpConfig.from_cfg(cfg)
     for key, sport in SPORT_KEYS.items():
-        if sports_cfg.get(key, {}).get("enabled", True) and wants_sharp(key):
+        enabled = sports_cfg.get(key, {}).get(
+            "enabled", key not in SHARP_ONLY_SPORTS)   # team sports are opt-in
+        if enabled and key in SHARP_ONLY_SPORTS and not wants_sharp(key):
+            raise ValueError(f"sports.{key} has no rating model here; set "
+                             f"sports.{key}.signal: sharp or enabled: false")
+        if enabled and wants_sharp(key):
             if store is None:
                 raise ValueError(f"sports.{key}.signal=sharp needs the store")
             models[sport] = SharpLineModel(store, sport, sharp_cfg)
@@ -349,6 +357,23 @@ class Runner:
             kalshi_fee_per_share(price, mult) * shares)
 
     # ------------------------------------------------------------------
+    def _priceable_sports(self) -> set[str]:
+        """Config keys of the sports whose loaded model has something to
+        price with: rated entities, or sharp lines on record."""
+        out = set()
+        for key, sport in SPORT_KEYS.items():
+            model = self.models.get(sport)
+            if model is None:
+                continue
+            if isinstance(model, SharpLineModel):
+                model.refresh()
+            try:
+                if self.scanner._rated_entities(model):
+                    out.add(key)
+            except Exception:
+                log.exception("rated-entity check failed for %s", key)
+        return out
+
     def _sharp_fee_for(self, exchange: str, market_id: str):
         fn = self.decision_fee_fn(market_id)
         return lambda price: fn(price, 1.0)
@@ -505,7 +530,7 @@ class Runner:
                 self.store.settled_bets(limit=1_000_000, mode=self.mode),
                 self.running_arms,
                 fees_verified=isinstance(fees, dict) and bool(fees.get("verified")),
-                mode=self.mode)
+                mode=self.mode, priceable_sports=self._priceable_sports())
             self.store.set_kv("portfolio:last", {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "account": self.account, "bankroll": port["bankroll"],

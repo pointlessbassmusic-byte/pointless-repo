@@ -81,7 +81,7 @@ risk:
 
 scan:
   interval_seconds: 300
-  sports: [baseball]           # tennis and table_tennis: see notes below
+  sports: [baseball, basketball, football, hockey]           # tennis and table_tennis: see notes below
 
 sports:
   tennis:
@@ -114,6 +114,21 @@ sports:
     max_stake_override: 20.0
     min_matches: 8
     prob_shrink: 0.5             # walk-forward tuned; TT model shows no edge yet — see engine docstring
+
+  # Team sports (2026-10-09): no rating model here, so the Pinnacle line is
+  # the only signal and `signal: sharp` is required. They exist so the slate
+  # does not go dark when MLB and tennis end in November: every market is
+  # scanned and graded by the sharp harness; without ODDS_API_KEY the model
+  # has no line and skips each one with that reason.
+  basketball:
+    enabled: true
+    signal: sharp
+  football:
+    enabled: true
+    signal: sharp
+  hockey:
+    enabled: true
+    signal: sharp
 
 storage:
   sqlite_path: data/sportsbot.sqlite

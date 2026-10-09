@@ -218,7 +218,8 @@ def learning_loss_7d(rows: Iterable[dict], learning_arms: set[str],
 def allocate_arms(bankroll: float, cfg: dict, alloc: AllocationConfig,
                   settled_rows: list[dict], running_arms: Iterable[str],
                   fees_verified: bool = False,
-                  now: Optional[datetime] = None, mode: str = "live") -> dict:
+                  now: Optional[datetime] = None, mode: str = "live",
+                  priceable_sports: Optional[Iterable[str]] = None) -> dict:
     """Dollar budget per arm, and what the runner needs from it: the
     budget per sport and the execution style each sport may use.
 
@@ -232,11 +233,17 @@ def allocate_arms(bankroll: float, cfg: dict, alloc: AllocationConfig,
     evidence a gate needs, so every running, enabled arm without a manual
     weight shares the cap equally. `mode="live"` is real money and applies
     the three sources above in order; nothing else is funded.
+
+    `priceable_sports`, when given, names the sports whose model can price
+    a market right now (fitted ratings, or sharp lines on record). An arm
+    in any other sport gets nothing this cycle: money parked on a sport
+    that cannot be priced is money taken from one that can.
     """
     bank_cfg = cfg.get("bankroll", {})
     total_cap = max(0.0, bankroll) * float(bank_cfg.get("max_total_exposure", 0.50))
     sport_cap = max(0.0, bankroll) * float(bank_cfg.get("max_fraction_per_sport", 0.20))
     running = set(running_arms)
+    priceable = None if priceable_sports is None else set(priceable_sports)
 
     by_arm: dict[str, list[dict]] = {}
     for r in settled_rows:
@@ -259,6 +266,9 @@ def allocate_arms(bankroll: float, cfg: dict, alloc: AllocationConfig,
             entry["source"] = "disabled in allocation.yaml"
         elif name not in running:
             entry["source"] = "not running: this signal/style is not what the config trades"
+        elif priceable is not None and parse_arm(name)[0] not in priceable:
+            entry["source"] = ("nothing can price this sport right now "
+                               "(no fitted ratings / no sharp lines on record)")
         elif setting.weight is not None:
             entry["budget"] = setting.weight * total_cap
             entry["source"] = f"manual weight {setting.weight:.0%} of the exposure cap"

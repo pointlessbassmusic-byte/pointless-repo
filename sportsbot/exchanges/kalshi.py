@@ -51,6 +51,7 @@ from sportsbot.core.types import (
     Side,
     Sport,
 )
+from sportsbot.data.teams import by_code, is_team_sport
 from sportsbot.exchanges.base import ExchangeClient
 
 log = logging.getLogger(__name__)
@@ -63,6 +64,13 @@ SPORT_SERIES: dict[str, list[str]] = {
     "tennis": ["KXATPMATCH", "KXWTAMATCH", "KXATPCHALLENGERMATCH", "KXWTACHALLENGERMATCH"],
     "baseball": ["KXMLBGAME"],
     "table_tennis": ["KXTABLETENNISMATCH", "KXWTABLETENNISMATCH"],
+    # Team sports (2026-10-09): one market per side like MLB, the league
+    # code in the ticker tail (KXNBAGAME-26OCT09MEMCHI-MEM). The ticker
+    # carries a DATE but no time, so start_time stays None and the risk
+    # layer refuses entries on Kalshi until a start is known (fail closed).
+    "basketball": ["KXNBAGAME"],
+    "football": ["KXNFLGAME"],
+    "hockey": ["KXNHLGAME"],
 }
 
 # Kalshi MLB market tickers end in a team code and the event ticker
@@ -137,6 +145,9 @@ SPORT_FOR_KEY = {
     "tennis": Sport.TENNIS,
     "baseball": Sport.BASEBALL,
     "table_tennis": Sport.TABLE_TENNIS,
+    "basketball": Sport.BASKETBALL,
+    "football": Sport.FOOTBALL,
+    "hockey": Sport.HOCKEY,
 }
 
 
@@ -386,9 +397,16 @@ class KalshiClient(ExchangeClient):
         orientation; otherwise the alphabetically first competitor, which is
         arbitrary but deterministic.
         """
-        if sport not in (Sport.BASEBALL, Sport.TENNIS, Sport.TABLE_TENNIS):
+        if sport not in (Sport.BASEBALL, Sport.TENNIS, Sport.TABLE_TENNIS) \
+                and not is_team_sport(sport):
             return markets
         is_mlb = sport is Sport.BASEBALL
+        coded = is_mlb or is_team_sport(sport)   # names come from the code tables
+
+        def name_for(code: str) -> Optional[str]:
+            if is_mlb:
+                return KALSHI_MLB_TEAMS.get(code)
+            return by_code(sport, code)
 
         by_event: dict[str, list[MarketInfo]] = {}
         for m in markets:
@@ -399,7 +417,7 @@ class KalshiClient(ExchangeClient):
             if len(group) != 2:
                 continue  # not a clean two-sided contest; skip rather than guess
             home_code = None
-            if is_mlb:
+            if coded:
                 codes = {str(m.meta.get("team_code")) for m in group
                          if m.meta.get("team_code")}
                 if len(codes) != 2:
@@ -409,21 +427,21 @@ class KalshiClient(ExchangeClient):
             paired: list[MarketInfo] = []
             for m in group:
                 other = next(x for x in group if x is not m)
-                if is_mlb:
-                    mine = KALSHI_MLB_TEAMS.get(str(m.meta.get("team_code")))
-                    theirs = KALSHI_MLB_TEAMS.get(str(other.meta.get("team_code")))
+                if coded:
+                    mine = name_for(str(m.meta.get("team_code")))
+                    theirs = name_for(str(other.meta.get("team_code")))
                 else:
                     mine, theirs = m.home, other.home
                 if not mine or not theirs or mine == theirs:
                     continue  # unmapped or degenerate: skip, never guess
                 meta = dict(m.meta)
                 if home_code is not None:
-                    meta["home_field"] = KALSHI_MLB_TEAMS.get(home_code)
+                    meta["home_field"] = name_for(home_code)
                 paired.append(m.model_copy(update={
                     "home": mine, "away": theirs, "meta": meta}))
             if len(paired) != 2:
                 continue
-            if is_mlb and home_code is not None:
+            if coded and home_code is not None:
                 keep = next((x for x in paired
                              if str(x.meta.get("team_code")) == home_code), None)
             else:

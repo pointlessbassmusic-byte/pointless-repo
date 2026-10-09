@@ -33,6 +33,7 @@ from typing import Any, Optional
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from sportsbot.data.teams import canonical, is_team_sport
 from sportsbot.core.types import (
     BookLevel,
     Exchange,
@@ -63,6 +64,12 @@ SPORT_TAGS: dict[str, int] = {
     "mlb": 100381,
     "baseball": 100381,   # alias: config sport keys use "baseball"
     "table_tennis": 103767,
+    "nba": 745,
+    "basketball": 745,    # alias: config sport keys
+    "nfl": 450,
+    "football": 450,
+    "nhl": 899,
+    "hockey": 899,
 }
 
 SPORT_FOR_TAG = {
@@ -71,6 +78,12 @@ SPORT_FOR_TAG = {
     "mlb": Sport.BASEBALL,
     "baseball": Sport.BASEBALL,
     "table_tennis": Sport.TABLE_TENNIS,
+    "nba": Sport.BASKETBALL,
+    "basketball": Sport.BASKETBALL,
+    "nfl": Sport.FOOTBALL,
+    "football": Sport.FOOTBALL,
+    "nhl": Sport.HOCKEY,
+    "hockey": Sport.HOCKEY,
 }
 
 
@@ -273,6 +286,17 @@ class PolymarketClient(ExchangeClient):
             # home advantage to the wrong team on every game.
             if sport == Sport.BASEBALL:
                 meta["home_field"] = str(outcomes[1])
+            home_name, away_name = str(outcomes[0]), str(outcomes[1])
+            if is_team_sport(sport):
+                # Polymarket labels NBA/NFL/NHL sides by nickname ("Grizzlies");
+                # the sharp line and Kalshi use other labels. Canonicalise so
+                # the conservative matcher can pair them; an outcome the table
+                # does not know is skipped rather than guessed.
+                meta["outcome_names"] = [home_name, away_name]
+                c_home, c_away = canonical(sport, home_name), canonical(sport, away_name)
+                if not c_home or not c_away or c_home == c_away:
+                    continue
+                home_name, away_name = c_home, c_away
             infos.append(
                 MarketInfo(
                     exchange=Exchange.POLYMARKET,
@@ -282,8 +306,8 @@ class PolymarketClient(ExchangeClient):
                     question=m.get("question", "") or ev.get("title", ""),
                     slug=m.get("slug", "") or ev.get("slug", ""),
                     sport=sport,
-                    home=str(outcomes[0]),
-                    away=str(outcomes[1]),
+                    home=home_name,
+                    away=away_name,
                     start_time=_parse_dt(m.get("gameStartTime") or ev.get("startDate")),
                     close_time=_parse_dt(m.get("endDate") or ev.get("endDate")),
                     active=bool(m.get("active", True)),

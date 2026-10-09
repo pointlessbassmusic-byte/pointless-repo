@@ -19,6 +19,11 @@ class Sport(str, enum.Enum):
     TENNIS = "tennis"
     BASEBALL = "baseball"
     TABLE_TENNIS = "table_tennis"
+    # Team sports added 2026-10-09 for the sharp-anchored arms: no rating
+    # model exists for them here, the Pinnacle line is the signal.
+    BASKETBALL = "basketball"
+    FOOTBALL = "football"
+    HOCKEY = "hockey"
 
 
 class Exchange(str, enum.Enum):

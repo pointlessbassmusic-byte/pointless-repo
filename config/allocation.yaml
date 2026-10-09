@@ -31,5 +31,11 @@ arms:
   tennis/sharp/taker:     {weight: null, learn: false}
   tennis/model/maker:     {weight: null, learn: false}
   tennis/model/taker:     {weight: null, learn: false}
+  basketball/sharp/maker: {weight: null, learn: false}   # team sports: sharp line only, in season Oct–Jun
+  basketball/sharp/taker: {weight: null, learn: false}
+  football/sharp/maker:   {weight: null, learn: false}   # Sep–Feb
+  football/sharp/taker:   {weight: null, learn: false}
+  hockey/sharp/maker:     {weight: null, learn: false}   # Oct–Jun
+  hockey/sharp/taker:     {weight: null, learn: false}
   table_tennis/model/maker: {weight: 0.0, learn: false, enabled: false}   # no sharp line, integrity record: off
   table_tennis/model/taker: {weight: 0.0, learn: false, enabled: false}

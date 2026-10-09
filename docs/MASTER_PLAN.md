@@ -136,6 +136,10 @@ Pipeline per cycle:
 - [x] Weather-arm triple-null on real settlements (`sportsbot weather-score`):
       coin 0.2500 → climatology 0.1828 → market 0.0751 across 168 settled rows
 - [x] `sportsbot doctor` go-live preflight; exit-rule replay backtest
+- [x] NBA / NFL / NHL under the sharp anchor (`data/teams.py`, both venue
+      clients, Odds API keys in the harness, config + allocation arms): the slate
+      no longer goes dark in November. Sharp signal only (no rating model); Kalshi
+      start times unknown for these series (fail closed on entry there).
 - [x] Capital allocation and learning loop (`sportsbot/bot/portfolio.py`,
       `config/allocation.yaml`, `docs/ALLOCATION.md`): strategy arms
       `sport/signal/style` with per-arm evidence and gate; money from manual
