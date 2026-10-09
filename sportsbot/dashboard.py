@@ -450,9 +450,13 @@ def collect(cfg: dict, store) -> dict:
     return out
 
 
-def render(data: dict, refresh: int = 60) -> str:
+def render(data: dict, refresh: int = 60, fragment: bool = False) -> str:
+    """The page. `fragment=True` emits only <title>, <style> and the body
+    content (no doctype/html/head/body, no auto-refresh) for hosts that wrap
+    the page in their own document skeleton, such as a published artifact
+    that is re-published by the daily routine rather than refreshed."""
     meta = (f'<meta http-equiv="refresh" content="{refresh}">'
-            if refresh > 0 else "")
+            if refresh > 0 and not fragment else "")
     panels, switches = [], []
     for i, acct in enumerate(ACCOUNTS):
         a = data["accounts"][acct]
@@ -477,11 +481,7 @@ def render(data: dict, refresh: int = 60) -> str:
             f'<div class="card"><h2>Go-live gate (account)</h2>{_gate(a["gate"])}</div>'
             f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
             f'</section>')
-    return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-{meta}<title>sportsbot</title><style>{_CSS}</style></head>
-<body><div class="wrap">
+    body = f"""<div class="wrap">
 <header><div><h1>sportsbot</h1>
 <div class="sub">paper-first prediction-market trading</div></div>
 <div class="meta"><span class="pill mode">{_e(data["mode"])}</span>
@@ -491,7 +491,14 @@ def render(data: dict, refresh: int = 60) -> str:
 <div class="panels">{"".join(panels)}</div>
 <footer>This page is a view, not a control. Live orders require
 <code>mode: live</code> and <code>SPORTSBOT_LIVE=1</code> set on the host.</footer>
-</div></body></html>"""
+</div>"""
+    if fragment:
+        return f"<title>sportsbot board</title><style>{_CSS}</style>\n{body}"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{meta}<title>sportsbot board</title><style>{_CSS}</style></head>
+<body>{body}</body></html>"""
 
 
 _CSS = """
@@ -598,12 +605,16 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;text-align:center}
 """
 
 
-def build(cfg: dict, store, out_path: str, refresh: int = 60) -> dict:
+def build(cfg: dict, store, out_path: str, refresh: int = 60,
+          fragment_path: str | None = None) -> dict:
     import os
     data = collect(cfg, store)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as fh:
         fh.write(render(data, refresh=refresh))
+    if fragment_path:
+        with open(fragment_path, "w") as fh:
+            fh.write(render(data, fragment=True))
     return {"path": out_path,
             "sim_equity": data["accounts"]["sim"]["equity"]["equity"],
             "real_equity": data["accounts"]["real"]["equity"]["equity"],

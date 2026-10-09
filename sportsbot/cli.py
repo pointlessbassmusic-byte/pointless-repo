@@ -434,7 +434,8 @@ def weather_score(config: str = CONFIG_OPT,
 def board(config: str = CONFIG_OPT,
           out: str = typer.Option("data/board.html", help="output HTML file"),
           refresh: int = typer.Option(60, help="page auto-refresh seconds; 0 = off"),
-          loop: int = typer.Option(0, help="rebuild every N seconds; 0 = once")):
+          loop: int = typer.Option(0, help="rebuild every N seconds; 0 = once"),
+          artifact_out: str = typer.Option("", help="also write the publishable fragment (title/style/body only) here")):
     """Trading dashboard: sim vs real book, equity, decisions, allocation, gate.
 
     A view, not a control — it cannot start live trading (that still needs
@@ -447,7 +448,8 @@ def board(config: str = CONFIG_OPT,
     cfg = _setup(config)
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
     while True:
-        console.print(build(cfg, store, out, refresh=refresh))
+        console.print(build(cfg, store, out, refresh=refresh,
+                            fragment_path=artifact_out or None))
         if loop <= 0:
             break
         _time.sleep(max(5, loop))
