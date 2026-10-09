@@ -117,3 +117,48 @@ def test_run_skips_games_whose_close_sits_at_the_rail():
     tapes = {"c1": wf.orient([_row(START - 50, "w", "T0", "BUY", 0.995)], g)}
     res = wf.run([g], tapes, train_frac=0.0)
     assert res["test_trades"] == 0 and res["population_test"] is None
+
+
+# ---------------------------------------------------------------------------
+# Maker version: placement a post-only order could make, strict fills
+# ---------------------------------------------------------------------------
+def test_ask_consumed_reads_the_next_same_direction_print():
+    g = _game()
+    up = wf.orient([_row(START - 1000, "lead", "T0", "BUY", 0.50),
+                    _row(START - 995, "x", "T0", "BUY", 0.51)], g)   # ask moved up
+    assert wf.ask_consumed(up, 0) is True
+    still = wf.orient([_row(START - 1000, "lead", "T0", "BUY", 0.50),
+                       _row(START - 995, "x", "T0", "BUY", 0.50)], g)  # ask still at 0.50
+    assert wf.ask_consumed(still, 0) is False
+    quiet = wf.orient([_row(START - 1000, "lead", "T0", "BUY", 0.50),
+                       _row(START - 500, "x", "T0", "BUY", 0.51)], g)  # nothing within 60 s
+    assert wf.ask_consumed(quiet, 0) is None
+
+
+def test_maker_fill_needs_a_print_through_the_bid_unless_queue_front_assumed():
+    g = _game()
+    tr = wf.orient([_row(START - 1000, "lead", "T0", "BUY", 0.50),
+                    _row(START - 900, "x", "T0", "SELL", 0.49)], g)
+    assert not wf.maker_fill(tr, 0, 0.49, 1, START)                 # at the bid: not through
+    assert wf.maker_fill(tr, 0, 0.49, 1, START, through=False)      # front-of-queue bound
+    assert wf.maker_fill(tr, 0, 0.50, 1, START)                     # 0.49 is through 0.50
+    assert not wf.maker_fill(tr, 0, 0.50, 1, START - 950)           # cancelled before it
+    # a short follower bids the away side: a home print at 0.52 is away 0.48
+    sh = wf.orient([_row(START - 1000, "lead", "T1", "BUY", 0.50),
+                    _row(START - 900, "x", "T0", "BUY", 0.52)], g)
+    assert wf.maker_fill(sh, 0, 0.49, -1, START)
+
+
+def test_maker_follow_rests_a_tick_lower_when_the_ask_is_still_there():
+    g = _game(home_won=True)
+    rows = [_row(START - 1000, "smart", "T0", "BUY", 0.50),
+            _row(START - 995, "x", "T0", "BUY", 0.50),      # ask still at 0.50
+            _row(START - 900, "x", "T0", "SELL", 0.485),    # through 0.49
+            _row(START - 10, "x", "T0", "BUY", 0.53)]       # close
+    tapes = {"c1": wf.orient(rows, g)}
+    m = wf.maker_follow([g], tapes, {"smart"}, window_s=600)
+    assert m["signals"] == 1 and m["rests_at_signal_price"] == 0 and m["filled"] == 1
+    assert m["filled_clv"]["mean"] == pytest.approx(0.53 - 0.49)
+    # without the through print, the one-tick-lower bid never fills
+    tapes = {"c1": wf.orient([rows[0], rows[1], rows[3]], g)}
+    assert wf.maker_follow([g], tapes, {"smart"})["filled"] == 0
