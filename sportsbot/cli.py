@@ -367,6 +367,24 @@ def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tenni
     console.print(wf.format_report(res, sport))
 
 
+@app.command("maker-flow")
+def maker_flow(sport: str = typer.Argument("baseball", help="baseball | tennis"),
+               days: int = typer.Option(60, help="resolved-market lookback"),
+               max_games: int = typer.Option(2000, help="highest-volume games kept")):
+    """Is the maker side of Polymarket's pre-game taker flow paid, and where?
+    CLV to close and settlement P&L by trailing VPIN, fill size, price. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import maker_flow as mf
+    from sportsbot.backtest import wallet_follow as wf
+    from sportsbot.backtest.polymarket_market import fetch_resolved
+
+    games = [g for g in fetch_resolved(sport, days=days) if g.condition_id]
+    games.sort(key=lambda g: -g.volume)
+    games = sorted(games[:max_games], key=lambda g: g.start_ts)
+    tapes = {g.condition_id: wf.orient(wf.fetch_trades(g.condition_id), g) for g in games}
+    console.print(mf.format_report(mf.run(games, tapes), sport))
+
+
 @app.command("updown-maker")
 def updown_maker(days: float = typer.Option(7.0, help="resolved BTC 5-minute windows to replay"),
                  workers: int = typer.Option(8, help="parallel fetches")):

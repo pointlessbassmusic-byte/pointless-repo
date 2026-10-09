@@ -153,6 +153,11 @@ Pipeline per cycle:
       ≈ 0 under strict fills and ≈ +0.3 pt/signal only at the front of the
       queue. Maker paired positions on BTC 5-minute windows lose in all 60
       configurations (the unpaired leg is by construction the loser).
+- [x] Result 16 (`backtest/maker_flow.py`, rank 3 of the research report):
+      the maker side of Polymarket MLB pre-game flow earns +0.15 to +0.33 pt
+      to the close (CI excludes zero in both halves) plus a ~0.24 pt rebate;
+      low trailing VPIN pays most, fills ≥ $100 lose in the test window, and
+      settlement P&L is too noisy (±3.5 pt over 205 games) to decide anything.
 - [x] Sharp-line CLV harness (`sportsbot/signals/sharp.py`, rank 1 of
       `reports/Beating prediction market prices.md`): budgeted Pinnacle snapshots
       via The Odds API, Shin de-vig, every decision and bet graded against the

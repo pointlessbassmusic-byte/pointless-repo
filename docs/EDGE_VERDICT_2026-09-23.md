@@ -1082,6 +1082,51 @@ source, which the sharp-line harness already targets. (b) Maker paired
 positions on BTC 5-minute windows lose in every configuration, because the
 unpaired leg is by construction the losing one.
 
+## Result 16 (Polymarket MLB): the maker side is paid, a little, on small fills — rank 3 of the research report
+
+_2026-10-09 04:30Z. `sportsbot maker-flow baseball` on the Result 14/15
+tape (683 games, 70/30 by start). Every pre-game taker fill has a maker who
+holds the opposite side at the taker's price; grade that side against the
+close and at settlement, split by trailing VPIN (50 volume buckets per
+market, 20-bucket window, terciles fitted on train: 0.873 / 0.950), fill
+size and price. Maker fee 0; the 20% rebate would add +0.24 points a share
+on this price mix and is not included._
+
+| | train (478 games, 131,954 fills) | test (205 games, 55,361 fills) |
+|---|---|---|
+| maker CLV to close | **+0.0033** [+0.0020, +0.0045] | **+0.0015** [+0.0001, +0.0027] |
+| held to settlement | +0.0239 [+0.0015, +0.0440] | −0.0018 [−0.0375, +0.0313] |
+| VPIN low tercile | +0.0106 [+0.0056, +0.0136] | +0.0030 [+0.0005, +0.0052] |
+| VPIN mid | +0.0033 [+0.0026, +0.0039] | +0.0018 [+0.0007, +0.0030] |
+| VPIN high | +0.0030 [+0.0022, +0.0037] | +0.0014 [+0.0004, +0.0023] |
+| fills under $10 | +0.0036 [+0.0023, +0.0049] | +0.0028 [+0.0009, +0.0047] |
+| fills $10–100 | +0.0031 [+0.0015, +0.0051] | +0.0015 [+0.0003, +0.0026] |
+| fills $100–1,000 | +0.0027 [+0.0009, +0.0047] | **−0.0021** [−0.0038, −0.0006] |
+| fills ≥ $1,000 | +0.0005 [−0.0009, +0.0020] | **−0.0038** [−0.0054, −0.0023] |
+
+Four things follow. **The maker side is paid on average** — a few tenths of
+a point to the close, plus the rebate, against the taker's −0.15 to −0.33
+(Result 14): the mirror image, as it must be. **Settlement cannot decide
+it**: 205 games put a ±3.5-point interval around the settlement mean, an
+order of magnitude wider than the effect, which is why CLV stays the
+metric. **Toxicity sorts the way Bartlett & O'Hara say** — low trailing
+VPIN pays makers most in both halves, high least — but here even the high
+tercile is positive, so a VPIN quote-pull rule would cost fills without
+removing a loss. **Size is the sharper split**: makers win on fills under
+$100 and in the test window lose on the larger ones, which are the informed
+sweeps of Results 14–15.
+
+What it means for a strategy: resting quotes earn roughly +0.2 to +0.5
+points per share (CLV plus rebate) on the fill mix incumbents get. A new
+quoter at the back of the queue gets a different mix — more of the large
+sweeps that clear several levels, where makers lose — so the per-share
+figure is an upper bound, and the gap between the two is the queue-position
+question rank 2 exists to answer with real, minimum-size orders. Two
+constraints bound it: on $50 quotes this is cents per fill, and the
+Polymarket main CLOB is geoblocked for US accounts (a US account would need
+Polymarket US or Kalshi, where the maker fee is not zero — Result 4 found
+Kalshi's maker variant no better than taker).
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
