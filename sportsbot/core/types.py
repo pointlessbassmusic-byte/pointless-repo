@@ -19,6 +19,11 @@ class Sport(str, enum.Enum):
     TENNIS = "tennis"
     BASEBALL = "baseball"
     TABLE_TENNIS = "table_tennis"
+    # Team sports added 2026-10-09 for the sharp-anchored arms: no rating
+    # model exists for them here, the Pinnacle line is the signal.
+    BASKETBALL = "basketball"
+    FOOTBALL = "football"
+    HOCKEY = "hockey"
 
 
 class Exchange(str, enum.Enum):
@@ -156,6 +161,20 @@ class Order(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class TapePrint(BaseModel):
+    """One taker fill from a venue's PUBLIC trade tape, in the YES frame.
+
+    `price_yes` is what the YES token traded at (a NO-token print is
+    flipped at the client boundary); `taker_side` is which side the
+    aggressor bought ("yes"/"no") when the venue says, else None.
+    """
+    ts: datetime
+    price_yes: float
+    size: float
+    taker_side: Optional[str] = None
+    trade_id: str = ""
 
 
 class Fill(BaseModel):

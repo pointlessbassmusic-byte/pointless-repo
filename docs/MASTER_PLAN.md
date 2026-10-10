@@ -136,6 +136,10 @@ Pipeline per cycle:
 - [x] Weather-arm triple-null on real settlements (`sportsbot weather-score`):
       coin 0.2500 → climatology 0.1828 → market 0.0751 across 168 settled rows
 - [x] `sportsbot doctor` go-live preflight; exit-rule replay backtest
+- [x] NBA / NFL / NHL under the sharp anchor (`data/teams.py`, both venue
+      clients, Odds API keys in the harness, config + allocation arms): the slate
+      no longer goes dark in November. Sharp signal only (no rating model); Kalshi
+      start times unknown for these series (fail closed on entry there).
 - [x] Capital allocation and learning loop (`sportsbot/bot/portfolio.py`,
       `config/allocation.yaml`, `docs/ALLOCATION.md`): strategy arms
       `sport/signal/style` with per-arm evidence and gate; money from manual
@@ -165,6 +169,23 @@ Pipeline per cycle:
       pre-registered PASS/FAIL criterion (≥1,000 graded decisions, CI excluding
       zero). Tighten-only enforcement through the adaptive layer. Paper mode;
       collection starts once `ODDS_API_KEY` is set.
+- [x] Tape-verified paper maker fills (`exchanges/paper.py`, 2026-10-10): a
+      resting paper order now fills only when the venue's PUBLIC taker tape
+      prints through its limit (Polymarket data-api, Kalshi `/markets/trades`,
+      both read without credentials), for the size that printed, paying the
+      maker fee; the executor books those fills as bets on the `.../maker` arm.
+      Before this, paper resting orders never filled, so the paper book could
+      not produce maker evidence and the rank 2 experiment had no path to a
+      gate. Still an upper bound on real fills (front of queue is implied), but
+      the adverse selection a maker eats is real: the fill happens exactly when
+      price moves through the order. Same crossing rule as the strict backtest
+      (`core.books.print_crosses`).
+- [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
+      on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
+      win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
+      $44k on the World Series champion market; the per-team advance markets
+      are already resolved. Too thin to matter this postseason; revisit next
+      October before building.
 - [ ] Score the first cohort carrying decision-time NWS baselines (84 markets,
       targets Sep 21–22) — does the forecast arm beat climatology? beat the market?
 - [ ] Deploy `main` to the Linode box and let the paper stack accrue toward the
@@ -290,4 +311,54 @@ Pipeline per cycle:
       executor in dry-run. Blocked on the record above; the generic ensemble dilutes a
       2-3c edge below `min_edge` and `max_price: 0.95` excludes the buckets, so it needs
       its own path, not a generator.
+
+### Possible strategy build-out (candidate queue, 2026-10-10)
+
+Ordered by what the evidence so far supports. Nothing here is funded; each
+item names the measurement that would move it, and the standing rules apply
+(paper first, judge by CLV, tighten-only capital, never martingale).
+
+1. **Rank 2: maker-only quoting, start on MLB** (report rank 2). Now
+   measurable in paper: tape-verified fills produce `baseball/model/maker`
+   and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
+   CLV-graded fills, interval lower bound > 0). Gate on the sharp close once
+   `ODDS_API_KEY` is set; until then the venue close is the yardstick. The
+   recurring venue perks belong here, not in a promo list: Polymarket's 15%
+   maker rebate on sports (ignored in the fill model, so measured CLV is
+   conservative) and Kalshi's liquidity program (OLIP: daily per-market
+   payments for two-sided resting size), whose terms are to be read from the
+   venue at the time, never assumed.
+2. **Informed-flow direction as a second signal** (from Result 14): the
+   CLV-selected MLB taker wallets carry +1.0 pt; copying them as a taker
+   nets −0.7 pt, but their direction as an input to *where to rest* is
+   untested. Data-logged only until a backtest on the cached tapes shows
+   maker fills in that direction clear fees.
+3. **Perk and promotion harvest** (assessed 2026-10-09; one-time, finite,
+   operator-executed). Terms move, so re-verify every figure on the venue's
+   own page before acting; the numbers below are what was read then.
+   - Sportsbook sign-up bonus bets hedged on Kalshi: the only class with
+     positive expected cash. A bonus bet's stake is not returned, so the
+     hedge converts roughly 65–75% of face value depending on the price band
+     and Kalshi's fee; the hedge leg goes through the normal risk layer like
+     any other order. US-legal books and Kalshi only.
+   - Exchange deposit credits (Kalshi ~$10, Polymarket US ~$20): not
+     withdrawable, must be traded through. Treat as free learning budget for
+     the maker arm, nothing more.
+   - Crypto deposit matches (Kraken-style 2–3% on a large deposit, locked
+     12–18 months): capital trapped below the bot's hurdle; declined.
+   - Hard limits: one offer per verified identity, no multi-accounting, no
+     referral self-dealing, no automation of KYC'd sign-ups. Bouncing between
+     venues to re-earn bonuses is not a loop; it is a short list that empties.
+   - Build only if the operator wants it: a `docs/PERKS_LEDGER.md` with each
+     offer's terms, cap, lock date and realised conversion, so the harvest is
+     accounted like any other arm.
+4. **Score-feed latency measurement** before any in-play code: time-stamp
+   the first venue print after a scoring event against the official feed for
+   a week of MLB/NBA; if the venue moves first, in-play is a maker game at
+   best and the item closes.
+5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
+   October, see the roadmap item above ($101/24h series volume this year).
+6. **Weather arm**: stays excluded (beats climatology, loses to the market,
+   12 complete dates). Re-open only if a decision-time forecast source with a
+   measured lead-time edge over NWS appears.
 

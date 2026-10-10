@@ -43,7 +43,12 @@ never widen them.
 
 Everything else gets $0 and the dashboard prints the reason. The paper
 account is different by design: its fills cost nothing and are the
-evidence, so every running arm shares the cap equally there.
+evidence, so every running arm shares the cap equally there. Paper
+`.../maker` evidence is tape-verified: a resting paper order fills only
+when the venue's public taker tape prints through its limit, for the
+size that printed, so the CLV on those fills is measured at prices that
+really traded through the order. The fill *count* is an upper bound
+(front of queue is implied); the CLV per fill is not flattered.
 
 **Losses never raise an allocation.** A losing arm's interval widens or
 drops below zero and its budget falls; the drawdown and daily-loss

@@ -14,11 +14,20 @@ mode; Kalshi client implements the same interface for the US-legal path.
   (the Pinnacle-anchored fair value from the harness as a model; selected
   per sport with `sports.<sport>.signal: sharp`).
 - `sportsbot/data/` — Sackmann tennis CSVs, MLB Stats API, table tennis
-  bootstrap from resolved Polymarket markets; SQLite store.
+  bootstrap from resolved Polymarket markets; SQLite store; `teams.py`
+  (canonical NBA/NFL/NHL names: Kalshi codes/cities, Polymarket nicknames
+  and The Odds API full names resolve to one form, ambiguity -> None).
+  Basketball/football/hockey have NO rating model: `signal: sharp` is
+  required and the Pinnacle line prices them (in season when MLB and
+  tennis are not). Kalshi tickers for them carry no time, so start_time
+  is None there and the risk layer refuses entries until one is known.
 - `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
   archived/dead, never reintroduce it), `kalshi.py` (2026 API: dollar-string
-  prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
+  prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`
+  (book-walk fills at placement; a resting order fills only when the
+  venue's public taker tape prints through it, for the size printed —
+  no tape, no fill; maker fee charged).
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches; fractional limits follow the live bankroll),

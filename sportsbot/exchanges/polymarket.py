@@ -33,6 +33,7 @@ from typing import Any, Optional
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from sportsbot.data.teams import canonical, is_team_sport
 from sportsbot.core.types import (
     BookLevel,
     Exchange,
@@ -44,6 +45,7 @@ from sportsbot.core.types import (
     Position,
     Side,
     Sport,
+    TapePrint,
 )
 from sportsbot.exchanges.base import ExchangeClient
 
@@ -51,6 +53,7 @@ log = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
+DATA_API_BASE = "https://data-api.polymarket.com"   # public taker tape
 
 # Live-verified Gamma tag ids (Sep 2026).
 STALE_EVENT_FLOOR_DAYS = 21   # Gamma startDate = listing time; postseason lists days ahead
@@ -63,6 +66,12 @@ SPORT_TAGS: dict[str, int] = {
     "mlb": 100381,
     "baseball": 100381,   # alias: config sport keys use "baseball"
     "table_tennis": 103767,
+    "nba": 745,
+    "basketball": 745,    # alias: config sport keys
+    "nfl": 450,
+    "football": 450,
+    "nhl": 899,
+    "hockey": 899,
 }
 
 SPORT_FOR_TAG = {
@@ -71,6 +80,12 @@ SPORT_FOR_TAG = {
     "mlb": Sport.BASEBALL,
     "baseball": Sport.BASEBALL,
     "table_tennis": Sport.TABLE_TENNIS,
+    "nba": Sport.BASKETBALL,
+    "basketball": Sport.BASKETBALL,
+    "nfl": Sport.FOOTBALL,
+    "football": Sport.FOOTBALL,
+    "nhl": Sport.HOCKEY,
+    "hockey": Sport.HOCKEY,
 }
 
 
@@ -273,6 +288,17 @@ class PolymarketClient(ExchangeClient):
             # home advantage to the wrong team on every game.
             if sport == Sport.BASEBALL:
                 meta["home_field"] = str(outcomes[1])
+            home_name, away_name = str(outcomes[0]), str(outcomes[1])
+            if is_team_sport(sport):
+                # Polymarket labels NBA/NFL/NHL sides by nickname ("Grizzlies");
+                # the sharp line and Kalshi use other labels. Canonicalise so
+                # the conservative matcher can pair them; an outcome the table
+                # does not know is skipped rather than guessed.
+                meta["outcome_names"] = [home_name, away_name]
+                c_home, c_away = canonical(sport, home_name), canonical(sport, away_name)
+                if not c_home or not c_away or c_home == c_away:
+                    continue
+                home_name, away_name = c_home, c_away
             infos.append(
                 MarketInfo(
                     exchange=Exchange.POLYMARKET,
@@ -282,8 +308,8 @@ class PolymarketClient(ExchangeClient):
                     question=m.get("question", "") or ev.get("title", ""),
                     slug=m.get("slug", "") or ev.get("slug", ""),
                     sport=sport,
-                    home=str(outcomes[0]),
-                    away=str(outcomes[1]),
+                    home=home_name,
+                    away=away_name,
                     start_time=_parse_dt(m.get("gameStartTime") or ev.get("startDate")),
                     close_time=_parse_dt(m.get("endDate") or ev.get("endDate")),
                     active=bool(m.get("active", True)),
@@ -294,6 +320,68 @@ class PolymarketClient(ExchangeClient):
                 )
             )
         return infos
+
+    # ------------------------------------------------------------------
+    # Public taker tape (data-api, no auth)
+    # ------------------------------------------------------------------
+    TAPE_PAGE = 500
+    TAPE_MAX_PAGES = 4
+
+    def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
+        """Taker prints on `market` since `since`, newest first, YES frame.
+
+        data-api returns prints newest first with `asset` = the token the
+        taker traded and `price` in THAT token's frame, so a NO-token print
+        at 0.56 is a YES print at 0.44. Pages are walked only as far back as
+        `since`; a trade that moves between pages while we walk is dropped
+        by the (tx, asset, ts, price, size) key.
+        """
+        since_ts = int(since.timestamp())
+        yes_id, no_id = market.yes_token_id, market.no_token_id
+        out: list[TapePrint] = []
+        seen: set = set()
+        for page in range(self.TAPE_MAX_PAGES):
+            rows = self._get(f"{DATA_API_BASE}/trades", params={
+                "market": market.market_id, "takerOnly": "true",
+                "limit": self.TAPE_PAGE, "offset": page * self.TAPE_PAGE})
+            if not rows:
+                break
+            oldest = None
+            for r in rows:
+                try:
+                    ts = int(r["timestamp"])
+                    price = float(r["price"])
+                    size = float(r["size"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                oldest = ts if oldest is None else min(oldest, ts)
+                if ts < since_ts:
+                    continue
+                asset = str(r.get("asset") or "")
+                if yes_id and asset == yes_id:
+                    p_yes = price
+                elif no_id and asset == no_id:
+                    p_yes = 1.0 - price
+                elif yes_id and not no_id:
+                    p_yes = 1.0 - price          # the only other token is NO
+                elif no_id and not yes_id:
+                    p_yes = price
+                else:
+                    continue
+                key = (r.get("transactionHash"), asset, ts, price, size)
+                if key in seen:
+                    continue
+                seen.add(key)
+                bought_yes = (p_yes == price) == (str(r.get("side", "")).upper() == "BUY")
+                out.append(TapePrint(
+                    ts=datetime.fromtimestamp(ts, tz=timezone.utc),
+                    price_yes=round(p_yes, 6), size=size,
+                    taker_side="yes" if bought_yes else "no",
+                    trade_id=str(r.get("transactionHash") or "")))
+            if len(rows) < self.TAPE_PAGE or (oldest is not None and oldest < since_ts):
+                break
+        out.sort(key=lambda t: t.ts, reverse=True)
+        return out
 
     # ------------------------------------------------------------------
     # Quotes (CLOB read endpoints, public)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 from sportsbot.bot.matching import match_entity
@@ -94,13 +95,18 @@ class Scanner:
             model = self.models[m.sport]
             candidates = self._rated_entities(model)
             if not candidates:
+                if isinstance(model, SharpLineModel):
+                    why = ("no sharp lines on record for this sport — the "
+                           "harness needs ODDS_API_KEY and a snapshot")
+                    category = "no sharp line"
+                else:
+                    why = f"model {model.name} has no rated entities — run `sportsbot fit`"
+                    category = "model unfit"
                 if model.name not in warned_unfit:
                     warned_unfit.add(model.name)
-                    log.warning("model %s has no rated entities; skipping its "
-                                "markets this cycle (run `sportsbot fit`)", model.name)
-                drops.append(ScanDrop(
-                    m, f"model {model.name} has no rated entities "
-                       f"— run `sportsbot fit`", "model unfit"))
+                    log.warning("model %s: %s; skipping its markets this cycle",
+                                model.name, why)
+                drops.append(ScanDrop(m, why, category))
                 continue
             home = match_entity(m.home, candidates, self.match_threshold)
             away = match_entity(m.away, candidates, self.match_threshold)
@@ -149,6 +155,16 @@ class Scanner:
                 if pred.prob_raw is not None:
                     pred.prob_raw = 1.0 - pred.prob_raw
             pred.market_id = m.market_id
+            # A venue that lists no start (Kalshi team-sport tickers) gets the
+            # sharp book's scheduled start, so the pre-match guard has a clock
+            # instead of refusing every entry. Only ever fills a None.
+            commence = (pred.features or {}).get("sharp_commence")
+            if m.start_time is None and commence:
+                try:
+                    dt = datetime.fromisoformat(str(commence).replace("Z", "+00:00"))
+                    m.start_time = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    pass
             out.append(ScannedMarket(market=m, prediction=pred,
                                      matched_home=home, matched_away=away))
         return out, drops

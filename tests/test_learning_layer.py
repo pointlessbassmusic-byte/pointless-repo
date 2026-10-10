@@ -214,6 +214,7 @@ def test_cycle_configs_apply_equity_bankroll_and_the_portfolio(tmp_path, monkeyp
         running_arms={"baseball/model/maker", "baseball/model/taker"},
         risk=RiskManager(RiskConfig(bankroll=100.0), store),
         sharp_cfg=SimpleNamespace(enabled=False, enforce_adaptive=False),
+        _priceable_sports=lambda: {"baseball"},
         _cycle_configs=Runner._cycle_configs)
     staking, strategy = stub._cycle_configs(stub)
     assert staking.bankroll == pytest.approx(140.0)             # profits rolled in
@@ -240,6 +241,7 @@ def test_cycle_configs_fail_closed_when_allocation_raises(tmp_path, monkeypatch)
         alloc_cfg=AllocationConfig(), running_arms=set(),
         risk=RiskManager(RiskConfig(bankroll=100.0), store),
         sharp_cfg=SimpleNamespace(enabled=False, enforce_adaptive=False),
+        _priceable_sports=lambda: set(),
         _cycle_configs=runner_mod.Runner._cycle_configs)
     monkeypatch.setattr(runner_mod, "allocate_arms",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
