@@ -175,6 +175,89 @@ def taker_fee(price: float, rate: float = 0.05) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Maker version: rest a bid in the informed direction instead of crossing
+# ---------------------------------------------------------------------------
+TICK = 0.01
+
+
+def ask_consumed(trades: list[Trade], i: int, horizon: float = 60.0,
+                 latency: float = 2.0) -> Optional[bool]:
+    """Could a post-only bid AT trade `i`'s price have rested? Proxy from the
+    tape: the next same-direction taker print within `horizon` seconds. Above
+    the signal price -> that ask level was used up, a bid there is the new
+    best bid. At or below -> the ask is still there and the bid would cross
+    (a taker fill, fee and all). None when nothing prints in time."""
+    t0 = trades[i]
+    p0 = side_price(t0.p_home, t0.direction)
+    for t in trades[i + 1:]:
+        if t.ts - t0.ts > horizon:
+            return None
+        if t.direction == t0.direction and t.ts >= t0.ts + latency:
+            return side_price(t.p_home, t0.direction) > p0 + 1e-9
+    return None
+
+
+def maker_fill(trades: list[Trade], i: int, limit: float, direction: int,
+               end_ts: int, latency: float = 2.0, through: bool = True) -> bool:
+    """Strict fill for a bid on `direction`'s side resting from trade `i`
+    (+latency) until `end_ts`: some later print in that side's frame trades
+    BELOW the bid (`through`) -- the level was swept, so queue position does
+    not matter. `through=False` also counts prints AT the bid, which assumes
+    the front of the queue: an upper bound, never the headline."""
+    t0 = trades[i]
+    for t in trades[i + 1:]:
+        if t.ts >= end_ts:
+            return False
+        if t.ts < t0.ts + latency:
+            continue
+        q = side_price(t.p_home, direction)
+        if (q < limit - 1e-9) if through else (q <= limit + 1e-9):
+            return True
+    return False
+
+
+def maker_follow(games: list[PMGame], tapes: dict[str, list[Trade]],
+                 wallets: set[str], window_s: int = 600, through: bool = True,
+                 latency: float = 2.0) -> dict:
+    """Follow `wallets` with a resting bid instead of a taker copy. Placement
+    is what a post-only order could actually do: AT the signal price when the
+    ask there was used up (`ask_consumed`), else one tick lower. One live
+    order per market side; cancelled after `window_s` or at the start. Gain
+    is close minus our limit, no fee (the maker rebate is ignored)."""
+    gains, cl = [], []
+    signals = filled = at_price = 0
+    for g in games:
+        k = g.condition_id or g.token
+        trades = tapes.get(k, [])
+        close = venue_close(trades, g.start_ts)
+        if close is None:
+            continue
+        busy: dict[int, int] = {}
+        for i, t in enumerate(trades):
+            if t.ts >= g.start_ts:
+                break
+            if t.wallet not in wallets or busy.get(t.direction, -1) > t.ts:
+                continue
+            p = side_price(t.p_home, t.direction)
+            rests_at_price = ask_consumed(trades, i, latency=latency) is True
+            limit = round(p if rests_at_price else p - TICK, 2)
+            if limit <= 0.02:
+                continue
+            signals += 1
+            at_price += rests_at_price
+            end = min(g.start_ts, t.ts + window_s)
+            busy[t.direction] = end
+            if maker_fill(trades, i, limit, t.direction, end, latency, through):
+                filled += 1
+                gains.append(side_price(close, t.direction) - limit)
+                cl.append(k)
+    return {"signals": signals, "rests_at_signal_price": at_price,
+            "filled": filled, "fill_rate": filled / signals if signals else 0.0,
+            "filled_clv": _ci(gains, cl),
+            "ev_per_signal": (sum(gains) / signals) if signals else 0.0}
+
+
+# ---------------------------------------------------------------------------
 # Records and ranking
 # ---------------------------------------------------------------------------
 def records_for(game: PMGame, trades: list[Trade]) -> list[Record]:
@@ -232,7 +315,7 @@ def _ci(vals: list[float], clusters: list[str]) -> Optional[dict]:
 def run(games: list[PMGame], tapes: dict[str, list[Trade]],
         train_frac: float = 0.7, top: int = 20, min_trades: int = 20,
         delay: float = 30.0, fee_rate: float = 0.05,
-        half_spread: float = 0.005) -> dict:
+        half_spread: float = 0.005, maker: bool = False) -> dict:
     """The whole test. `tapes` maps game key (condition_id or token) ->
     oriented trades. Returns a dict of measured quantities; no verdict
     text, the caller formats."""
@@ -303,6 +386,13 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
             "test_per_wallet": {w: {"n": len(v), "mean_clv": sum(v) / len(v)}
                                 for w, v in per_wallet.items()},
         }
+        if maker and key == "mean_clv":
+            busiest = max(per_wallet, key=lambda w: len(per_wallet[w]), default=None)
+            sets = {"all": set(chosen), "without busiest": set(chosen) - {busiest}}
+            res["maker"] = {
+                f"{label}, cancel {w // 60}m, {'through' if th else 'at-or-through'}":
+                    maker_follow(test, tapes, ws, window_s=w, through=th)
+                for label, ws in sets.items() for w in (600, 3600) for th in (True, False)}
     return res
 
 
@@ -341,4 +431,11 @@ def format_report(res: dict, sport: str) -> str:
             top = ", ".join(f"{w[:6]}…×{v['n']} ({v['mean_clv']:+.4f})" for w, v in pw[:5])
             lines.append(f"  test trades by wallet: {len(pw)} active of {len(d['wallets'])}; "
                          f"busiest {top}")
+    if res.get("maker"):
+        lines.append("maker-follow of the top CLV wallets on TEST games (post-only bid at the "
+                     "signal price if that ask was used up, else one tick lower; no fee):")
+        for label, m in res["maker"].items():
+            lines.append(f"  {label}: signals {m['signals']} ({m['rests_at_signal_price']} at "
+                         f"signal price), fill {m['fill_rate']:.1%}, filled CLV "
+                         f"{_fmt(m['filled_clv'])}, EV/signal {m['ev_per_signal']:+.4f}")
     return "\n".join(lines)

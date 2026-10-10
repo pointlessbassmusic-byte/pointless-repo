@@ -20,6 +20,8 @@ import yaml
 
 from .arb import ArbDetector
 from .feeds import KalshiFeed, PolymarketFeed
+from .fed_watch import KALSHI_SERIES, POLY_TAG, FedWatcher
+from .fed_watch import run_cycle as fed_cycle
 from .matcher import find_pairs
 
 log = logging.getLogger("arb-scanner")
@@ -91,6 +93,20 @@ def run_cycle(cfg: dict, poly: PolymarketFeed, kalshi: KalshiFeed,
     conn.commit()
     if not opps:
         log.info("no opportunities above %.1f%% net edge", detector.min_net_edge * 100)
+
+    fcfg = cfg.get("fed_watch", {})
+    if fcfg.get("enabled", True):
+        # separate, smaller reads: the global feeds are capped by volume and
+        # liquidity and need not contain every Fed bucket
+        try:
+            fed_markets = (kalshi.series_markets(KALSHI_SERIES)
+                           + poly.tagged_markets(POLY_TAG))
+            new, done = fed_cycle(conn, FedWatcher(fcfg), fed_markets,
+                                  kalshi.series_results(KALSHI_SERIES))
+            log.info("fed watch: %d bucket markets, %d new fire(s), %d settled",
+                     len(fed_markets), new, done)
+        except Exception:  # noqa: BLE001 — never let the watcher sink the arb scan
+            log.exception("fed watch failed this cycle")
 
 
 def main() -> None:

@@ -212,16 +212,17 @@ def test_weather_model_prices_band_market():
     import time as _time
     from src.models.weather import WeatherModel
 
-    today = datetime.now(timezone.utc)
+    target = datetime.now(timezone.utc) + timedelta(days=1)
     mkt = make_market(
         "Will the highest temperature in Miami be between 88-89°F on "
-        f"{today.strftime('%B')} {today.day}?",
+        f"{target.strftime('%B')} {target.day}?",
         ["Yes", "No"], ["t-yes", "t-no"], None)
-    mkt.end_date = today
+    mkt.end_date = target
     mkt.outcome_prices = [0.5, 0.5]
 
-    model = WeatherModel({"sigma_base_f": 1.8, "blend_market_weight": 0.0})
-    model._cache["miami"] = (_time.monotonic(), {today.date().isoformat(): 88.5})
+    model = WeatherModel({"sigma_base_f": 1.8, "sigma_per_day_f": 0.0,
+                          "blend_market_weight": 0.0})
+    model._cache["miami"] = (_time.monotonic(), {target.date().isoformat(): 88.5}, 0)
     ests = {e.outcome_name: e for e in model.estimate([mkt])}
     assert 0.40 < ests["Yes"].consensus_prob < 0.45   # dead-center 2F band
     assert abs(ests["Yes"].consensus_prob + ests["No"].consensus_prob - 1.0) < 1e-9
@@ -231,18 +232,18 @@ def test_city_bias_shifts_forecast():
     import time as _time
     from src.models.weather import WeatherModel
 
-    today = datetime.now(timezone.utc)
+    target = datetime.now(timezone.utc) + timedelta(days=1)
     mkt = make_market(
         "Will the highest temperature in Miami be between 90-91°F on "
-        f"{today.strftime('%B')} {today.day}?",
+        f"{target.strftime('%B')} {target.day}?",
         ["Yes", "No"], ["t-yes", "t-no"], None)
-    mkt.end_date = today
+    mkt.end_date = target
     mkt.outcome_prices = [0.5, 0.5]
 
     def prob(bias_cfg):
-        m = WeatherModel({"sigma_base_f": 1.8, "blend_market_weight": 0.0,
-                          "city_bias": bias_cfg})
-        m._cache["miami"] = (_time.monotonic(), {today.date().isoformat(): 86.0})
+        m = WeatherModel({"sigma_base_f": 1.8, "sigma_per_day_f": 0.0,
+                          "blend_market_weight": 0.0, "city_bias": bias_cfg})
+        m._cache["miami"] = (_time.monotonic(), {target.date().isoformat(): 86.0}, 0)
         return {e.outcome_name: e for e in m.estimate([mkt])}["Yes"].consensus_prob
 
     # +4.5F bias moves the corrected forecast onto the 90-91 band
@@ -266,3 +267,149 @@ def test_weather_bias_report_from_resolved_estimates(tmp_path):
     db.record_settlements({"tokA": 1.0, "tokB": 1.0})
     # observed = 88.5 midpoint; error vs mu 84.9 = +3.6
     assert weather_bias(db) == [("miami", 1, 3.6)]
+
+
+def _weather_market_for(local_date):
+    mkt = make_market(
+        "Will the highest temperature in Miami be between 88-89°F on "
+        f"{local_date.strftime('%B')} {local_date.day}?",
+        ["Yes", "No"], ["t-yes", "t-no"], None)
+    mkt.end_date = datetime(local_date.year, local_date.month, local_date.day,
+                            tzinfo=timezone.utc)
+    mkt.outcome_prices = [0.5, 0.5]
+    return mkt
+
+
+def _model_at_local_hour(hour, day_delta=0, forecast=88.5):
+    """WeatherModel whose Miami cache carries a UTC offset putting the city's
+    local clock at `hour`, with a forecast day_delta days from that local date."""
+    import time as _time
+    from src.models.weather import WeatherModel
+
+    now = datetime.now(timezone.utc)
+    offset = int((hour - now.hour) * 3600 - now.minute * 60 - now.second)
+    local_date = (now + timedelta(seconds=offset)).date() + timedelta(days=day_delta)
+    m = WeatherModel({"sigma_base_f": 1.8, "blend_market_weight": 0.0})
+    m._cache["miami"] = (_time.monotonic(), {local_date.isoformat(): forecast}, offset)
+    return m, local_date
+
+
+def test_weather_abstains_once_the_days_high_is_realized():
+    """Past late afternoon the book prices the observed high while the model
+    still holds a forecast — the market's information strictly dominates, so
+    the model has no business quoting that day."""
+    model, local_date = _model_at_local_hour(12)
+    assert model.estimate([_weather_market_for(local_date)])       # midday: in play
+
+    model, local_date = _model_at_local_hour(20)
+    assert model.estimate([_weather_market_for(local_date)]) == []
+
+    model, local_date = _model_at_local_hour(9, day_delta=-1)      # yesterday
+    assert model.estimate([_weather_market_for(local_date)]) == []
+
+
+def _bucket(city, local_date, lo, hi, yes_price, unit="F"):
+    if lo == hi:
+        band = f"{lo}°{unit}"
+    else:
+        band = f"between {lo}-{hi}°{unit}"
+    mkt = make_market(
+        f"Will the highest temperature in {city} be {band} on "
+        f"{local_date.strftime('%B')} {local_date.day}?",
+        ["Yes", "No"], [f"t-{city}-{lo}-yes", f"t-{city}-{lo}-no"], None)
+    mkt.end_date = datetime(local_date.year, local_date.month, local_date.day,
+                            tzinfo=timezone.utc)
+    mkt.outcome_prices = [yes_price, 1 - yes_price]
+    return mkt
+
+
+def test_market_implied_means_reads_the_bucket_distribution():
+    from src.models.weather import market_implied_means
+
+    d = datetime.now(timezone.utc).date() + timedelta(days=1)
+    buckets = [_bucket("Miami", d, 84, 85, 0.04), _bucket("Miami", d, 86, 87, 0.41),
+               _bucket("Miami", d, 88, 89, 0.50), _bucket("Miami", d, 90, 91, 0.05)]
+    means = market_implied_means(buckets, lambda m: m.end_date.year)
+    assert abs(means[("miami", d)] - 87.6) < 0.3
+
+    # a partial bucket set says too little to compare a forecast against
+    assert market_implied_means(buckets[:2], lambda m: m.end_date.year) == {}
+
+
+def test_weather_abstains_when_forecast_contradicts_the_whole_bucket_set():
+    """Miami's forecast ran 3-5F below the book's implied mean on consecutive
+    days while the median city sat within half a degree: a settlement-source
+    mismatch, not an edge. Until settled truth fits it out, stand down."""
+    model, local_date = _model_at_local_hour(9, day_delta=1, forecast=88.5)
+    subject = _bucket("Miami", local_date, 88, 89, 0.50)
+
+    # the market's distribution sits where our forecast does: tradeable
+    near = [subject, _bucket("Miami", local_date, 84, 85, 0.04),
+            _bucket("Miami", local_date, 86, 87, 0.41),
+            _bucket("Miami", local_date, 90, 91, 0.05)]
+    assert model.estimate(near)
+
+    # centred 6F away, far beyond sigma: no view
+    far = [subject, _bucket("Miami", local_date, 92, 93, 0.04),
+           _bucket("Miami", local_date, 94, 95, 0.41),
+           _bucket("Miami", local_date, 96, 97, 0.50)]
+    assert model.estimate(far) == []
+
+    # with no bucket set to compare against, the forecast stands on its own
+    assert model.estimate([subject])
+
+
+def test_market_implied_moments_reports_spread_as_well_as_mean():
+    from src.models.weather import market_implied_moments
+
+    d = datetime.now(timezone.utc).date() + timedelta(days=1)
+    year_of = lambda m: m.end_date.year  # noqa: E731
+
+    tight = [_bucket("Miami", d, 86, 87, 0.02), _bucket("Miami", d, 88, 89, 0.94),
+             _bucket("Miami", d, 90, 91, 0.02), _bucket("Miami", d, 92, 93, 0.02)]
+    wide = [_bucket("Miami", d, 84, 85, 0.25), _bucket("Miami", d, 86, 87, 0.25),
+            _bucket("Miami", d, 88, 89, 0.25), _bucket("Miami", d, 90, 91, 0.25)]
+    _, tight_sd = market_implied_moments(tight, year_of)[("miami", d)]
+    _, wide_sd = market_implied_moments(wide, year_of)[("miami", d)]
+    assert tight_sd < 1.0 < wide_sd
+
+    # the same partial-set rule as the means view
+    assert market_implied_moments(tight[:2], year_of) == {}
+
+
+def test_divergence_rows_carry_both_sides_sigma():
+    """The CLI unpacks these rows positionally, so the shape is a contract."""
+    from src.weather_divergence import divergences
+
+    model, local_date = _model_at_local_hour(9, day_delta=1, forecast=88.5)
+    buckets = [_bucket("Miami", local_date, 84, 85, 0.04),
+               _bucket("Miami", local_date, 86, 87, 0.41),
+               _bucket("Miami", local_date, 88, 89, 0.50),
+               _bucket("Miami", local_date, 90, 91, 0.05)]
+    rows = divergences(model, buckets)
+    assert len(rows) == 1
+    target, city, mu, mkt_mu, diff, sigma, mkt_sd, unit = rows[0]
+    assert (target, city, unit) == (local_date, "miami", "F")
+    assert abs(mu - 88.5) < 1e-9 and abs(diff - (mu - mkt_mu)) < 1e-9
+    assert sigma == model.sigma_for(1, "fahrenheit") and 0 < mkt_sd < sigma
+
+
+def test_arm_mix_separates_weather_from_sportsbook(tmp_path):
+    """A run that is all one arm usually means another went silently inert."""
+    from src.report import arm_mix
+    from src.storage.db import Database
+
+    db = Database(tmp_path / "t.db")
+    rows = [("w1", "weather:miami 2026-09-22 [88.0,89.0] mu=88.5"),
+            ("w2", "weather:london 2026-09-22 [20.0,20.0] mu=21.0"),
+            ("s1", "Yankees @ Red Sox"),
+            ("u1", None)]
+    for token_id, matched in rows:
+        db.conn.execute(
+            "INSERT INTO estimates (ts, token_id, question, outcome, matched_game,"
+            " fair_prob, consensus_prob, n_books, ask)"
+            " VALUES (datetime('now'), ?, 'q', 'Yes', ?, 0.5, 0.5, 0, 0.5)",
+            (token_id, matched))
+    db.conn.commit()
+
+    assert dict(arm_mix(db.conn)) == {"weather": 2, "sportsbook": 1, "unattributed": 1}

@@ -249,14 +249,16 @@ def test_weather_generator_end_to_end():
     assert _event_date("KXHIGHNY-26SEP16-B77.5") is not None
 
     gen = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6})
-    ticker_date = today.strftime("%y%b%d").upper()
+    target = today + timedelta(days=1)          # a day still ahead of the market
+    ticker_date = target.strftime("%y%b%d").upper()
     m = make_market(0.48, ticker=f"KXHIGHNY-{ticker_date}-B77.5")
     m.event_ticker = f"KXHIGHNY-{ticker_date}"
     m.floor_strike, m.cap_strike = 77.0, 78.0
-    # inject a cached forecast: no network in tests
-    gen._cache["KXHIGHNY"] = (_time.monotonic(), {today.isoformat(): 77.5})
+    # inject a cached forecast (with a UTC offset): no network in tests
+    gen._cache["KXHIGHNY"] = (_time.monotonic(), {target.isoformat(): 77.5}, 0)
     f = gen.forecast(m, Context())
-    assert f is not None and 0.40 < f.prob_yes < 0.45 and f.generator == "weather"
+    # sigma = 1.8 + 0.6 * 1 day of lead
+    assert f is not None and 0.30 < f.prob_yes < 0.35 and f.generator == "weather"
 
     # unknown station -> no view
     m2 = make_market(0.5, ticker=f"KXNOTACITY-{ticker_date}-B77.5")
@@ -346,16 +348,18 @@ def test_station_bias_correction_shifts_probabilities(tmp_path):
     from src.weather_calibrate import station_bias
     from src.storage.db import Database
 
-    today = datetime.now(timezone.utc).date()
-    ticker_date = today.strftime("%y%b%d").upper()
+    # a day still ahead of the market, so the realized-window guard stays out
+    # of the way of what this test is about
+    target = datetime.now(timezone.utc).date() + timedelta(days=1)
+    ticker_date = target.strftime("%y%b%d").upper()
 
     def gen_with(bias):
         st = {"latitude": 0, "longitude": 0, "timezone": "UTC"}
         if bias:
             st["bias_f"] = bias
-        g = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8,
+        g = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.0,
                          "stations": {"KXHIGHMIA": st}})
-        g._cache["KXHIGHMIA"] = (_time.monotonic(), {today.isoformat(): 80.0})
+        g._cache["KXHIGHMIA"] = (_time.monotonic(), {target.isoformat(): 80.0}, 0)
         return g
 
     m = make_market(0.5, ticker=f"KXHIGHMIA-{ticker_date}-B84.5")
@@ -373,3 +377,171 @@ def test_station_bias_correction_shifts_probabilities(tmp_path):
                     " VALUES ('KXHIGHMIA','2026-09-16',92.5)")
     db.conn.commit()
     assert station_bias(db) == [("KXHIGHMIA", 1, 7.6)]
+
+
+def _cache_at_local_hour(gen, prefix, hour, forecast_f=77.5, day_delta=0):
+    """Seed gen's cache with a UTC offset that puts the station's local clock at
+    `hour` today, and a forecast for that local date shifted by day_delta.
+
+    Returns the local date the forecast is keyed to. Offsets are synthetic but
+    the arithmetic is the generator's own, so the test pins behaviour rather
+    than re-deriving it."""
+    import time as _time
+
+    now = datetime.now(timezone.utc)
+    offset = int((hour - now.hour) * 3600 - now.minute * 60 - now.second)
+    local_now = now + timedelta(seconds=offset)
+    target = local_now.date() + timedelta(days=day_delta)
+    gen._cache[prefix] = (_time.monotonic(), {target.isoformat(): forecast_f}, offset)
+    return target
+
+
+def _weather_market(prefix, target, floor=77.0, cap=78.0):
+    ticker_date = target.strftime("%y%b%d").upper()
+    m = make_market(0.48, ticker=f"{prefix}-{ticker_date}-B77.5")
+    m.event_ticker = f"{prefix}-{ticker_date}"
+    m.floor_strike, m.cap_strike = floor, cap
+    return m
+
+
+def test_weather_abstains_once_the_days_extremum_is_realized():
+    """The low is set overnight and the high by late afternoon; past those hours
+    the book prices the observed value while we still hold a forecast. Live, an
+    already-finished San Antonio low priced 0.89 YES scored 0.05 on this arm and
+    drew the largest stake of the cycle onto the losing side."""
+    from src.substrate.generators.weather import WeatherHigh
+
+    cfg = {"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6}
+
+    # daily LOW series: realized by 10:00 local
+    gen = WeatherHigh(cfg)
+    target = _cache_at_local_hour(gen, "KXLOWTSATX", 12)
+    assert gen.forecast(_weather_market("KXLOWTSATX", target), Context()) is None
+    gen = WeatherHigh(cfg)
+    target = _cache_at_local_hour(gen, "KXLOWTSATX", 8)
+    assert gen.forecast(_weather_market("KXLOWTSATX", target), Context()) is not None
+
+    # daily HIGH series: still in play at midday, realized by 17:00 local
+    gen = WeatherHigh(cfg)
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 12)
+    assert gen.forecast(_weather_market("KXHIGHNY", target), Context()) is not None
+    gen = WeatherHigh(cfg)
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 20)
+    assert gen.forecast(_weather_market("KXHIGHNY", target), Context()) is None
+
+
+def test_weather_ignores_days_already_in_the_past():
+    from src.substrate.generators.weather import WeatherHigh
+
+    gen = WeatherHigh({"confidence": 0.4})
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 9, day_delta=-1)
+    assert gen.forecast(_weather_market("KXHIGHNY", target), Context()) is None
+
+
+def test_weather_lead_time_counts_station_local_days():
+    """Forecasts are keyed by local date, so lead time must be too: just after
+    00:00 UTC a US station is still on yesterday, and a UTC-date subtraction
+    understates the lead by a day (and with it sigma)."""
+    from src.substrate.generators.weather import WeatherHigh
+
+    gen = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6})
+    now = datetime.now(timezone.utc)
+    local_now = datetime.combine(now.date() - timedelta(days=1),
+                                 datetime.min.time(), timezone.utc) + timedelta(hours=23)
+    offset = int((local_now - now).total_seconds())
+    target = local_now.date() + timedelta(days=1)   # == today in UTC: lead 1 locally
+    import time as _time
+    gen._cache["KXHIGHNY"] = (_time.monotonic(), {target.isoformat(): 77.5}, offset)
+
+    f = gen.forecast(_weather_market("KXHIGHNY", target), Context())
+    assert f is not None and "\u00b12.4" in f.rationale  # 1.8 + 0.6, not the bare base
+
+
+def _band(event, floor, cap, bid, ask):
+    m = make_market(0.5, ticker=f"{event}-B{floor}")
+    m.event_ticker = event
+    m.floor_strike, m.cap_strike = floor, cap
+    m.yes_bid, m.yes_ask = bid, ask
+    return m
+
+
+def test_market_implied_mean_reads_the_bucket_distribution():
+    from src.substrate.generators.weather import market_implied_mean
+
+    # a station-day whose bands price a distribution centred on 78
+    event = "KXHIGHNY-26SEP24"
+    bands = [_band(event, 75.0, 76.0, 0.03, 0.05),   # mids sum to ~1.00
+             _band(event, 77.0, 78.0, 0.40, 0.42),
+             _band(event, 79.0, 80.0, 0.49, 0.51),
+             _band(event, 81.0, 82.0, 0.03, 0.05)]
+    mu = market_implied_mean(bands, event)
+    assert mu is not None and abs(mu - 78.6) < 0.3
+
+    # bands from another event are not part of this distribution
+    assert market_implied_mean(bands, "KXHIGHCHI-26SEP24") is None
+    # a partial set (prices nowhere near summing to 1) says too little
+    assert market_implied_mean(bands[:2], event) is None
+
+
+def test_weather_abstains_when_forecast_contradicts_the_whole_bucket_set():
+    """Live, Miami's forecast ran 5.6F below the book's implied mean two days
+    running while the median city sat within half a degree — a settlement-source
+    mismatch, not an edge, and it drew real stake onto the wrong side."""
+    from src.substrate.generators.weather import WeatherHigh
+
+    cfg = {"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6,
+           "max_divergence_sigma": 1.5}
+    gen = WeatherHigh(cfg)
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 9, forecast_f=77.5, day_delta=1)
+    event = f"KXHIGHNY-{target.strftime('%y%b%d').upper()}"
+    subject = _weather_market("KXHIGHNY", target)
+
+    # market centred where we are: traded
+    near = [_band(event, 75.0, 76.0, 0.03, 0.05), _band(event, 77.0, 78.0, 0.64, 0.66),
+            _band(event, 79.0, 80.0, 0.25, 0.27), _band(event, 81.0, 82.0, 0.03, 0.05)]
+    assert gen.forecast(subject, Context(markets=near)) is not None
+
+    # market centred 8F away: sigma is 2.4, so the gap is >1.5 sigma — abstain
+    far = [_band(event, 83.0, 84.0, 0.03, 0.05), _band(event, 85.0, 86.0, 0.64, 0.66),
+           _band(event, 87.0, 88.0, 0.25, 0.27), _band(event, 89.0, 90.0, 0.03, 0.05)]
+    assert gen.forecast(subject, Context(markets=far)) is None
+
+    # with no bucket set to compare against, the forecast still stands on its own
+    assert gen.forecast(subject, Context()) is not None
+
+
+def test_market_implied_moments_reports_spread_as_well_as_mean():
+    from src.substrate.generators.weather import market_implied_moments
+
+    event = "KXHIGHNY-26SEP24"
+    tight = [_band(event, 75.0, 76.0, 0.01, 0.03), _band(event, 77.0, 78.0, 0.92, 0.94),
+             _band(event, 79.0, 80.0, 0.01, 0.03), _band(event, 81.0, 82.0, 0.01, 0.03)]
+    wide = [_band(event, 75.0, 76.0, 0.24, 0.26), _band(event, 77.0, 78.0, 0.24, 0.26),
+            _band(event, 79.0, 80.0, 0.24, 0.26), _band(event, 81.0, 82.0, 0.24, 0.26)]
+    _, tight_sd = market_implied_moments(tight, event)
+    _, wide_sd = market_implied_moments(wide, event)
+    assert tight_sd < 1.0 < wide_sd
+    assert market_implied_moments(tight[:2], event) is None   # partial set
+
+
+def test_divergence_rows_carry_both_sides_sigma():
+    """The CLI unpacks these rows positionally, so the shape is a contract."""
+    from src.substrate.generators.weather import WeatherHigh
+    from src.weather_divergence import divergences
+
+    gen = WeatherHigh({"confidence": 0.4, "sigma_base_f": 1.8, "sigma_per_day_f": 0.6})
+    target = _cache_at_local_hour(gen, "KXHIGHNY", 9, forecast_f=77.5, day_delta=1)
+    event = f"KXHIGHNY-{target.strftime('%y%b%d').upper()}"
+    bands = [_band(event, 75.0, 76.0, 0.03, 0.05), _band(event, 77.0, 78.0, 0.64, 0.66),
+             _band(event, 79.0, 80.0, 0.25, 0.27), _band(event, 81.0, 82.0, 0.03, 0.05)]
+    rows = divergences(gen, bands)
+    assert len(rows) == 1
+    got_target, prefix, mu, mkt_mu, diff, sigma, mkt_sd = rows[0]
+    assert (got_target, prefix) == (target, "KXHIGHNY")
+    assert abs(mu - 77.5) < 1e-9 and abs(diff - (mu - mkt_mu)) < 1e-9
+    assert sigma == gen.sigma_for(1) and 0 < mkt_sd < sigma
+
+    # a series we have no station for contributes nothing
+    for b in bands:
+        b.event_ticker = "KXNOTACITY-26SEP24"
+    assert divergences(gen, bands) == []

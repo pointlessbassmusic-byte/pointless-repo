@@ -348,7 +348,8 @@ def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tenni
                   min_trades: int = typer.Option(20, help="train trades a wallet needs"),
                   delay: float = typer.Option(30.0, help="seconds before the copy print"),
                   train_frac: float = typer.Option(0.7),
-                  fee_rate: float = typer.Option(0.05, help="Polymarket taker rate (Gamma feeSchedule: 0.05 on MLB/ATP moneylines)")):
+                  fee_rate: float = typer.Option(0.05, help="Polymarket taker rate (Gamma feeSchedule: 0.05 on MLB/ATP moneylines)"),
+                  maker: bool = typer.Option(False, help="also test a resting-bid (maker) follow, strict fills")):
     """Is Polymarket taker flow informed, and can the best wallets be copied
     after fees? Public trade tape, pre-game only, time-split ranking. Data only."""
     _setup("config/default.yaml")
@@ -362,8 +363,38 @@ def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tenni
     tapes = {g.condition_id: wf.orient(wf.fetch_trades(g.condition_id), g)
              for g in games}
     res = wf.run(games, tapes, train_frac=train_frac, top=top,
-                 min_trades=min_trades, delay=delay, fee_rate=fee_rate)
+                 min_trades=min_trades, delay=delay, fee_rate=fee_rate, maker=maker)
     console.print(wf.format_report(res, sport))
+
+
+@app.command("maker-flow")
+def maker_flow(sport: str = typer.Argument("baseball", help="baseball | tennis"),
+               days: int = typer.Option(60, help="resolved-market lookback"),
+               max_games: int = typer.Option(2000, help="highest-volume games kept")):
+    """Is the maker side of Polymarket's pre-game taker flow paid, and where?
+    CLV to close and settlement P&L by trailing VPIN, fill size, price. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import maker_flow as mf
+    from sportsbot.backtest import wallet_follow as wf
+    from sportsbot.backtest.polymarket_market import fetch_resolved
+
+    games = [g for g in fetch_resolved(sport, days=days) if g.condition_id]
+    games.sort(key=lambda g: -g.volume)
+    games = sorted(games[:max_games], key=lambda g: g.start_ts)
+    tapes = {g.condition_id: wf.orient(wf.fetch_trades(g.condition_id), g) for g in games}
+    console.print(mf.format_report(mf.run(games, tapes), sport))
+
+
+@app.command("updown-maker")
+def updown_maker(days: float = typer.Option(7.0, help="resolved BTC 5-minute windows to replay"),
+                 workers: int = typer.Option(8, help="parallel fetches")):
+    """Maker version of the Up/Down paired-position strategies: resting bids
+    on both sides, strict fills from the public taker tape. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import updown_maker as um
+
+    windows = um.fetch_recent(days, workers=workers)
+    console.print(um.format_grid(um.grid(windows), windows))
 
 
 @app.command("substrate-export")
