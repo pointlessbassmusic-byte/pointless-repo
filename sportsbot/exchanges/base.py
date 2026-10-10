@@ -6,6 +6,7 @@ paper-trading implementation can stand in for either.
 from __future__ import annotations
 
 import abc
+from datetime import datetime
 from typing import Optional
 
 from sportsbot.core.types import (
@@ -15,6 +16,7 @@ from sportsbot.core.types import (
     Order,
     Position,
     Side,
+    TapePrint,
 )
 
 
@@ -53,6 +55,13 @@ class ExchangeClient(abc.ABC):
         """True if YES resolved as winner, False if NO, None if unresolved
         (or the venue doesn't support this query)."""
         return None
+
+    def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
+        """Public taker prints on `market` at or after `since`, YES frame,
+        newest first. [] when the venue exposes no tape: the paper venue
+        then never fills a resting order, which is the conservative
+        answer."""
+        return []
 
     # --- convenience -----------------------------------------------------
     def buy_price_for(self, quote: MarketQuote, side: Side) -> Optional[float]:

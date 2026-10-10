@@ -251,16 +251,20 @@ def maker_fill_printed(tape: list[tuple[int, float]], after_ts: int,
     bid at `limit` (paid in the away frame) fills only if a print trades
     at or above 1 - limit in the home frame. Being at the front of the
     queue is still assumed, so this is an upper bound on fills, but a far
-    tighter one than "every resting order fills".
+    tighter one than "every resting order fills". The crossing rule is
+    `core.books.print_crosses`, the same one the paper venue applies to
+    the live tape, so backtest and paper fills agree by construction.
     """
+    from sportsbot.core.books import print_crosses
+    from sportsbot.core.types import Side
+
+    s = Side.YES if side == "YES" else Side.NO
     for ts, p_home in tape:
         if ts <= after_ts:
             continue
         if ts >= start_ts:
             break
-        if side == "YES" and p_home <= limit:
-            return True
-        if side == "NO" and p_home >= 1.0 - limit:
+        if print_crosses(s, limit, p_home):
             return True
     return False
 

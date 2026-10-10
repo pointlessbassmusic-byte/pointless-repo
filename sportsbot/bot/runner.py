@@ -200,7 +200,11 @@ def build_exchange(cfg: dict):
     venue = cfg.get("exchange", "polymarket")
     mode = cfg.get("mode", "paper")
     if venue == "kalshi":
-        from sportsbot.exchanges.kalshi import KalshiClient, kalshi_taker_fee
+        from sportsbot.exchanges.kalshi import (
+            KalshiClient,
+            kalshi_maker_fee_per_share,
+            kalshi_taker_fee,
+        )
 
         # Market DATA always comes from prod. KalshiClient() defaults to the
         # demo exchange when KALSHI_ENV is unset, and demo's books are a
@@ -216,6 +220,12 @@ def build_exchange(cfg: dict):
             a flat rate is wrong for one of them whichever it picks."""
             return kalshi_taker_fee(price, shares,
                                     data_client.fee_multiplier(market_id))
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """What a RESTING order pays when the tape fills it (per
+            contract, series multiplier applied)."""
+            return kalshi_maker_fee_per_share(
+                market_id or "", data_client.fee_multiplier(market_id)) * shares
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
@@ -226,12 +236,18 @@ def build_exchange(cfg: dict):
             the documented 0.05 for anything not yet discovered."""
             return taker_fee(price, shares, market_id,
                              fee_rate=data_client.fee_rate_for(market_id))
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """Polymarket makers pay nothing; the 15% rebate they earn is
+            ignored here (conservative)."""
+            return 0.0
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
         return (exec_client if venue == "kalshi" else data_client), data_client, fee_fn
     paper = PaperExchange(
         data_client=data_client,
         starting_balance=float(cfg.get("bankroll", {}).get("amount", 1000.0)),
         fee_fn=fee_fn,
+        maker_fee_fn=maker_fee_fn,
     )
     return paper, data_client, fee_fn
 
