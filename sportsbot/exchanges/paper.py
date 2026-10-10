@@ -21,7 +21,7 @@ Fill model (conservative):
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from sportsbot.core.books import buy_levels, sell_levels, tape_fill_size, walk_book, walk_sell
@@ -142,11 +142,19 @@ class PaperExchange(ExchangeClient):
         pos.size = new_size
         self.positions[key] = pos
 
-    def reconcile_resting(self, now: Optional[datetime] = None) -> list[Order]:
+    def reconcile_resting(self, now: Optional[datetime] = None,
+                          ttl_seconds: Optional[float] = None) -> list[Order]:
         """Fill resting orders the public tape has printed through since
         they were placed. Returns the orders whose fill changed; a fully
         filled order leaves `open_orders`. One tape read per market per
-        call; a venue without a tape (or no data client) fills nothing."""
+        call; a venue without a tape (or no data client) fills nothing.
+
+        The window closes at the earliest of now, placement + `ttl_seconds`
+        (the executor's cancel deadline: a print after it would have met a
+        cancelled order) and the market's start time (pre-game orders do
+        not rest into the game). Without the bound, a reconcile that runs
+        long after the TTL -- the daily one-cycle sim -- would credit a
+        whole day of prints to a two-minute order."""
         if self.data_client is None or not self.open_orders:
             return []
         now = now or datetime.now(timezone.utc)
@@ -166,7 +174,17 @@ class PaperExchange(ExchangeClient):
             prints = tapes[market.market_id]
             if not prints:
                 continue
-            through = tape_fill_size(prints, order.side, order.price, after=placed_at, before=now)
+            before = now
+            if ttl_seconds is not None:
+                before = min(before, placed_at + timedelta(seconds=float(ttl_seconds)))
+            if market.start_time is not None:
+                start = market.start_time
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                before = min(before, start)
+            if before <= placed_at:
+                continue
+            through = tape_fill_size(prints, order.side, order.price, after=placed_at, before=before)
             target = min(order.size, filled0 + through)
             increment = target - order.filled
             if increment <= 1e-9:

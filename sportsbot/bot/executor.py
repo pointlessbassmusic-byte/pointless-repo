@@ -123,7 +123,7 @@ class Executor:
         if not self._open:
             return
         if isinstance(self.exchange, PaperExchange):
-            for order in self.exchange.reconcile_resting():
+            for order in self.exchange.reconcile_resting(ttl_seconds=self.order_ttl):
                 tracked = self._open.get(order.client_id)
                 if tracked is None:
                     continue
