@@ -173,6 +173,39 @@ class TestPaperReconcile:
         tape.prints.append(_pr(5, 0.40, 100))
         assert paper2.reconcile_resting() == []       # cancelled: no fill after the fact
 
+    def test_tape_window_closes_at_the_ttl_and_at_game_start(self):
+        # A print after the cancel deadline met a cancelled order, not ours;
+        # a reconcile that runs a day later (the one-cycle sim) must not
+        # credit it. The game start bounds the window the same way.
+        tape = Tape([_pr(60, 0.45, 10), _pr(300, 0.40, 500)])
+        paper = PaperExchange(data_client=tape, starting_balance=1000.0)
+        o = paper.place_order(_order(price=0.45, size=100.0), quote=_quote(ask=0.47),
+                              market=_market(), now=T0)
+        paper.reconcile_resting(now=T0 + timedelta(days=1), ttl_seconds=120.0)
+        assert o.filled == pytest.approx(10.0)
+        # without a TTL the whole window counts (the executor always passes one)
+        paper2 = PaperExchange(data_client=tape, starting_balance=1000.0)
+        o2 = paper2.place_order(_order(price=0.45, size=100.0), quote=_quote(ask=0.47),
+                                market=_market(), now=T0)
+        paper2.reconcile_resting(now=T0 + timedelta(days=1))
+        assert o2.filled == pytest.approx(100.0)
+        # game start 90 s after placement: the 300 s print is in-play, ignored
+        paper3 = PaperExchange(data_client=tape, starting_balance=1000.0)
+        o3 = paper3.place_order(_order(price=0.45, size=100.0), quote=_quote(ask=0.47),
+                                market=_market(start_time=T0 + timedelta(seconds=90)), now=T0)
+        paper3.reconcile_resting(now=T0 + timedelta(seconds=600), ttl_seconds=3600.0)
+        assert o3.filled == pytest.approx(10.0)
+        # executor passes its TTL through
+        store_tape = Tape([_pr(600, 0.40, 500)])
+        ex = Executor(PaperExchange(data_client=store_tape, starting_balance=1000.0),
+                      Store(":memory:"), order_ttl_seconds=120.0)
+        ex.exchange.place_order = (lambda orig: lambda order, quote=None, market=None, now=None:
+                                   orig(order, quote=quote, market=market, now=T0))(ex.exchange.place_order)
+        ex.submit(BetIntent(market=_market(), side=Side.YES, prob=0.55, price=0.45, size=100.0,
+                            edge=0.08, kelly_fraction=0.02, reason="x maker"), quote=_quote(ask=0.47))
+        ex.reconcile_open_orders()
+        assert ex.store.exposure_by()["total"] == 0.0
+
     def test_insufficient_balance_skips_the_tape_fill(self):
         tape = Tape([_pr(5, 0.45, 100)])
         paper = PaperExchange(data_client=tape, starting_balance=10.0)
