@@ -24,7 +24,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
   archived/dead, never reintroduce it), `kalshi.py` (2026 API: dollar-string
-  prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
+  prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`
+  (book-walk fills at placement; a resting order fills only when the
+  venue's public taker tape prints through it, for the size printed —
+  no tape, no fill; maker fee charged).
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches; fractional limits follow the live bankroll),

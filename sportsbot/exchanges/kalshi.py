@@ -27,6 +27,7 @@ import math
 import os
 import re
 import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -50,6 +51,7 @@ from sportsbot.core.types import (
     Position,
     Side,
     Sport,
+    TapePrint,
 )
 from sportsbot.data.teams import by_code, is_team_sport
 from sportsbot.exchanges.base import ExchangeClient
@@ -160,6 +162,17 @@ FEE_RATE = 0.07
 # books a loser as a winner.
 _FEE_MULTIPLIERS: dict[str, float] = {}
 KNOWN_FEE_MULTIPLIERS: dict[str, float] = {"KXMLBGAME": 0.5}
+
+
+def _fp(raw: Any) -> Optional[float]:
+    """Kalshi's fixed-point string fields ('0.4400', '44.58') as floats;
+    None for missing/blank/unparseable."""
+    if raw in (None, ""):
+        return None
+    try:
+        return float(Decimal(str(raw)))
+    except (ValueError, ArithmeticError):
+        return None
 
 
 def series_of(market_id: str) -> str:
@@ -576,6 +589,49 @@ class KalshiClient(ExchangeClient):
             bids=bids,
             asks=asks,
         )
+
+    # ------------------------------------------------------------------
+    # Public trade tape (no auth; prod serves dollar strings)
+    # ------------------------------------------------------------------
+    TAPE_PAGE = 200
+    TAPE_MAX_PAGES = 5
+
+    def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
+        """Prints on the ticker since `since`, newest first, in the ticker's
+        own YES frame (the kept ticker is the home side, so this is already
+        `Prediction.prob_yes`'s frame). Fields are the 2026 shapes:
+        `yes_price_dollars` / `count_fp` strings, `created_time` RFC3339,
+        `taker_side` yes|no; the integer-cent fields are None on prod."""
+        params: dict[str, Any] = {"ticker": market.market_id, "limit": self.TAPE_PAGE,
+                                  "min_ts": int(since.timestamp())}
+        out: list[TapePrint] = []
+        for _ in range(self.TAPE_MAX_PAGES):
+            data = self._request("GET", f"{API_ROOT}/markets/trades", params=params)
+            rows = data.get("trades") or []
+            for r in rows:
+                price = _fp(r.get("yes_price_dollars"))
+                if price is None and r.get("yes_price") is not None:
+                    price = float(r["yes_price"]) / 100.0
+                size = _fp(r.get("count_fp"))
+                if size is None and r.get("count") is not None:
+                    size = float(r["count"])
+                raw_ts = r.get("created_time")
+                if price is None or size is None or not raw_ts:
+                    continue
+                ts = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts < since:
+                    continue
+                out.append(TapePrint(ts=ts, price_yes=price, size=size,
+                                     taker_side=(r.get("taker_side") or None),
+                                     trade_id=str(r.get("trade_id") or "")))
+            cursor = data.get("cursor")
+            if len(rows) < self.TAPE_PAGE or not cursor:
+                break
+            params = {**params, "cursor": cursor}
+        out.sort(key=lambda t: t.ts, reverse=True)
+        return out
 
     def get_resolution(self, market_id: str) -> Optional[bool]:
         """True/False once the market settles with a yes/no result."""

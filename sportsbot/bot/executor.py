@@ -69,7 +69,7 @@ class Executor:
             intent.size, intent.price, intent.edge, intent.reason,
         )
         if isinstance(self.exchange, PaperExchange):
-            order = self.exchange.place_order(order, quote=quote)
+            order = self.exchange.place_order(order, quote=quote, market=market)
         else:
             order = self.exchange.place_order(order)
         self._persist_order(order)
@@ -116,9 +116,22 @@ class Executor:
     # ------------------------------------------------------------------
     def reconcile_open_orders(self) -> None:
         """Refresh venue state for tracked resting orders; book any fills
-        that happened since the last cycle (live maker fills)."""
-        if not self._open or isinstance(self.exchange, PaperExchange):
-            return  # paper maker orders never fill (conservative by design)
+        that happened since the last cycle (live maker fills). Paper
+        resting orders fill only when the venue's public tape has printed
+        through them (`PaperExchange.reconcile_resting`); those fills are
+        booked as bets the same way live maker fills are."""
+        if not self._open:
+            return
+        if isinstance(self.exchange, PaperExchange):
+            for order in self.exchange.reconcile_resting():
+                tracked = self._open.get(order.client_id)
+                if tracked is None:
+                    continue
+                self._book_fill(tracked, order.filled)
+                self._persist_order(order)
+                if order.status == OrderStatus.FILLED:
+                    self._open.pop(order.client_id, None)
+            return
         try:
             venue_orders = {o.order_id: o for o in self.exchange.get_open_orders()}
         except Exception:
