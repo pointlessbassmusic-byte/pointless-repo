@@ -227,6 +227,12 @@ item names the measurement that would move it, and the standing rules apply
 5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
    October, see the roadmap item above ($101/24h series volume this year).
 6. **Weather arm**: stays excluded (beats climatology, loses to the market,
-   12 complete dates). Re-open only if a decision-time forecast source with a
-   measured lead-time edge over NWS appears.
+   14 complete dates). Re-open only if a decision-time forecast source with a
+   measured lead-time edge over NWS appears. Measurement fix first: the v1
+   cohort scores the *earliest* forecast on record before first sighting
+   (mean age 1.5 d); scoring the *latest* pre-sighting forecast cut the arm's
+   Brier from 0.150 to 0.125 on the 168 rows checked 2026-10-11 without
+   changing the ordering (SIGNALS, 2026-10-11). A v2 cohort file with that
+   rule, run alongside v1, needs the operator's go-ahead; v1 rows are never
+   rewritten.
 
