@@ -32,6 +32,7 @@ from sportsbot.bot.positions import (
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
 from sportsbot.bot.ledger import account_equity, snapshot_equity
+from sportsbot.bot.touch import TouchConfig, evaluate_touch
 from sportsbot.bot.portfolio import (
     allocate_arms,
     effective_bankroll,
@@ -260,6 +261,7 @@ class Runner:
         self.ratings_dir = storage.get("ratings_dir", "data/ratings")
         self.models = load_models(cfg, self.ratings_dir, store=self.store)
         self.exchange, self.data_client, self.fee_fn = build_exchange(cfg)
+        self.touch = TouchConfig.from_cfg(cfg)
         self.mode = cfg.get("mode", "paper")
         if self.mode == "live" and os.environ.get("SPORTSBOT_LIVE") != "1":
             log.warning("config mode=live but SPORTSBOT_LIVE!=1 — forcing paper mode")
@@ -681,6 +683,49 @@ class Runner:
         except Exception:
             log.exception("exit decision record failed")
 
+    def _touch_pass(self, sm, quote, exposure: dict, strategy_cfg, summary: dict) -> bool:
+        """The touch-maker arm's turn on one quoted market (bot/touch.py).
+        Posts at most one resting order per market per cycle, through the
+        same risk check and executor as every other intent; routine skips
+        are tallied in `summary["touch"]`, not written to the decision
+        feed. Returns True when an order was placed."""
+        sport_key = sm.market.sport.value if sm.market.sport else "unknown"
+        if not self.touch.runs(sport_key):
+            return False
+        tally = summary.setdefault("touch", {"posted": 0, "vetoed": 0, "skipped": {}})
+        try:
+            intent, why = evaluate_touch(
+                sm.market, quote, self.touch, exposure,
+                self.executor.resting_sides(sm.market.market_id),
+                self.maker_fee_fn,
+                sport_budget=strategy_cfg.sport_budget.get(sport_key),
+                style=strategy_cfg.style_override.get(sport_key, "both"),
+            )
+        except Exception:
+            log.exception("touch evaluation failed for %s", sm.market.market_id)
+            return False
+        mid = ((quote.bid + quote.ask) / 2.0
+               if quote.bid is not None and quote.ask is not None else None)
+        if intent is None:
+            key = why.split(" ", 2)[0] if why else "skip"
+            tally["skipped"][key] = tally["skipped"].get(key, 0) + 1
+            return False
+        ok, reason = self.risk.check_intent(intent, quote)
+        if not ok:
+            tally["vetoed"] += 1
+            self._record_decision(sm, "skip", mid, intent=intent,
+                                  reason=f"touch risk veto: {reason}")
+            return False
+        order = self.executor.submit(intent, quote=quote)
+        if order.status.value == "rejected":
+            self._record_decision(sm, "skip", mid, intent=intent,
+                                  reason="touch order rejected by venue")
+            return False
+        tally["posted"] += 1
+        summary["orders"] = summary.get("orders", 0) + 1
+        self._record_decision(sm, "bet", mid, intent=intent, reason=why)
+        return True
+
     def _record_decision(self, sm, action: str, mid: float | None,
                          intent=None, reason: str | None = None) -> None:
         """Persist one line of the decision feed. Never raises — the feed is
@@ -776,7 +821,7 @@ class Runner:
         """One scan cycle. Returns a summary dict."""
         summary = {"markets": 0, "scanned": 0, "dropped": 0, "intents": 0,
                    "orders": 0, "arbs": 0, "settled": 0, "exits": 0,
-                   "blocked": None}
+                   "blocked": None, "touch": {"posted": 0, "vetoed": 0, "skipped": {}}}
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
         summary["sharp_closes"] = self._sharp_backfill()
@@ -852,6 +897,9 @@ class Runner:
                 log.info("ARB FOUND (log-only): %s profit=%.3f/pair x %.0f",
                          arb.description, arb.profit_per_pair, arb.max_pairs)
                 self.store.set_kv(f"arb:{sm.market.market_id}", arb.__dict__)
+
+            if self._touch_pass(sm, quote, exposure, strategy_cfg, summary):
+                exposure = self.store.exposure_by()
 
             intent, why = evaluate_market_verbose(
                 sm.market, quote, sm.prediction, staking_cfg,

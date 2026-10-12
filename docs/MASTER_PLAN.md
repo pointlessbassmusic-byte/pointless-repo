@@ -151,18 +151,18 @@ Pipeline per cycle:
 - [x] Result 14 (`backtest/wallet_follow.py`): copying wallets is dead as a
       taker; informed MLB flow exists (+1.0 pt) but a copy nets −0.7 pt.
       Strict maker fill model and backtest policy parity landed with it.
-- [x] Result 15 (`wallet-follow --maker`, `backtest/updown_maker.py`): the
+- [x] Result 18 (`wallet-follow --maker`, `backtest/updown_maker.py`): the
       informed MLB wallets trade earlier, larger and off-tape (sharp line /
       news); delay does not matter, the fee does; a resting-bid follow earns
       ≈ 0 under strict fills and ≈ +0.3 pt/signal only at the front of the
       queue. Maker paired positions on BTC 5-minute windows lose in all 60
       configurations (the unpaired leg is by construction the loser).
-- [x] Result 16 (`backtest/maker_flow.py`, rank 3 of the research report):
+- [x] Result 19 (`backtest/maker_flow.py`, rank 3 of the research report):
       the maker side of Polymarket MLB pre-game flow earns +0.15 to +0.33 pt
       to the close (CI excludes zero in both halves) plus a ~0.24 pt rebate;
       low trailing VPIN pays most, fills ≥ $100 lose in the test window, and
       settlement P&L is too noisy (±3.5 pt over 205 games) to decide anything.
-- [x] Result 17 (`polymarket-edge/src/cb_study.py`): the Fed rule does not
+- [x] Result 20 (`polymarket-edge/src/cb_study.py`): the Fed rule does not
       generalise to every central bank. Across 15 banks it fired 87 times on
       103 meetings, lost 3 (Colombia twice, Israel once, all at 0.90–0.94)
       and returned −0.7%. The G10 subset (Fed, ECB, BoE, BoJ, BoC, RBA,
@@ -188,6 +188,20 @@ Pipeline per cycle:
       the adverse selection a maker eats is real: the fill happens exactly when
       price moves through the order. Same crossing rule as the strict backtest
       (`core.books.print_crosses`).
+- [x] Result 15 (`wallet-follow --maker-ticks`, 2026-10-12): resting one
+      tick under MLB taker prints earns +0.6 pt CLV on fills (+1.1–1.8 pt
+      behind the best-CLV wallets), interval above zero — the first measured
+      positive CLV in the project — but every fill is a queue-priority fill
+      at the existing bid and one tick deeper the edge vanishes; tennis shows
+      none of it (2,000 games, intervals span zero). Rank 2's live
+      minimum-size maker order on MLB is now the measurement that matters.
+- [x] Touch-maker arm (`sportsbot/bot/touch.py`, `touch:` config block,
+      `<sport>/touch/maker` arm, 2026-10-12): the executable form of Result 15
+      — rest at the best bid/ask on MLB at $1 a side, one side per cycle,
+      never crossing, through the normal risk check, executor, CLV grading
+      and allocation gate. On in the $100 paper sim, off in the default
+      config; the live minimum-size fill-share test is pre-registered in
+      `docs/MAKER_TEST.md` and waits on the operator.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
@@ -326,7 +340,12 @@ Ordered by what the evidence so far supports. Nothing here is funded; each
 item names the measurement that would move it, and the standing rules apply
 (paper first, judge by CLV, tighten-only capital, never martingale).
 
-1. **Rank 2: maker-only quoting, start on MLB** (report rank 2). Now
+1. **Rank 2: maker-only quoting, start on MLB** (report rank 2). Result
+   15 gives it the first positive measured number (+0.6 pt CLV per fill at
+   the touch, +1.1–1.8 behind informed flow) with one unmeasurable: the
+   fill share of a new order in the touch queue. The decisive experiment
+   is a minimum-size live maker order that records fill rate and CLV per
+   fill; it is the smallest capital question in the queue. Also
    measurable in paper: tape-verified fills produce `baseball/model/maker`
    and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
    CLV-graded fills, interval lower bound > 0). Gate on the sharp close once
@@ -335,19 +354,21 @@ item names the measurement that would move it, and the standing rules apply
    maker rebate on sports (ignored in the fill model, so measured CLV is
    conservative) and Kalshi's liquidity program (OLIP: daily per-market
    payments for two-sided resting size), whose terms are to be read from the
-   venue at the time, never assumed. Prior from Result 16: the maker side of
+   venue at the time, never assumed. Prior from Result 19: the maker side of
    the incumbent MLB pre-game flow earns +0.15 to +0.33 pt to the close plus
    ~0.24 pt rebate, on small fills only (fills ≥ $100 lose in the test
    window), so cap resting size per level well under $100; a VPIN quote-pull
    rule costs fills without paying (even the high tercile is positive).
-2. **Informed-flow direction as a second signal** (from Result 14):
-   measured in Result 15 and closed as a standalone rule. Resting a bid in
-   the CLV-selected wallets' direction at their price fills 4.9% of the time
-   under strict fills (+0.0009 per signal, 10 m cancel); only the
-   front-of-queue bound reaches +0.003 per signal. Their edge comes from
-   trading hours earlier off the sharp line, which the sharp-line harness
-   (item 1's gate) reads directly. Re-open only if real paper-maker fills
-   from item 1 show front-of-queue placement.
+2. **Informed-flow direction as a second signal** (Results 14–15, 18): the
+   CLV-selected MLB taker wallets carry +1.0 pt; copying them as a taker
+   nets −0.7 pt; resting one tick under them collects +1.1 to +1.8 pt CLV
+   on the fills it gets (Result 15, front of queue implied), about double
+   the population maker number. Under strict fills (a print must trade
+   through the bid) the same follow at their price fills 4.9% of the time
+   and earns ≈ +0.001 per signal (Result 18). The two bracket the answer;
+   the open quantity is the fill share of a new order at the touch, which
+   the tape cannot give and the live minimum-size maker order in item 1
+   can. Data-logged only until then.
 3. **Perk and promotion harvest** (assessed 2026-10-09; one-time, finite,
    operator-executed). Terms move, so re-verify every figure on the venue's
    own page before acting; the numbers below are what was read then.

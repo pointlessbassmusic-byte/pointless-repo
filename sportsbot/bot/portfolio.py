@@ -49,7 +49,8 @@ from sportsbot.signals.sharp import cluster_bootstrap_mean
 
 log = logging.getLogger(__name__)
 
-SIGNALS = ("model", "sharp")
+SIGNALS = ("model", "sharp", "touch")
+TOUCH_SIGNAL = "touch"   # bot/touch.py: rests at the touch, no model
 STYLES = ("maker", "taker")
 DEFAULT_PATH = "config/allocation.yaml"
 
@@ -71,7 +72,12 @@ def arm_of_intent(sport: str, reason: str) -> str:
     """The arm a BetIntent belongs to, from the strategy's reason string
     ("<model> p=… blend=… mid=… maker|taker")."""
     r = (reason or "").strip()
-    signal = "sharp" if r.startswith(SHARP_MODEL_NAME) else "model"
+    if r.startswith(TOUCH_SIGNAL):
+        signal = TOUCH_SIGNAL
+    elif r.startswith(SHARP_MODEL_NAME):
+        signal = "sharp"
+    else:
+        signal = "model"
     style = "maker" if r.endswith("maker") else "taker"
     return arm_name(sport, signal, style)
 
@@ -359,7 +365,8 @@ def running_arms_for(cfg: dict) -> set[str]:
     """The arms this config can produce fills for: one signal per enabled
     sport (`sports.<sport>.signal`, default model) and the styles the
     execution settings allow (post_inside_spread -> maker and, when the
-    book leaves no room, taker)."""
+    book leaves no room, taker), plus `<sport>/touch/maker` for each sport
+    the `touch:` block quotes."""
     out = set()
     sports_cfg = cfg.get("sports", {}) or {}
     post = bool(cfg.get("execution", {}).get("post_inside_spread", True))
@@ -372,6 +379,15 @@ def running_arms_for(cfg: dict) -> set[str]:
         out.add(arm_name(sport, signal, "taker"))
         if post:
             out.add(arm_name(sport, signal, "maker"))
+    # The touch arm runs beside a sport's primary signal (it needs the
+    # scanner to have quoted the market) and only ever rests: maker only.
+    touch = cfg.get("touch", {}) or {}
+    if touch.get("enabled", False):
+        sports = touch.get("sports", ["baseball"])
+        for sport in ([sports] if isinstance(sports, str) else sports):
+            sc = sports_cfg.get(sport, {}) or {}
+            if isinstance(sc, dict) and sc.get("enabled", True):
+                out.add(arm_name(str(sport), TOUCH_SIGNAL, "maker"))
     return out
 
 
@@ -391,6 +407,7 @@ RESULTS: tuple[tuple[str, str, str], ...] = (
     ("12", "crypto Up/Down", "DMI/ADX below a coin; spot fair value loses; complete sets are market making"),
     ("13", "other venues / arbitrage / HFT", "every class closed, fee-eaten, or a name-matching artefact"),
     ("14", "copying wallets", "informed MLB takers exist (+1.0 pt) but a copy nets −0.7 pt; tennis has none"),
+    ("15", "MLB maker at the touch", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; tennis none"),
 )
 
 

@@ -24,6 +24,7 @@ learning:
 
 arms:
   baseball/sharp/maker:   {weight: null, learn: false}   # rank 2 of the research report: start here, on MLB, when lines flow
+  baseball/touch/maker:   {weight: null, learn: false}   # Result 15: rest at the MLB touch, minimum size; the live fill-share test (docs/MAKER_TEST.md)
   baseball/sharp/taker:   {weight: null, learn: false}
   baseball/model/maker:   {weight: null, learn: false}
   baseball/model/taker:   {weight: null, learn: false}

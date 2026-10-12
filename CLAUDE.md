@@ -31,7 +31,9 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches; fractional limits follow the live bankroll),
-  executor, arb, runner, `portfolio.py` (strategy ARMS `sport/signal/style`,
+  executor, arb, runner, `touch.py` (touch-maker arm: rests at the best
+  bid/ask at minimum size, no model; Result 15's live fill-share test,
+  `docs/MAKER_TEST.md`), `portfolio.py` (strategy ARMS `sport/signal/style`,
   per-arm evidence + gate, capital from manual weights → evidence → a
   bounded learning budget, tighten-only; operator file
   `config/allocation.yaml`; see `docs/ALLOCATION.md`).
@@ -277,15 +279,18 @@ the outcome and fabricates longshot edge.
   at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
   not prove the trade; the mechanism's longer record does. Size it so a total
   loss changes nothing. It is not a rule for every central bank. Across 15
-  banks on Polymarket (EDGE_VERDICT Result 17, `python -m src.cb_study`) it
+  banks on Polymarket (EDGE_VERDICT Result 20, `python -m src.cb_study`) it
   fired 87 times, lost 3 (Colombia twice, Israel once, entries at
   0.90–0.94) and returned −0.7%. The G10 banks, whose decisions a deep OIS
   market prices, fired 57 times with 0 losses (bound 5.3%). That split was
   drawn after the losses were seen, so only a forward record can confirm it.
 - Informed wallets are a pointer to a source, not a signal to follow
-  (EDGE_VERDICT Result 15): the best-CLV MLB wallets trade hours earlier,
+  (EDGE_VERDICT Result 18): the best-CLV MLB wallets trade hours earlier,
   larger and independent of the tape; copying them loses the fee at any
-  delay, and a resting-bid follow is ≈ 0 under strict fills. Read their
+  delay, and a resting-bid follow is ≈ 0 under strict fills but +1.1 to
+  +1.8 pt on the fills it gets at the front of the queue (Result 15), so
+  queue position decides and only the live touch-maker test measures it.
+  Read their
   source (the sharp-line harness) instead. Maker paired positions on crypto
   Up/Down windows lose in every configuration: the leg left unpaired is the
   loser by construction (0 of 701 won).

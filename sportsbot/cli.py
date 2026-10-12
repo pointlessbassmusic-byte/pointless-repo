@@ -349,7 +349,8 @@ def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tenni
                   delay: float = typer.Option(30.0, help="seconds before the copy print"),
                   train_frac: float = typer.Option(0.7),
                   fee_rate: float = typer.Option(0.05, help="Polymarket taker rate (Gamma feeSchedule: 0.05 on MLB/ATP moneylines)"),
-                  maker: bool = typer.Option(False, help="also test a resting-bid (maker) follow, strict fills")):
+                  maker: bool = typer.Option(False, help="also test a resting-bid (maker) follow, strict fills"),
+                  maker_ticks: int = typer.Option(1, help="maker copy rests this many ticks under the wallet's price")):
     """Is Polymarket taker flow informed, and can the best wallets be copied
     after fees? Public trade tape, pre-game only, time-split ranking. Data only."""
     _setup("config/default.yaml")
@@ -363,7 +364,8 @@ def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tenni
     tapes = {g.condition_id: wf.orient(wf.fetch_trades(g.condition_id), g)
              for g in games}
     res = wf.run(games, tapes, train_frac=train_frac, top=top,
-                 min_trades=min_trades, delay=delay, fee_rate=fee_rate, maker=maker)
+                 min_trades=min_trades, delay=delay, fee_rate=fee_rate, maker=maker,
+                 maker_ticks=maker_ticks)
     console.print(wf.format_report(res, sport))
 
 
