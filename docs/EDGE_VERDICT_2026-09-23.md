@@ -1066,6 +1066,20 @@ get; the two-book sessions (Result 10) show the touch queue is where
 fills arrive when price is moving against you. On Kalshi the maker fee
 (0.0025 × 0.5 per MLB contract) would take ~0.12 pt of the 0.6.
 
+**Tennis (2,000 highest-volume resolved markets, 60 days, 1,922,093
+taker fills; train 1,400 / test 600).** Nothing. The population maker
+baseline one tick under every print fills 20.3% / 51.3% / 83.7% under
+the same deadlines and earns **−0.0035 [−0.0120, +0.0051] / −0.0005
+[−0.0075, +0.0052] / +0.0011 [−0.0038, +0.0051]** on 472–592 markets —
+the spread a tennis maker collects at the touch is eaten by adverse
+selection to within half a tick of zero. The 20 best-CLV wallets carry
+−0.0028 [−0.0263, +0.0179] at their own price out of sample (522
+trades; Result 14's "no persistent wallets" again), and resting behind
+them gives −0.0003 to −0.0049 with intervals ±2.5 pt. The MLB number is
+therefore a property of MLB's books — wider, slower, with informed
+clips to rest behind — not of resting orders in general, which is also
+what the two-book sessions say about the two sports.
+
 **What it changes.** Rank 2 moves from plausible to the only candidate
 with a positive measured number, conditional on queue position — and
 that condition is exactly what the minimum-size live maker order in

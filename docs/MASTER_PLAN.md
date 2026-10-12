@@ -173,8 +173,9 @@ Pipeline per cycle:
       tick under MLB taker prints earns +0.6 pt CLV on fills (+1.1–1.8 pt
       behind the best-CLV wallets), interval above zero — the first measured
       positive CLV in the project — but every fill is a queue-priority fill
-      at the existing bid and one tick deeper the edge vanishes. Rank 2's
-      live minimum-size maker order is now the measurement that matters.
+      at the existing bid and one tick deeper the edge vanishes; tennis shows
+      none of it (2,000 games, intervals span zero). Rank 2's live
+      minimum-size maker order on MLB is now the measurement that matters.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
