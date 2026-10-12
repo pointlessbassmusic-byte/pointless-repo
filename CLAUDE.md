@@ -276,7 +276,12 @@ the outcome and fabricates longshot edge.
   loss erases ~40 wins. Zero losses in 18 meetings bounds the surprise rate
   at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
   not prove the trade; the mechanism's longer record does. Size it so a total
-  loss changes nothing.
+  loss changes nothing. It is not a rule for every central bank. Across 15
+  banks on Polymarket (EDGE_VERDICT Result 17, `python -m src.cb_study`) it
+  fired 87 times, lost 3 (Colombia twice, Israel once, entries at
+  0.90–0.94) and returned −0.7%. The G10 banks, whose decisions a deep OIS
+  market prices, fired 57 times with 0 losses (bound 5.3%). That split was
+  drawn after the losses were seen, so only a forward record can confirm it.
 - Informed wallets are a pointer to a source, not a signal to follow
   (EDGE_VERDICT Result 15): the best-CLV MLB wallets trade hours earlier,
   larger and independent of the tape; copying them loses the fee at any

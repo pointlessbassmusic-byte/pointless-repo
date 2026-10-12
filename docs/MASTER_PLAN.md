@@ -162,6 +162,14 @@ Pipeline per cycle:
       to the close (CI excludes zero in both halves) plus a ~0.24 pt rebate;
       low trailing VPIN pays most, fills ≥ $100 lose in the test window, and
       settlement P&L is too noisy (±3.5 pt over 205 games) to decide anything.
+- [x] Result 17 (`polymarket-edge/src/cb_study.py`): the Fed rule does not
+      generalise to every central bank. Across 15 banks it fired 87 times on
+      103 meetings, lost 3 (Colombia twice, Israel once, all at 0.90–0.94)
+      and returned −0.7%. The G10 subset (Fed, ECB, BoE, BoJ, BoC, RBA,
+      RBNZ) fired 57 times with 0 losses at +2.3%, bounding the loss rate
+      at 5.3% (was 16%). That split is post hoc and needs ~130 forward fires
+      to beat the 2.4% breakeven. Next step, if the operator approves:
+      extend the recorder to the six other G10 banks, record only.
 - [x] Sharp-line CLV harness (`sportsbot/signals/sharp.py`, rank 1 of
       `reports/Beating prediction market prices.md`): budgeted Pinnacle snapshots
       via The Odds API, Shin de-vig, every decision and bet graded against the
@@ -327,12 +335,19 @@ item names the measurement that would move it, and the standing rules apply
    maker rebate on sports (ignored in the fill model, so measured CLV is
    conservative) and Kalshi's liquidity program (OLIP: daily per-market
    payments for two-sided resting size), whose terms are to be read from the
-   venue at the time, never assumed.
-2. **Informed-flow direction as a second signal** (from Result 14): the
-   CLV-selected MLB taker wallets carry +1.0 pt; copying them as a taker
-   nets −0.7 pt, but their direction as an input to *where to rest* is
-   untested. Data-logged only until a backtest on the cached tapes shows
-   maker fills in that direction clear fees.
+   venue at the time, never assumed. Prior from Result 16: the maker side of
+   the incumbent MLB pre-game flow earns +0.15 to +0.33 pt to the close plus
+   ~0.24 pt rebate, on small fills only (fills ≥ $100 lose in the test
+   window), so cap resting size per level well under $100; a VPIN quote-pull
+   rule costs fills without paying (even the high tercile is positive).
+2. **Informed-flow direction as a second signal** (from Result 14):
+   measured in Result 15 and closed as a standalone rule. Resting a bid in
+   the CLV-selected wallets' direction at their price fills 4.9% of the time
+   under strict fills (+0.0009 per signal, 10 m cancel); only the
+   front-of-queue bound reaches +0.003 per signal. Their edge comes from
+   trading hours earlier off the sharp line, which the sharp-line harness
+   (item 1's gate) reads directly. Re-open only if real paper-maker fills
+   from item 1 show front-of-queue placement.
 3. **Perk and promotion harvest** (assessed 2026-10-09; one-time, finite,
    operator-executed). Terms move, so re-verify every figure on the venue's
    own page before acting; the numbers below are what was read then.
@@ -359,7 +374,7 @@ item names the measurement that would move it, and the standing rules apply
 5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
    October, see the roadmap item above ($101/24h series volume this year).
 6. **Weather arm**: stays excluded (beats climatology, loses to the market,
-   14 complete dates). Re-open only if a decision-time forecast source with a
+   15 complete dates). Re-open only if a decision-time forecast source with a
    measured lead-time edge over NWS appears. Measurement fix first: the v1
    cohort scores the *earliest* forecast on record before first sighting
    (mean age 1.5 d); scoring the *latest* pre-sighting forecast cut the arm's

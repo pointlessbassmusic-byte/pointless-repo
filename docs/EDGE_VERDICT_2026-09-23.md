@@ -1211,3 +1211,74 @@ a principle.
 The go-live gate stands: the paper book has produced no settled bets, so
 none of the four criteria is met, and this backtest is a reason to expect
 that to continue rather than a reason to relax them.
+
+## Result 17 (Polymarket, 15 central banks): the Fed rule does not generalise as written; the G10 subset holds, post hoc
+
+_2026-10-12. `polymarket-edge/src/cb_study.py` (`python -m src.cb_study`;
+`--cached` re-scores the saved rows offline); rows in
+`docs/CB_STUDY_ROWS_2026-10-12.csv`._
+
+**Question.** The Fed rule (buy the decision bucket at ≥ 0.90 within 7 days,
+hold) rests on 18 meetings with no loss, which bounds the surprise rate only
+at ~16% against a ~2.4% breakeven. Every central bank whose decision is
+priced by a deep rates market is the same class of event. Does the rule hold
+across them, and does pooling tighten the bound?
+
+**Method.** Every resolved per-meeting decision event on Polymarket for 15
+banks (Dec 2024 – Sep 2026), found by search and tag listing: one event per
+meeting (an "August" and a "September" listing of one Bank of Israel meeting
+merged), buckets with exactly one YES. Anchor = 00:00 UTC of the
+announcement date. Polymarket dates these events on the announcement day, and
+every bank here announces after 00:30 UTC, so no price at or before the anchor
+has seen the decision. Favourite = the highest bucket's last trade at 168,
+120, 72, 48 and 24 h before the anchor. The first horizon at ≥ 0.90 is the
+entry, which is what the recorder would store. Cost is price + 1c + the
+market's own taker fee. Every print used is under 24 h old, and the table is
+unchanged when stale prints are excluded.
+
+| group | meetings | first fires ≥ 0.90 | losses | mean return | se | avg price | loss rate ≤ (rule of three) |
+|---|---|---|---|---|---|---|---|
+| Fed | 13 | 11 | 0 | +2.99% | 0.96% | 0.962 | 27% |
+| ECB, BoE, BoJ, BoC, RBA, RBNZ | 50 | 46 | 0 | +2.15% | 0.39% | 0.969 | 6.5% |
+| BoK, Brazil, Mexico, Colombia, Russia, Israel, PBoC | 40 | 30 | **3** | −6.41% | 5.83% | 0.948 | — |
+| **all 15** | **103** | **87** | **3** | **−0.69%** | 2.05% | 0.961 | — |
+| entries at 0.90–0.95 | | 26 | 3 | −5.15% | 6.86% | 0.921 | — |
+| entries at ≥ 0.95 | | 61 | 0 | +1.21% | 0.17% | 0.978 | 4.9% |
+
+The three losses are real decisions, not data errors:
+
+- **Colombia, Apr 2026.** "Increase" was at 0.91 five days out; the bank held.
+- **Colombia, Jul 2026.** "Increase" was at 0.94 two days out; the bank held.
+- **Israel, Aug 2026.** "Hold" was at 0.90 a week out; the bank cut 25 bp.
+
+The G10 fires all came 72–168 h before the announcement date, 51 of them at
+168 h, so a mis-dated event cannot explain the G10 result.
+
+**Verdict.**
+
+1. **As written, the rule is not a central-bank rule.** Applied to every
+   bank Polymarket lists, it loses money: 3 losses in 87 fires is a 3.4%
+   loss rate against a ~2.4% breakeven, and the mean is −0.7%. The Fed's
+   18/18 is not evidence about central banks in general.
+2. **The G10 subset is where the property CLAUDE.md names holds.** That
+   property is a deep, liquid OIS/futures market pricing the identical
+   decision. Fed + ECB/BoE/BoJ/BoC/RBA/RBNZ give 57 fires with 0 losses at
+   +2.3% (se 0.4%), which tightens the loss-rate bound from 16% to 5.3%.
+   That is still about twice the breakeven.
+3. **The split was drawn after the losses were seen.** The rationale (where
+   the reference market is deep) is a priori, but the cut is not
+   pre-registered. The ≥ 0.95 cut is the same kind of finding. Neither is a
+   result until the forward record confirms it out of sample.
+4. **Getting the bound under breakeven takes a forward record.** About 130
+   G10 fires with no loss are needed. At ~50 fires a year (7 banks, ~8
+   meetings each, ~90% fire), that is about 2.5 years of recording.
+5. **The 0.80–0.90 band remains untested and is not a rule.** The ten
+   G10 rows in it all won (Fed 4, the others 6), but 3 of the 13 non-G10
+   rows lost.
+
+**What changes.** Nothing trades. CLAUDE.md's Fed bullet gains the
+G10/non-G10 finding. The obvious follow-up is extending the arb-scanner
+recorder to the six other G10 banks on Polymarket, Fed gates unchanged and
+record only. That would build the out-of-sample record about seven times
+faster than the Fed alone. It is a recorder change for the operator to
+approve, not done here.
