@@ -61,12 +61,17 @@ if [ -f "$LOGS/edge_log.csv" ] || [ -f "$LOGS/fv_trades.csv" ]; then
   chown -R sportsbot:sportsbot "$DEST"
   # Push them if this clone can push (a token in the remote URL or a
   # credential helper); otherwise say so, and they can be uploaded in chat.
-  if git -C "$APP" add polymarket-bot/v3-logs && git -C "$APP" -c user.name=server -c user.email=server@sportsbot \
-       commit -q -m "v3 paper logs from the server ($(date -u +%F))" 2>/dev/null && git -C "$APP" push -q origin "$BRANCH" 2>/dev/null; then
-    echo "  pushed to origin/$BRANCH"
+  git -C "$APP" add polymarket-bot/v3-logs
+  if git -C "$APP" -c user.name=server -c user.email=server@sportsbot \
+       commit -q -m "v3 paper logs from the server ($(date -u +%F))" 2>/dev/null; then
+    if git -C "$APP" push -q origin "$BRANCH" 2>/dev/null; then
+      echo "  pushed to origin/$BRANCH"
+    else
+      git -C "$APP" reset -q --soft HEAD~1   # undo ONLY the commit just made
+      echo "  NOT pushed (no git credentials on the server). Files are in $DEST — upload them in chat."
+    fi
   else
-    git -C "$APP" reset -q --soft HEAD~1 2>/dev/null || true
-    echo "  NOT pushed (no git credentials on the server). Files are in $DEST — upload them in chat."
+    echo "  logs unchanged since last run; nothing to commit"
   fi
 else
   echo "  no logs at $LOGS (edge_log.csv / fv_trades.csv); skipped"
