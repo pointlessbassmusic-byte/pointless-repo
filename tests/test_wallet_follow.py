@@ -117,3 +117,62 @@ def test_run_skips_games_whose_close_sits_at_the_rail():
     tapes = {"c1": wf.orient([_row(START - 50, "w", "T0", "BUY", 0.995)], g)}
     res = wf.run([g], tapes, train_frac=0.0)
     assert res["test_trades"] == 0 and res["population_test"] is None
+
+
+def test_maker_fill_crosses_in_both_frames_within_ttl_and_before_start():
+    g = _game()
+    trades = wf.orient([_row(START - 3000, "lead", "T0", "BUY", 0.50),   # YES taker at 0.50
+                        _row(START - 2900, "x", "T0", "BUY", 0.52),      # away from the rest
+                        _row(START - 2000, "x", "T1", "BUY", 0.52),      # home 0.48: through 0.49
+                        _row(START - 10, "x", "T0", "BUY", 0.45)], g)
+    rest = wf.maker_rest_price(trades[0])                                # 0.49
+    assert rest == pytest.approx(0.49)
+    assert wf.maker_fill(trades, 0, START, rest) == START - 2000
+    assert wf.maker_fill(trades, 0, START, rest, ttl=120.0) is None       # cancelled first
+    assert wf.maker_fill(trades, 0, START, rest, ttl=1800.0) == START - 2000
+    # a NO-side taker at 0.52 rests at 0.51 = a YES ask at 0.49: the 0.45
+    # print does not reach it, so no fill before the start
+    short = wf.orient([_row(START - 3000, "lead", "T1", "BUY", 0.52),
+                       _row(START - 2000, "x", "T0", "BUY", 0.45),
+                       _row(START + 5, "x", "T0", "BUY", 0.60)], g)   # in-play: never counts
+    assert wf.maker_rest_price(short[0]) == pytest.approx(0.51)
+    assert wf.maker_fill(short, 0, START, 0.51) is None
+    short2 = wf.orient([_row(START - 3000, "lead", "T1", "BUY", 0.52),
+                        _row(START - 2000, "x", "T0", "BUY", 0.49)], g)
+    assert wf.maker_fill(short2, 0, START, 0.51) == START - 2000
+    assert wf.maker_rest_price(wf.orient([_row(1, "w", "T0", "BUY", 0.015)], g)[0]) == 0.01
+
+
+def test_run_maker_copy_fills_only_when_the_tape_comes_back_through():
+    """The early wallet buys at 0.50; the tape reprices to 0.55, dips to
+    0.48 a thousand seconds later, and closes at 0.55. A maker copy one
+    tick under (0.49) fills on the dip -- so it fills under a 30-minute
+    or open-ended rest and never under the bot's 120 s cancel -- and the
+    fill's CLV is the close minus the rest, nothing more optimistic."""
+    games, tapes = [], {}
+    for i in range(20):
+        start = START + i * 86400
+        g = _game(cid=f"c{i}", home_won=(i % 2 == 0), start=start)
+        rows = [_row(start - 3000, "early", "T0", "BUY", 0.50),
+                _row(start - 2960, f"crowd{i}", "T0", "BUY", 0.55),
+                _row(start - 2000, f"crowd{i}", "T1", "BUY", 0.52),   # home 0.48
+                _row(start - 100, f"crowd{i}", "T0", "BUY", 0.55)]
+        games.append(g)
+        tapes[g.condition_id] = wf.orient(rows, g)
+    res = wf.run(games, tapes, train_frac=0.5, top=5, min_trades=5, delay=30.0)
+    m = res["by_mean_clv"]["maker"]
+    assert m["cancel 120 s"] == {"attempts": 10, "fills": 0, "fill_rate": 0.0,
+                                 "clv": None, "pnl": None, "median_fill_seconds": None}
+    assert m["cancel 30 min"]["fills"] == 10 and m["rest to start"]["fills"] == 10
+    assert m["rest to start"]["clv"]["mean"] == pytest.approx(0.55 - 0.49)
+    assert m["rest to start"]["median_fill_seconds"] == 1000.0
+    # population baseline over every test print: the early rest (0.49) and
+    # the 0.54 rest both fill on the dip; the away-side rest at 0.51 fills
+    # on the 0.55 close print 1900 s later (adverse: side close 0.45); the
+    # last print has nothing after it
+    pm = res["population_maker"]
+    assert pm["sampled_trades"] == 40 and pm["of"] == 40
+    assert pm["cancel 30 min"]["fills"] == 20 and pm["rest to start"]["fills"] == 30
+    assert pm["rest to start"]["clv"]["mean"] == pytest.approx((0.06 + 0.01 - 0.06) / 3)
+    text = wf.format_report(res, "baseball")
+    assert "maker copy, cancel 120 s" in text and "population maker baseline" in text

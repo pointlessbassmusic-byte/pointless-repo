@@ -169,6 +169,13 @@ Pipeline per cycle:
       the adverse selection a maker eats is real: the fill happens exactly when
       price moves through the order. Same crossing rule as the strict backtest
       (`core.books.print_crosses`).
+- [x] Result 15 (`wallet-follow --maker-ticks`, 2026-10-12): resting one
+      tick under MLB taker prints earns +0.6 pt CLV on fills (+1.1–1.8 pt
+      behind the best-CLV wallets), interval above zero — the first measured
+      positive CLV in the project — but every fill is a queue-priority fill
+      at the existing bid and one tick deeper the edge vanishes; tennis shows
+      none of it (2,000 games, intervals span zero). Rank 2's live
+      minimum-size maker order on MLB is now the measurement that matters.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
@@ -186,7 +193,12 @@ Ordered by what the evidence so far supports. Nothing here is funded; each
 item names the measurement that would move it, and the standing rules apply
 (paper first, judge by CLV, tighten-only capital, never martingale).
 
-1. **Rank 2: maker-only quoting, start on MLB** (report rank 2). Now
+1. **Rank 2: maker-only quoting, start on MLB** (report rank 2). Result
+   15 gives it the first positive measured number (+0.6 pt CLV per fill at
+   the touch, +1.1–1.8 behind informed flow) with one unmeasurable: the
+   fill share of a new order in the touch queue. The decisive experiment
+   is a minimum-size live maker order that records fill rate and CLV per
+   fill; it is the smallest capital question in the queue. Also
    measurable in paper: tape-verified fills produce `baseball/model/maker`
    and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
    CLV-graded fills, interval lower bound > 0). Gate on the sharp close once
@@ -196,11 +208,13 @@ item names the measurement that would move it, and the standing rules apply
    conservative) and Kalshi's liquidity program (OLIP: daily per-market
    payments for two-sided resting size), whose terms are to be read from the
    venue at the time, never assumed.
-2. **Informed-flow direction as a second signal** (from Result 14): the
+2. **Informed-flow direction as a second signal** (Results 14–15): the
    CLV-selected MLB taker wallets carry +1.0 pt; copying them as a taker
-   nets −0.7 pt, but their direction as an input to *where to rest* is
-   untested. Data-logged only until a backtest on the cached tapes shows
-   maker fills in that direction clear fees.
+   nets −0.7 pt; resting one tick under them collects +1.1 to +1.8 pt CLV
+   on the fills it gets (Result 15), about double the population maker
+   number. Confirmed as a *where-to-rest* input, data-logged only; the
+   open quantity is the fill share of a new order at the touch, which the
+   tape cannot give and the live minimum-size maker order in item 1 can.
 3. **Perk and promotion harvest** (assessed 2026-10-09; one-time, finite,
    operator-executed). Terms move, so re-verify every figure on the venue's
    own page before acting; the numbers below are what was read then.

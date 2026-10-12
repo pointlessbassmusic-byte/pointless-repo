@@ -17,6 +17,17 @@ reduces to two measurable questions on the public trade tape
    fee. Ranking on the same trades that are copied would be survivorship
    dressed as skill, so the split is by time and never revisited.
 
+3. **Is the flow a place to REST?** (added 2026-10-12, candidate queue
+   item 2.) The same selected-wallet trades, but instead of lifting the
+   next print the copier rests a bid `maker_ticks` under the wallet's
+   price on the same side and fills only if a later pre-start print
+   crosses it (`core.books.print_crosses`, the paper venue's rule), with
+   a cancel deadline of 120 s, 30 min, or none. No taker fee; the maker
+   rebate is ignored. The same rest-under-every-print rule over ALL test
+   trades is the population baseline: a crude flow-triggered market
+   maker. Fills happen only when price comes through the order, so the
+   adverse selection a maker eats is in the number, not assumed away.
+
 Everything is pre-game: the close is the last pre-start print, so an
 in-play trade has no closing line to be graded against, and a copier
 cannot match in-play latency in any case. Data only.
@@ -33,6 +44,8 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from sportsbot.backtest.polymarket_market import POST_RESULT_RAIL, PMGame
+from sportsbot.core.books import print_crosses
+from sportsbot.core.types import Side
 from sportsbot.signals.sharp import cluster_bootstrap_mean
 
 log = logging.getLogger(__name__)
@@ -40,6 +53,12 @@ log = logging.getLogger(__name__)
 DATA_API = "https://data-api.polymarket.com"
 TRADES_CACHE = "data/cache/polymarket_trades"
 PAGE = 1000
+TICK = 0.01
+# cancel deadlines for the maker copy: the bot's own TTL, a long rest, and
+# "until the game starts" (the upper bound the strict backtest uses)
+MAKER_TTLS: tuple[tuple[str, Optional[float]], ...] = (
+    ("cancel 120 s", 120.0), ("cancel 30 min", 1800.0), ("rest to start", None))
+POPULATION_MAKER_SAMPLE = 20_000
 
 
 @dataclass
@@ -174,6 +193,34 @@ def taker_fee(price: float, rate: float = 0.05) -> float:
     return rate * price * (1.0 - price)
 
 
+def maker_rest_price(trade: Trade, ticks: int = 1) -> float:
+    """Where a maker copy of `trade` rests, in the side frame: `ticks`
+    under the price the taker paid (the best ask at that moment), which
+    is the most that can be known about the book from the tape."""
+    rest = side_price(trade.p_home, trade.direction) - ticks * TICK
+    return min(0.99, max(0.01, round(rest, 4)))
+
+
+def maker_fill(trades: list[Trade], i: int, start_ts: int, rest: float,
+               ttl: Optional[float] = None) -> Optional[int]:
+    """Timestamp of the first later pre-start print that crosses a resting
+    bid for trade `i`'s side at `rest` (side frame), within `ttl` seconds
+    of the trade when given; None when nothing crossed. The crossing rule
+    is the paper venue's and the strict backtest's: a YES bid at L is met
+    by any print at or below L, a NO bid at L by any YES print at or
+    above 1 - L. Front of queue is implied, so fills are an upper bound."""
+    t0 = trades[i]
+    side = Side.YES if t0.direction > 0 else Side.NO
+    for t in trades[i + 1:]:
+        if t.ts >= start_ts:
+            return None
+        if ttl is not None and t.ts - t0.ts > ttl:
+            return None
+        if print_crosses(side, rest, t.p_home):
+            return t.ts
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Records and ranking
 # ---------------------------------------------------------------------------
@@ -229,10 +276,42 @@ def _ci(vals: list[float], clusters: list[str]) -> Optional[dict]:
     return cluster_bootstrap_mean(vals, clusters, n_boot=1000, seed=7)
 
 
+class _MakerTally:
+    """Fills, CLV and realised return of maker copies under one deadline."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+        self.clv: list[float] = []
+        self.pnl: list[float] = []
+        self.clusters: list[str] = []
+        self.wait: list[float] = []
+
+    def attempt(self, trades: list[Trade], i: int, game: PMGame, close: float,
+                rest: float, ttl: Optional[float]) -> None:
+        self.attempts += 1
+        t0 = trades[i]
+        ts = maker_fill(trades, i, game.start_ts, rest, ttl)
+        if ts is None:
+            return
+        won = game.home_won if t0.direction > 0 else not game.home_won
+        self.clv.append(side_price(close, t0.direction) - rest)
+        self.pnl.append(((1.0 - rest) / rest) if won else -1.0)
+        self.clusters.append(game.condition_id or game.token)
+        self.wait.append(float(ts - t0.ts))
+
+    def summary(self) -> dict:
+        n = len(self.clv)
+        waits = sorted(self.wait)
+        return {"attempts": self.attempts, "fills": n,
+                "fill_rate": (n / self.attempts) if self.attempts else None,
+                "clv": _ci(self.clv, self.clusters), "pnl": _ci(self.pnl, self.clusters),
+                "median_fill_seconds": (waits[n // 2] if n else None)}
+
+
 def run(games: list[PMGame], tapes: dict[str, list[Trade]],
         train_frac: float = 0.7, top: int = 20, min_trades: int = 20,
         delay: float = 30.0, fee_rate: float = 0.05,
-        half_spread: float = 0.005) -> dict:
+        half_spread: float = 0.005, maker_ticks: int = 1) -> dict:
     """The whole test. `tapes` maps game key (condition_id or token) ->
     oriented trades. Returns a dict of measured quantities; no verdict
     text, the caller formats."""
@@ -252,6 +331,30 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
     res["population_test_pnl"] = _ci([r.pnl_per_dollar for r in test_recs],
                                      [r.market for r in test_recs])
 
+    # Population maker baseline: rest `maker_ticks` under EVERY pre-game
+    # taker print on the test games (a deterministic subsample keeps the
+    # forward scans bounded), graded the same way.
+    pop_maker = {label: _MakerTally() for label, _ in MAKER_TTLS}
+    candidates = []
+    for g in test:
+        trades = tapes.get(g.condition_id or g.token, [])
+        close = venue_close(trades, g.start_ts)
+        if close is None:
+            continue
+        for i, t in enumerate(trades):
+            if t.ts >= g.start_ts:
+                break
+            candidates.append((g, trades, i, close))
+    stride = max(1, len(candidates) // POPULATION_MAKER_SAMPLE)
+    sampled = candidates[::stride]
+    for g, trades, i, close in sampled:
+        rest = maker_rest_price(trades[i], maker_ticks)
+        for label, ttl in MAKER_TTLS:
+            pop_maker[label].attempt(trades, i, g, close, rest, ttl)
+    res["population_maker"] = {"sampled_trades": len(sampled), "of": len(candidates),
+                               "ticks_under": maker_ticks,
+                               **{label: t.summary() for label, t in pop_maker.items()}}
+
     table = wallet_table(train_recs)
     res["train_wallets"] = len(table)
     res["train_wallets_eligible"] = sum(1 for d in table.values() if d["n"] >= min_trades)
@@ -265,6 +368,7 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
         copy_clv, copy_c, copy_pnl, skipped = [], [], [], 0
         copy_gross = []                      # close - next print, no costs
         per_wallet: dict[str, list[float]] = {}
+        maker = {label: _MakerTally() for label, _ in MAKER_TTLS}
         for g in test:
             k = g.condition_id or g.token
             trades = tapes.get(k, [])
@@ -282,6 +386,9 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
                 per_wallet.setdefault(t.wallet, []).append(own[-1])
                 own_pnl.append(((1.0 - side_price(t.p_home, t.direction))
                                 / side_price(t.p_home, t.direction)) if won else -1.0)
+                rest = maker_rest_price(t, maker_ticks)
+                for label, ttl in MAKER_TTLS:
+                    maker[label].attempt(trades, i, g, close, rest, ttl)
                 cp = copy_price(trades, i, delay, g.start_ts, half_spread)
                 if cp is None:
                     skipped += 1
@@ -302,6 +409,7 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]],
             "copies_skipped_no_later_print": skipped,
             "test_per_wallet": {w: {"n": len(v), "mean_clv": sum(v) / len(v)}
                                 for w, v in per_wallet.items()},
+            "maker": {label: t.summary() for label, t in maker.items()},
         }
     return res
 
@@ -312,6 +420,16 @@ def _fmt(d: Optional[dict]) -> str:
     if d["lo"] is None:
         return f"{d['mean']:+.4f} (n={d['n']})"
     return f"{d['mean']:+.4f} [{d['lo']:+.4f}, {d['hi']:+.4f}] n={d['n']} markets={d['clusters']}"
+
+
+def _fmt_maker(d: dict) -> str:
+    if not d["attempts"]:
+        return "no attempts"
+    rate = f"{100.0 * d['fill_rate']:.1f}%"
+    wait = ("" if d["median_fill_seconds"] is None
+            else f", median fill {d['median_fill_seconds']:.0f} s")
+    return (f"fills {d['fills']}/{d['attempts']} ({rate}{wait})  CLV {_fmt(d['clv'])}  "
+            f"return/$ {_fmt(d['pnl'])}")
 
 
 def format_report(res: dict, sport: str) -> str:
@@ -341,4 +459,13 @@ def format_report(res: dict, sport: str) -> str:
             top = ", ".join(f"{w[:6]}…×{v['n']} ({v['mean_clv']:+.4f})" for w, v in pw[:5])
             lines.append(f"  test trades by wallet: {len(pw)} active of {len(d['wallets'])}; "
                          f"busiest {top}")
+        for label, m in d.get("maker", {}).items():
+            lines.append(f"  maker copy, {label:14s} {_fmt_maker(m)}")
+    pm = res.get("population_maker")
+    if pm:
+        lines.append(f"population maker baseline: rest {pm['ticks_under']} tick(s) under every "
+                     f"pre-game taker print, {pm['sampled_trades']} of {pm['of']} test prints "
+                     f"sampled:")
+        for label, _ in MAKER_TTLS:
+            lines.append(f"  {label:14s} {_fmt_maker(pm[label])}")
     return "\n".join(lines)

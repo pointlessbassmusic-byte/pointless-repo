@@ -998,6 +998,99 @@ better. The maker variant also gained a strict fill model (a later
 pre-start taker print must trade through the resting bid, from the same
 tape), so "fills assumed" is no longer the only maker number.
 
+## Result 15 (Polymarket MLB): resting at the touch earns the spread — if you are at the front of the queue
+
+_2026-10-12 13:00–13:40Z. Candidate-queue item 2 from Result 14: the
+informed flow that cannot be copied across the spread — is it a place to
+REST? Same construction as Result 14 on the current 60-day window (635
+resolved MLB moneylines, 686,114 taker fills; train 444 / test 191 games
+by start time; `sportsbot wallet-follow --maker-ticks`). For every
+pre-game taker print the copier rests a bid one tick under the taker's
+price on the same side, and fills only when a later pre-start print
+crosses that level — the paper venue's rule (`core.books.print_crosses`),
+so this number and the live paper book agree by construction. Three
+cancel deadlines: the bot's 120 s, 30 minutes, and resting to the start.
+CLV is the close minus the rest; no taker fee; the 15% maker rebate is
+ignored. Front of queue is implied by the rule, which is the whole
+caveat and is quantified below._
+
+**Population baseline — rest one tick under every pre-game print**
+(27,185 of 54,369 test prints sampled, test-window taker CLV at own
+price −0.0015 [−0.0027, −0.0001]):
+
+| deadline | fill rate | median wait | CLV on fills | markets |
+|---|---|---|---|---|
+| 120 s | 20.9% | 30 s | **+0.0070 [+0.0058, +0.0082]** | 182 |
+| 30 min | 55.5% | 225 s | **+0.0061 [+0.0050, +0.0072]** | 191 |
+| to start | 83.4% | 688 s | **+0.0054 [+0.0040, +0.0066]** | 191 |
+
+Two ticks under instead of one: fills 0.7% / 5.1% / 25.3%, CLV −0.0099
+[−0.0176, +0.0072] / +0.0014 [−0.0095, +0.0112] / +0.0006 [−0.0032,
++0.0039]. The edge lives at the touch and nowhere deeper.
+
+**In the informed direction** (the 20 best-CLV wallets from the ranking
+window, 447 test trades; own-price CLV +0.0154, next-print +0.0125,
+taker copy −0.0044 — Result 14's numbers on the rolled window):
+
+| deadline | fills | median wait | CLV on fills | markets |
+|---|---|---|---|---|
+| 120 s | 92 / 447 (20.6%) | 10 s | **+0.0182 [+0.0151, +0.0201]** | 26 |
+| 30 min | 150 / 447 (33.6%) | 30 s | **+0.0163 [+0.0131, +0.0181]** | 42 |
+| to start | 213 / 447 (47.7%) | 238 s | **+0.0113 [+0.0063, +0.0140]** | 72 |
+
+The leaderboard wallets (ranked by realised profit) give +0.0045
+[+0.0002, +0.0089] / +0.0057 [+0.0028, +0.0085] / +0.0007 [−0.0030,
++0.0043] — the population number, as Result 14 would predict. Realised
+return per dollar on fills is noise everywhere (every interval spans zero
+except the informed rest-to-start, +0.63 [+0.03, +1.17] on 72 markets);
+judge by CLV.
+
+**What the fills actually are.** Of the 92 informed-direction fills under
+the 120 s deadline, 91 crossing prints were exactly *at* the rest level
+and 89 were opposite-direction takers: a seller hitting the bid seconds
+after the informed buyer lifted the ask. The rest therefore *joined* an
+existing bid queue in a one-tick book; it improved nothing, and the fill
+is credited only because the rule puts it at the front of that queue. The
+sample is also concentrated: one game supplied 38 of the 92 fills and two
+wallets 56. The population baseline has the same character with far more
+clusters (182–191 markets).
+
+**What this is.** The maker side of Result 14's "takers lose to makers":
+a resting order at the MLB touch collects about +0.6 pt of CLV when it
+fills, and +1.1 to +1.8 pt when it rests behind informed flow — the first
+measured, interval-bounded positive CLV in this project. And **what it is
+not**: a fill-rate estimate. Every fill here is a queue-priority fill at
+the existing bid, and one tick deeper the fills and the CLV both
+disappear. The tape cannot say what share of these a *new* order would
+get; the two-book sessions (Result 10) show the touch queue is where
+fills arrive when price is moving against you. On Kalshi the maker fee
+(0.0025 × 0.5 per MLB contract) would take ~0.12 pt of the 0.6.
+
+**Tennis (2,000 highest-volume resolved markets, 60 days, 1,922,093
+taker fills; train 1,400 / test 600).** Nothing. The population maker
+baseline one tick under every print fills 20.3% / 51.3% / 83.7% under
+the same deadlines and earns **−0.0035 [−0.0120, +0.0051] / −0.0005
+[−0.0075, +0.0052] / +0.0011 [−0.0038, +0.0051]** on 472–592 markets —
+the spread a tennis maker collects at the touch is eaten by adverse
+selection to within half a tick of zero. The 20 best-CLV wallets carry
+−0.0028 [−0.0263, +0.0179] at their own price out of sample (522
+trades; Result 14's "no persistent wallets" again), and resting behind
+them gives −0.0003 to −0.0049 with intervals ±2.5 pt. The MLB number is
+therefore a property of MLB's books — wider, slower, with informed
+clips to rest behind — not of resting orders in general, which is also
+what the two-book sessions say about the two sports.
+
+**What it changes.** Rank 2 moves from plausible to the only candidate
+with a positive measured number, conditional on queue position — and
+that condition is exactly what the minimum-size live maker order in
+"What this rules in and out" was proposed to measure: post at the touch,
+record fill rate and CLV per fill, size irrelevant. Informed-flow
+direction is confirmed as the second signal for *where* to rest (it
+roughly doubles the CLV per fill), data-logged, no stake of its own.
+Nothing here supports a taker trade, a model, or a larger stake; the
+paper book's tape-verified fills now measure the same quantity live, and
+the gate still needs 200 CLV-graded fills with the interval above zero.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
