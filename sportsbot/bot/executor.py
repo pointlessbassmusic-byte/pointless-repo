@@ -113,6 +113,12 @@ class Executor:
         )
         tracked.booked_fill = new_total_fill
 
+    def resting_sides(self, market_id: str) -> set[Side]:
+        """Sides with a tracked resting order on `market_id` (so a quoting
+        arm does not stack orders on a side it already rests)."""
+        return {t.order.side for t in self._open.values()
+                if t.order.market_id == market_id}
+
     # ------------------------------------------------------------------
     def reconcile_open_orders(self) -> None:
         """Refresh venue state for tracked resting orders; book any fills
