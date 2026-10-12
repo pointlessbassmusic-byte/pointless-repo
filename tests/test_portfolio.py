@@ -213,4 +213,4 @@ def test_dashboard_rows_are_funded_first_and_carry_the_gate_progress():
     rows = pf.summarise_for_dashboard(port)
     assert rows[0]["arm"] == "tennis/model/taker" and rows[0]["budget"] == 10.0
     assert 0.0 <= rows[0]["gate_progress"] <= 1.0
-    assert len(pf.RESULTS) == 12 and pf.RESULTS[-1][0] == "14"
+    assert len(pf.RESULTS) == 13 and pf.RESULTS[-1][0] == "15"

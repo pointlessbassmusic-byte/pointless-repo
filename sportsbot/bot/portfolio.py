@@ -391,6 +391,7 @@ RESULTS: tuple[tuple[str, str, str], ...] = (
     ("12", "crypto Up/Down", "DMI/ADX below a coin; spot fair value loses; complete sets are market making"),
     ("13", "other venues / arbitrage / HFT", "every class closed, fee-eaten, or a name-matching artefact"),
     ("14", "copying wallets", "informed MLB takers exist (+1.0 pt) but a copy nets −0.7 pt; tennis has none"),
+    ("15", "MLB maker at the touch", "resting 1 tick under taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone"),
 )
 
 
