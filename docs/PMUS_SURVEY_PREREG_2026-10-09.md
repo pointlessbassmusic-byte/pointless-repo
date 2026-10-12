@@ -54,3 +54,18 @@ tapes (`research/pinnacle_clv`, same name rules), the Kalshi last trade at
 the same T − 30 timestamp: median |gap| and each venue's Brier on the common
 set, Kalshi prints under 2 h old only (the stale-print lesson from
 `docs/PM_TENNIS_BOOKS_2026-10-08.md`).
+
+## Amendment 1 (2026-10-12, before any price history was pulled): scope and sample
+The metadata listing found 78,668 resolved match-winner markets in baseball
+(3,220), tennis (44,896) and table tennis (30,552) before the listing of the
+other sports was stopped by a runtime limit. Price history is one call per
+market, so:
+- **Scope** is the three sports the bot trades — baseball, tennis,
+  table_tennis. Football, basketball, hockey, MMA and esports are dropped
+  from this survey (a follow-up, not part of this verdict).
+- **Sample:** a uniform random sample of up to 6,000 markets per group
+  (`random.Random(7)` over the slug-sorted list); baseball is taken whole.
+- **Split:** the median `startDate` of the *sampled* universe, recorded in
+  `split.json` before any price is pulled.
+Rules, buckets, fee and pass bars are unchanged. Cells: 3 groups + ALL,
+3 rules each.
