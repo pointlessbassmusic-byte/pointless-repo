@@ -50,7 +50,13 @@ cp "$APP_DIR/deploy/sportsbot.service" /etc/systemd/system/sportsbot.service
 cp "$APP_DIR/deploy/weather-snapshot.service" /etc/systemd/system/weather-snapshot.service
 cp "$APP_DIR/deploy/sportsbot-sim.service" /etc/systemd/system/sportsbot-sim.service
 cp "$APP_DIR/deploy/sportsbot-board.service" /etc/systemd/system/sportsbot-board.service
+cp "$APP_DIR/deploy/sportsbot-prematch.service" /etc/systemd/system/sportsbot-prematch.service
+cp "$APP_DIR/deploy/sportsbot-lip.service" /etc/systemd/system/sportsbot-lip.service
+# pilot books: installed, never enabled here (docs/LIVE_PILOT_PLAN_2026-10-08.md)
+cp "$APP_DIR"/deploy/sportsbot-pilot*.service /etc/systemd/system/
 systemctl daemon-reload
+systemctl enable --now sportsbot-prematch  # keyless pre-match quote recorder; data only
+systemctl enable --now sportsbot-lip       # keyless Kalshi LIP recorder; data only
 systemctl enable sportsbot
 systemctl enable --now weather-snapshot   # read-only data collection; safe to start now
 systemctl enable --now sportsbot-sim      # $100 paper book on live markets; no real money

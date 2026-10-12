@@ -49,7 +49,8 @@ Then:
 | shadow LLM judge | `sportsbot-judge.service` → `/opt/sportsbot/data/judge.sqlite`; needs `pip install -e .[judge]` + `ANTHROPIC_API_KEY` in `.env`; ≤100 calls/day; score with `python -m sportsbot.signals.judge --evaluate` (data only, never trades) |
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
-| deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
+| deploy new code | `bash /opt/sportsbot/deploy/update_sportsbot.sh [branch]` — pulls, reinstalls, installs units, restarts the data-only recorders, runs the pilot preflights, copies the v3 logs |
+| pre-match quote recorder | `sportsbot-prematch.service` → `/opt/sportsbot/data/prematch.sqlite` (keyless; both venues; `python -m sportsbot.signals.prematch --report` scores the pre-registered T−30 forward test) |
 | weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |
 | weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 
