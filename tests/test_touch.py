@@ -74,14 +74,17 @@ def test_improve_needs_room_and_never_lets_the_two_sides_meet():
     assert i is None and "nowhere to improve" in why
     c2 = _cfg(improve=True, min_spread_ticks=2)
     assert "under 2 tick" in evaluate_touch(_market(), _quote(0.44, 0.45), c2, EMPTY, [], NO_FEE, now=NOW)[1]
-    # two ticks: YES improves to 0.45 (= the mid); NO must not also post at 1-0.45
-    i, _ = evaluate_touch(_market(), _quote(0.44, 0.46), c, EMPTY, [], NO_FEE, now=NOW)
-    assert i.side == Side.YES and i.price == pytest.approx(0.45)
-    i2, why2 = evaluate_touch(_market(), _quote(0.44, 0.46), c, EMPTY, [Side.YES], NO_FEE, now=NOW)
-    assert i2 is None and "two-tick book" in why2
-    # three ticks: both sides fit, one tick inside each
-    i3, _ = evaluate_touch(_market(), _quote(0.44, 0.47), c, EMPTY, [Side.YES], NO_FEE, now=NOW)
-    assert i3.side == Side.NO and i3.price == pytest.approx(0.54)
+    # two ticks: improving lands exactly on the mid, zero half-spread: refused
+    i, why = evaluate_touch(_market(), _quote(0.44, 0.46), c, EMPTY, [], NO_FEE, now=NOW)
+    assert i is None and "eats the half-spread" in why
+    # three ticks: both sides fit one tick inside, each with half a tick of edge
+    i3, _ = evaluate_touch(_market(), _quote(0.44, 0.47), c, EMPTY, [], NO_FEE, now=NOW)
+    assert i3.side == Side.YES and i3.price == pytest.approx(0.45) and i3.edge == pytest.approx(0.005)
+    i4, _ = evaluate_touch(_market(), _quote(0.44, 0.47), c, EMPTY, [Side.YES], NO_FEE, now=NOW)
+    assert i4.side == Side.NO and i4.price == pytest.approx(0.54) and i4.edge == pytest.approx(0.005)
+    # the two improved levels can never be the same level: a NO at 1-0.45 after
+    # a YES at 0.45 would match our own order
+    assert round(1.0 - i4.price, 4) > i3.price
 
 
 def test_every_gate_fails_closed():
