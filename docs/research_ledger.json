@@ -84,6 +84,13 @@
       "verdict": "FAIL",
       "result": "Polymarket matches the book close (Brier 0.2023 vs 0.2028, median 0.8c apart); 52 trades in 7 months; Kalshi and Polymarket identical at the same timestamp (1c median gap).",
       "doc": "docs/PM_TENNIS_BOOKS_2026-10-08.md"
+    },
+    {
+      "date": "2026-10-12",
+      "test": "Polymarket US calibration survey (baseball, tennis, table tennis; taker rules at T-30)",
+      "verdict": "FAIL",
+      "result": "Settle rate within ~1c of mid in every volume bucket; no taker cell passes both halves (tennis NO-on-longshots +3.8c only in the second half, first half negative); PM US and Kalshi 0.5c apart on the same tennis matches.",
+      "doc": "docs/PMUS_SURVEY_2026-10-12.md"
     }
   ]
 }
