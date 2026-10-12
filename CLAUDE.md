@@ -41,7 +41,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
   wired into trading without backtest/CLV evidence): `nws.py` (NWS point
   forecasts -> weather-arm baseline, lead-aware sigma, no-backfill rule),
   `chatter.py` (Bluesky public search chatter counts + correlation report;
-  Reddit deliberately not used — it refuses datacenter clients).
+  Reddit deliberately not used — it refuses datacenter clients),
+  `prematch.py` (keyless top-of-book recorder for both venues' match-winner
+  markets + the pre-registered T−30 forward test; the forward dataset for
+  any later test, so verdicts stop depending on venue price-history feeds).
 - `maker/` — standalone paper-only maker research scripts (L2 capture bot
   + replay optimizer), kept as verbatim consolidations with self-tests
   (`python3 maker/<file>.py --self-test`).

@@ -1,0 +1,15 @@
+[Unit]
+Description=sportsbot pre-match quote recorder (data only, never trades)
+After=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+WorkingDirectory=/opt/sportsbot
+# public endpoints only; no keys are read, no orders are ever placed
+ExecStart=/opt/sportsbot/.venv/bin/python -m sportsbot.signals.prematch --db /opt/sportsbot/data/prematch.sqlite --interval 300
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
