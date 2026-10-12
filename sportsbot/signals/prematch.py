@@ -55,13 +55,19 @@ SETTLE_AFTER_S = 6 * 3600
 
 class Recorder:
     def __init__(self, db_path: str, clients: dict, sports=("tennis", "baseball", "table_tennis"),
-                 interval: float = 300.0) -> None:
+                 interval: float = 300.0, horizon: float = 3 * 3600.0) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self.clients = clients            # venue name -> ExchangeClient (public reads)
         self.sports = tuple(sports)
         self.interval = interval
+        # Only markets starting within `horizon` are quoted: the forward test
+        # reads the snapshot nearest T - 30, and a market listed days ahead
+        # (hundreds of table-tennis slots at a time) would otherwise fill the
+        # database with quotes nothing reads. Markets with no known start
+        # cannot be placed at T - 30 at all, so they are not recorded.
+        self.horizon = horizon
         self._stop = threading.Event()
         self._lock = threading.Lock()
 
@@ -78,8 +84,8 @@ class Recorder:
                     continue
                 for m in markets:
                     start = int(m.start_time.timestamp()) if m.start_time else None
-                    if start is not None and start < now:
-                        continue               # started: not pre-match any more
+                    if start is None or start < now or start > now + self.horizon:
+                        continue               # unknown start, started, or too far out
                     try:
                         q = client.get_quote(m)
                     except Exception as exc:
@@ -212,6 +218,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     ap = argparse.ArgumentParser(description="Pre-match quote recorder (data only; never trades)")
     ap.add_argument("--db", default="data/prematch.sqlite")
     ap.add_argument("--interval", type=float, default=300.0)
+    ap.add_argument("--horizon", type=float, default=3 * 3600.0,
+                    help="only quote markets starting within this many seconds")
     ap.add_argument("--venues", default="polymarket_us,kalshi")
     ap.add_argument("--report", action="store_true", help="print the forward test and exit")
     ap.add_argument("--once", action="store_true")
@@ -234,7 +242,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             from sportsbot.exchanges.kalshi import KalshiClient
 
             clients[v] = KalshiClient(env="prod")
-    rec = Recorder(args.db, clients, interval=args.interval)
+    rec = Recorder(args.db, clients, interval=args.interval, horizon=args.horizon)
     if args.once:
         print(rec.snapshot_once(), "quotes;", rec.settle_once(), "settled")
         return

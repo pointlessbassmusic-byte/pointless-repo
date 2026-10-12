@@ -73,3 +73,14 @@ def test_nearest_snapshot_to_t_minus_30_wins(tmp_path):
     rec.settle_once(now=start + 10 * 3600)
     obs = observations(rec.conn)
     assert len(obs) == 1 and abs(obs[0]["mid"] - 0.45) < 1e-9
+
+
+def test_only_markets_starting_within_the_horizon_are_quoted(tmp_path):
+    t0 = 1_000_000
+    no_start = MarketInfo(exchange=Exchange.KALSHI, market_id="nostart", sport=Sport.TENNIS,
+                          home="A", away="B")
+    client = _Client([_m("soon", t0 + 3600), _m("far", t0 + 5 * 3600), no_start],
+                     {"soon": (0.4, 0.42), "far": (0.4, 0.42), "nostart": (0.4, 0.42)}, {})
+    rec = Recorder(str(tmp_path / "p.sqlite"), {"kalshi": client}, horizon=3 * 3600)
+    assert rec.snapshot_once(now=t0) == 1
+    assert [r[0] for r in rec.conn.execute("SELECT market_id FROM snapshots")] == ["soon"]

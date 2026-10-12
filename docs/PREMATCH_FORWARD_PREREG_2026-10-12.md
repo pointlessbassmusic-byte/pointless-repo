@@ -33,3 +33,11 @@ table) is descriptive.
   rule, not for it.
 - Expected run time to n = 150 at the current rate of ~60 pre-match tennis
   markets a day with ~7% longshots: roughly five weeks.
+
+## Amendment 1 (2026-10-12, before the recorder was deployed; no quote has been scored)
+The recorder quotes only markets with a known scheduled start within the
+next 3 hours (`--horizon`). The T − 30 observation is unaffected (it sits
+inside that window); what is dropped is the days-ahead table-tennis queue
+that would have grown the database by hundreds of megabytes a month, and
+Kalshi tennis markets, whose tickers carry no start time and therefore can
+never be placed at T − 30. Kalshi's descriptive leg of this test is MLB only.
