@@ -47,6 +47,18 @@ execution:
   min_entry_price: 0.15     # skip markets with mid outside this band
   max_entry_price: 0.85
 
+touch:                           # touch-maker arm (bot/touch.py; Result 15 / rank 2)
+  enabled: true                  # paper measurement of fills at the touch
+  sports: [baseball]             # MLB only: the one book where Result 15 found the edge
+  improve: false                 # join the touch (what was measured); true = one tick inside
+  min_spread_ticks: 1            # joining needs no room; improving needs 2+
+  max_spread: 0.10               # wider than this the touch is not a price
+  sides: both                    # both | yes | no (one side per cycle, never self-crossing)
+  stake_usd: 1.0                 # minimum size by design: this arm measures, it does not earn yet
+  max_stake_per_market: 4.0      # cost basis cap per market across both sides
+  min_minutes_to_start: 10
+  max_hours_to_start: 8
+
 positions:                       # open-position management (edge-driven, never loss-chasing)
   manage: true
   exit_edge: -0.05               # close when hold-EV sits this far below the exit value

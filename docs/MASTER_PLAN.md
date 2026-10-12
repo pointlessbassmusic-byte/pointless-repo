@@ -176,6 +176,13 @@ Pipeline per cycle:
       at the existing bid and one tick deeper the edge vanishes; tennis shows
       none of it (2,000 games, intervals span zero). Rank 2's live
       minimum-size maker order on MLB is now the measurement that matters.
+- [x] Touch-maker arm (`sportsbot/bot/touch.py`, `touch:` config block,
+      `<sport>/touch/maker` arm, 2026-10-12): the executable form of Result 15
+      — rest at the best bid/ask on MLB at $1 a side, one side per cycle,
+      never crossing, through the normal risk check, executor, CLV grading
+      and allocation gate. On in the $100 paper sim, off in the default
+      config; the live minimum-size fill-share test is pre-registered in
+      `docs/MAKER_TEST.md` and waits on the operator.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against

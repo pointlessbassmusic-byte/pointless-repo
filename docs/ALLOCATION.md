@@ -11,7 +11,7 @@ An **arm** is `sport/signal/style`:
 | part | values | meaning |
 |---|---|---|
 | sport | baseball, tennis, table_tennis | the market |
-| signal | `model` (Elo-family rating), `sharp` (Pinnacle-anchored fair value from the harness) | what prices the market |
+| signal | `model` (Elo-family rating), `sharp` (Pinnacle-anchored fair value from the harness), `touch` (no model: rest at the venue's touch at minimum size, `touch:` block; Result 15) | what prices the market |
 | style | `maker` (rest one tick inside the spread, no taker fee, rebate), `taker` (cross the spread, pay the fee) | how the order is placed |
 
 Every fill is tagged with its arm (`bets.arm`), so each arm accrues its

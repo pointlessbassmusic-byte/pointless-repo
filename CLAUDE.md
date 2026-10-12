@@ -31,7 +31,9 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches; fractional limits follow the live bankroll),
-  executor, arb, runner, `portfolio.py` (strategy ARMS `sport/signal/style`,
+  executor, arb, runner, `touch.py` (touch-maker arm: rests at the best
+  bid/ask at minimum size, no model; Result 15's live fill-share test,
+  `docs/MAKER_TEST.md`), `portfolio.py` (strategy ARMS `sport/signal/style`,
   per-arm evidence + gate, capital from manual weights → evidence → a
   bounded learning budget, tighten-only; operator file
   `config/allocation.yaml`; see `docs/ALLOCATION.md`).
