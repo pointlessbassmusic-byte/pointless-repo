@@ -77,6 +77,24 @@ class TouchConfig:
         return self.enabled and sport_key in self.sports
 
 
+def in_window(market: MarketInfo, cfg: TouchConfig, now: Optional[datetime] = None) -> tuple[bool, str]:
+    """Is the game inside [min_minutes_to_start, max_hours_to_start]? Cheap,
+    needs no book: the runner asks this before fetching a quote so a slate
+    of hundreds of far-dated books costs no venue calls."""
+    now = now or datetime.now(timezone.utc)
+    if market.start_time is None:
+        return False, "start time unknown — a touch order cannot rest into the game"
+    start = market.start_time
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    mins = (start - now).total_seconds() / 60.0
+    if mins < cfg.min_minutes_to_start:
+        return False, f"too close to start ({mins:.0f}m)"
+    if mins > cfg.max_hours_to_start * 60.0:
+        return False, f"start {mins / 60.0:.1f}h away — outside the quoting window"
+    return True, ""
+
+
 def evaluate_touch(
     market: MarketInfo,
     quote: MarketQuote,
@@ -117,16 +135,9 @@ def evaluate_touch(
         return None, (f"mid {mid:.3f} outside the tradable band "
                       f"[{cfg.min_entry_price:.2f}, {cfg.max_entry_price:.2f}]")
     now = now or datetime.now(timezone.utc)
-    if market.start_time is None:
-        return None, "start time unknown — a touch order cannot rest into the game"
-    start = market.start_time
-    if start.tzinfo is None:
-        start = start.replace(tzinfo=timezone.utc)
-    mins = (start - now).total_seconds() / 60.0
-    if mins < cfg.min_minutes_to_start:
-        return None, f"too close to start ({mins:.0f}m)"
-    if mins > cfg.max_hours_to_start * 60.0:
-        return None, f"start {mins / 60.0:.1f}h away — outside the quoting window"
+    ok, why = in_window(market, cfg, now)
+    if not ok:
+        return None, why
     held = float((exposure.get("by_market") or {}).get(market.market_id, 0.0))
     if held + cfg.stake_usd > cfg.max_stake_per_market + 1e-9:
         return None, (f"market cost basis {held:.2f} + {cfg.stake_usd:.2f} would pass "

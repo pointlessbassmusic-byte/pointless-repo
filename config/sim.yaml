@@ -49,8 +49,9 @@ execution:
 
 touch:                           # touch-maker arm (bot/touch.py; Result 15 / rank 2)
   enabled: true                  # paper measurement of fills at the touch
-  sports: [baseball, hockey, football]   # the books where Result 15 (+ addendum) found the edge;
-                                 # no model needed, so NHL/NFL quote without a sharp line. NBA: not measurable yet
+  # Paper: every game book the venue quotes with size, for fill-share evidence per sport
+  # (the measured edge is MLB/NHL/NFL; the rest is measurement, see docs/MASTER_PLAN.md).
+  sports: [baseball, hockey, football, basketball, tennis, soccer, esports, mma, college_football, cricket]
   improve: false                 # join the touch (what was measured); true = one tick inside
   min_spread_ticks: 1            # joining needs no room; improving needs 2+
   max_spread: 0.10               # wider than this the touch is not a price
@@ -95,7 +96,9 @@ risk:
 
 scan:
   interval_seconds: 300
-  sports: [baseball, basketball, football, hockey]           # tennis and table_tennis: see notes below
+  # Every game book Polymarket quotes with real size (2026-10-13 survey), for
+  # the touch arm's fill evidence; table_tennis stays out ($45 a day, empty books).
+  sports: [baseball, basketball, football, hockey, tennis, soccer, esports, mma, college_football, cricket]
 
 sports:
   tennis:
@@ -106,7 +109,11 @@ sports:
     # was a look-ahead (final volume) plus one-tick spreads that thin books
     # do not offer (Result 9). Re-enable only once Sackmann ratings exist AND
     # pass `sportsbot market-backtest tennis --exchange polymarket`.
-    enabled: false
+    # 2026-10-13: back ON for discovery only, `signal: touch` — no model is
+    # loaded, no model bet can happen; the touch arm rests $1 at the touch
+    # of the venue's $1.5M-a-day tennis books for fill-share evidence.
+    enabled: true
+    signal: touch
     best_of_default: 3
     surface_weight: 0.50        # blend: (1-w)*overall + w*surface (Tennis Abstract optimum)
     min_matches: 10             # skip players with fewer rated matches
@@ -143,6 +150,28 @@ sports:
   hockey:
     enabled: true
     signal: sharp
+
+  # Touch-only sports (2026-10-13 Polymarket survey: soccer and esports are
+  # the venue's largest game books; UFC, college football and cricket are
+  # one-tick books too). No model, no sharp key: `signal: touch` loads
+  # nothing and only the touch arm quotes them, in paper, for fill evidence.
+  # LoL already shows the one divergence to watch (CLV +0.6 pt per fill,
+  # realised return negative at 120 s): nothing here is funded.
+  soccer:
+    enabled: true
+    signal: touch
+  esports:
+    enabled: true
+    signal: touch
+  mma:
+    enabled: true
+    signal: touch
+  college_football:
+    enabled: true
+    signal: touch
+  cricket:
+    enabled: true
+    signal: touch
 
 storage:
   sqlite_path: data/sportsbot.sqlite
