@@ -29,6 +29,15 @@ row on the arm `<sport>/touch/maker`, graded against the venue close by
 the position manager and against the Pinnacle close by the sharp-line
 harness once `ODDS_API_KEY` is set.
 
+Every live order is **post-only** (a touch quote that would cross is
+rejected by the venue rather than filled as a taker) and carries a
+**venue-enforced expiry** of max(TTL + 60 s, 240 s) — Kalshi
+`expiration_time`, Polymarket `expiration` (the SDK's floor is 3 minutes).
+A crash, a host reboot or a failed cancel therefore cannot leave a quote
+resting into the game, where Result 21 shows the price moves seconds
+after each pitch and a resting order is what gets picked off. An order
+whose expiry could not fall a minute before the start is refused locally.
+
 Venue: **Kalshi** (US-legal; the maker fee is 0.0025 × 0.5 per
 contract, about 0.12 pt of the measured 0.6) or **Polymarket US** when
 it carries these moneylines. Never the main Polymarket CLOB from a US IP.

@@ -49,6 +49,20 @@ def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
             "ask_size": quote.asks[0].size if quote.asks else None}
 
 
+# Venue-side order lifetime: the local TTL cancels resting orders each
+# cycle, but a crashed process or a failed cancel would leave a quote
+# resting into the game, where faster watchers pick it off (EDGE_VERDICT
+# Result 21). Every order therefore carries a venue-enforced expiry a
+# little past the TTL. Polymarket's SDK requires >= 3 minutes ahead.
+VENUE_MIN_EXPIRY_S = 240.0
+EXPIRY_GRACE_S = 60.0
+EXPIRY_BEFORE_START_S = 60.0
+
+
+def venue_expiry(placed_at: datetime, ttl_seconds: float) -> datetime:
+    return placed_at + timedelta(seconds=max(ttl_seconds + EXPIRY_GRACE_S, VENUE_MIN_EXPIRY_S))
+
+
 class Executor:
     def __init__(self, exchange: ExchangeClient, store: Store, mode: str = "paper",
                  order_ttl_seconds: float = 120.0) -> None:
@@ -69,7 +83,7 @@ class Executor:
             market_id=market.market_id,
             token_id=token_id,
             side=intent.side,
-            order_type=OrderType.LIMIT,
+            order_type=OrderType.LIMIT_GTD,   # venue-expiring rest (venue_expiry)
             price=intent.price,
             size=intent.size,
         )
@@ -80,6 +94,9 @@ class Executor:
         )
         placed_at = datetime.now(timezone.utc)
         sport = market.sport.value if market.sport else "unknown"
+        order.expires_at = venue_expiry(placed_at, self.order_ttl)
+        # A resting maker quote must never cross and pay the taker fee.
+        order.post_only = (intent.reason or "").strip().endswith("maker")
         # What the maker test needs per order (docs/MAKER_TEST.md): which
         # arm posted it, the book it saw, and when. Persisted in `raw`.
         order.raw = {
@@ -89,6 +106,20 @@ class Executor:
             "start_time": market.start_time.isoformat() if market.start_time else None,
             "book": _book_snapshot(quote),
         }
+        start = market.start_time
+        if start is not None and start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        live_venue = not isinstance(self.exchange, PaperExchange)
+        if (live_venue and start is not None
+                and order.expires_at > start - timedelta(seconds=EXPIRY_BEFORE_START_S)):
+            # Fail closed: the venue could not expire it before the game.
+            # (Paper orders die with the process, so only real venues need it.)
+            order.status = OrderStatus.REJECTED
+            order.raw["error"] = "venue expiry would outlive the pre-game window"
+            log.warning("refused %s: expiry %s not before start %s",
+                        market.market_id, order.expires_at.isoformat(), start.isoformat())
+            self._persist_order(order)
+            return order
         if isinstance(self.exchange, PaperExchange):
             order = self.exchange.place_order(order, quote=quote, market=market,
                                               now=placed_at)

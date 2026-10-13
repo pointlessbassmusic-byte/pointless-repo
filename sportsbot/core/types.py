@@ -166,6 +166,11 @@ class Order(BaseModel):
     size: float = 0.0
     filled: float = 0.0
     status: OrderStatus = OrderStatus.PENDING
+    # Venue-enforced lifetime and maker-only flag (live venues; paper has its
+    # own TTL). A crashed process must not leave a quote resting into the
+    # game, where faster watchers pick it off (EDGE_VERDICT Result 21).
+    expires_at: Optional[datetime] = None
+    post_only: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     raw: dict[str, Any] = Field(default_factory=dict)

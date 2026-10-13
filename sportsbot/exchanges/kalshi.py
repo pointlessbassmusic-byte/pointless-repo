@@ -676,6 +676,10 @@ class KalshiClient(ExchangeClient):
             "client_order_id": order.client_id,
             "self_trade_prevention_type": "maker",
         }
+        if order.expires_at is not None and tif == "good_till_canceled":
+            body["expiration_time"] = int(order.expires_at.timestamp())
+        if order.post_only:
+            body["post_only"] = True
         try:
             resp = self._request_once(
                 "POST", f"{API_ROOT}/portfolio/events/orders", json_body=body, auth=True
