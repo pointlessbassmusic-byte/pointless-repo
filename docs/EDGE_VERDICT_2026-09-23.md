@@ -1643,3 +1643,66 @@ excluding zero.
 
 **What changes.** Nothing trades. The candidate queue's item 4 is closed.
 CLAUDE.md records the finding.
+
+## Result 22 (Kalshi MLB): the touch edge is there on the US-legal venue too, and the same queue caveat decides it
+
+_2026-10-13. `sportsbot/backtest/kalshi_touch.py` (`sportsbot kalshi-touch`).
+Result 15's construction on Kalshi's public tape, which the live maker
+test can actually use (Polymarket US publishes no keyless tape)._
+
+**Method.** This uses the 400 most recent settled `KXMLBGAME` games
+(2026-09 to the 2026-10-12 postseason). 398 matched MLB's schedule and
+396 had a tape, with a median of about 11,600 prints per game.
+- A maker rests a bid one tick under each pre-start taker print, on the
+  taker's side. 80,000 of these prints were sampled.
+- **Front of queue** (the paper venue's rule): a later print at or through
+  the rest fills it.
+- **Strict**: only a print strictly through the rest fills it, so the
+  level was swept and queue position cannot matter.
+- CLV is the side's close (the last pre-start print, refused at the rail)
+  minus the rest price. It is shown gross and net of
+  `kalshi_maker_fee_per_share`, the repo's deliberately non-zero default.
+- 95% intervals are clustered by game.
+
+**A leak found on the way.** The first run used the event ticker's time
+as first pitch and showed +3 to +4.5c per fill. One game carried +0.23
+per fill. The 2026-10-12 LAD@MIL ticker says 20:00 ET, but the game
+started at 21:00 UTC, so in-play prints were scored as the close. 7 of
+398 tickers ran 0.6–3.5 h late against MLB's scheduled first pitch
+(rescheduled doubleheader games and postseason times). The study now
+anchors on the earlier of the two. The live bot had the same exposure:
+the risk layer's pre-start cutoff and the touch arm's quoting window used
+the ticker. `bot/start_check.py` now pulls every baseball start to the
+earlier of the venue's time and MLB's schedule, and never later.
+
+**Result** (396 games):
+
+| deadline | fill rule | fill rate | CLV per fill, net of maker fee |
+|---|---|---|---|
+| 120 s | front of queue | 37.0% | **+0.80c [+0.70, +0.92]** |
+| 120 s | strict | 0.7% | +0.14c [−0.18, +0.47] |
+| 30 min | front of queue | 82.7% | **+0.91c [+0.77, +1.07]** |
+| 30 min | strict | 5.5% | +0.00c [−0.22, +0.23] |
+| to start | front of queue | 96.1% | **+0.93c [+0.80, +1.09]** |
+| to start | strict | 23.5% | −0.17c [−0.34, +0.01] |
+
+The gross figures are about 0.13c higher.
+
+**Reading.**
+1. **Kalshi pays the touch at least as well as Polymarket's main CLOB.**
+   At the front of the queue a resting order earns about +0.9c per fill
+   after the maker fee, against Result 15's +0.6c gross on Polymarket.
+   Kalshi's 1c MLB spread is the spread a maker collects.
+2. **The bracket is the same.** On fills that only a swept level
+   guarantees, the edge is zero within ±0.3c, and strict fills come only
+   once the price has moved through (adverse selection). The truth lies
+   between the two rows. Where it lies depends on the share of the touch
+   queue a new $1 order gets, which no tape can show.
+3. **The live test is worth running on Kalshi as well as Polymarket US.**
+   Kalshi has a public tape, so the fill-share denominator (`tape_through`)
+   works there today. Polymarket US needs a websocket tape collector
+   first. A 1c-spread book pays a maker about 1c gross, and the fee takes
+   about 0.13c of it.
+
+**What changes.** No order logic changes. `docs/MAKER_TEST.md` cites the
+Kalshi number, and `bot/start_check.py` (above) is the one live-path fix.

@@ -474,7 +474,11 @@ item names the measurement that would move it, and the standing rules apply
    half-point, realised returns agreeing), so the test is not bounded by
    the MLB season; soccer is the promising unknown (a point of CLV on 21
    outcome markets, sample growing in paper daily); esports are excluded on
-   realised returns; NBA is a December re-measurement. Also
+   realised returns; NBA is a December re-measurement. Kalshi measured
+   2026-10-13 (EDGE_VERDICT Result 22, 396 MLB games): +0.80 to +0.93c per
+   fill net of its maker fee at the front of the queue, zero on strict
+   through-fills, so the live test can run there with a working
+   fill-share denominator today. Also
    measurable in paper: tape-verified fills produce `baseball/model/maker`
    and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
    CLV-graded fills, interval lower bound > 0). Gate on the sharp close once

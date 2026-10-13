@@ -529,6 +529,35 @@ def score_latency(days: int = typer.Option(45, help="resolved-market lookback"),
                                for x in sl.LAGS if x in r["resid"]}})
 
 
+@app.command("kalshi-touch")
+def kalshi_touch(games: int = typer.Option(400, help="most recent settled KXMLBGAME games"),
+                 sample: int = typer.Option(80_000, help="pre-start prints sampled")):
+    """Result 15's touch-maker baseline on Kalshi's public MLB tape: fill
+    rate and CLV per fill, front-of-queue and strict-through. Data only."""
+    _setup("config/default.yaml")
+    from datetime import timedelta
+
+    import httpx
+
+    from sportsbot.backtest import kalshi_touch as kt
+    from sportsbot.backtest import score_latency as sl
+    from sportsbot.backtest.kalshi_market import fetch_settled_games
+    from sportsbot.exchanges.kalshi import KalshiClient, kalshi_maker_fee_per_share
+
+    client = KalshiClient(env="prod")
+    gs = [g for g in fetch_settled_games(client, "KXMLBGAME") if g.start_ts][-games:]
+    if not gs:
+        console.print("no settled games")
+        return
+    sched = sl.schedule(gs[0].date - timedelta(days=2), gs[-1].date + timedelta(days=2),
+                        httpx.Client(timeout=60, headers=sl.UA))
+    anchored = kt.anchor_starts(gs, sched)
+    tapes = {g.home_ticker: kt.fetch_tape(client, g.home_ticker) for g in anchored}
+    anchored = [g for g in anchored if tapes.get(g.home_ticker)]
+    res = kt.run(anchored, tapes, lambda p, t: kalshi_maker_fee_per_share(t), sample=sample)
+    console.print(kt.format_report(res, "net of kalshi_maker_fee_per_share"))
+
+
 @app.command("updown-maker")
 def updown_maker(days: float = typer.Option(7.0, help="resolved BTC 5-minute windows to replay"),
                  workers: int = typer.Option(8, help="parallel fetches")):

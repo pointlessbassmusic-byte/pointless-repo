@@ -40,7 +40,10 @@ resting order is what gets picked off. An order whose expiry could not
 fall a minute before the start is refused locally.
 
 Venue: **Polymarket US** (preferred since 2026-10-13) or **Kalshi**, both
-US-legal. Never the main Polymarket CLOB from a US IP.
+US-legal. Kalshi's own tape now carries the same measurement (EDGE_VERDICT
+Result 22, 396 MLB games): +0.80 to +0.93c per fill net of its maker fee
+at the front of the queue, zero on strict through-fills. Kalshi has the
+public tape the fill-share denominator needs today. Never the main Polymarket CLOB from a US IP.
 
 Why Polymarket US first, from its own fee schedule and gateway
 (`sportsbot/exchanges/polymarket_us.py`, `exchange: polymarket_us`):
