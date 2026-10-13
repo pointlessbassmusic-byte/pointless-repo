@@ -35,6 +35,10 @@ Then:
 
 ## Operations
 
+Run every `sportsbot` command below from `/opt/sportsbot` (`cd /opt/sportsbot`
+first): the CLI resolves `config/default.yaml` against the working
+directory, and the service user cannot read `/root`.
+
 | task | command |
 |---|---|
 | status / PnL / calibration | `sudo -u sportsbot /opt/sportsbot/.venv/bin/sportsbot status` |
@@ -118,6 +122,19 @@ The page's sim/real switch is a **view** switch. It shows you a different
 book; it cannot start real trading, and it deliberately has no control that
 could. Real orders still require `mode: live` in config AND `SPORTSBOT_LIVE=1`
 in the environment, both set by hand on the host — see the gate below.
+
+## If `fit baseball` says the Stats API refused this host
+
+Measured on the Linode (2026-10-13): `/api/v1/schedule` answers `406 Not
+Acceptable` from that address on every variant tried (plain or browser
+headers, IPv4, HTTP/1.1), while `/api/v1/teams` answers 200 and the same
+schedule request succeeds from other networks. `sportsbot fit baseball`
+then installs the committed seed (`config/seeds/baseball.json`, refreshed by
+the daily check-in where the API answers) and says so in yellow. The sim's
+starting-pitcher and rest context also comes from that endpoint; when it
+fails the cycle logs `MLB context fetch failed` and prices without it. Both
+are degraded modes, not outages: the touch arm and the team sports are
+unaffected.
 
 ## One address for phone and desktop (with the arbitrage desk's Tailscale node)
 

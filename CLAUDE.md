@@ -99,8 +99,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
 
 - Polymarket main-CLOB order placement is geoblocked for US IPs; never add
   code that evades geoblocking. US-legal live venues: Polymarket US, Kalshi.
-- Sackmann tennis data is CC BY-NC-SA (non-commercial); MLB Stats API terms
-  permit personal/non-commercial use.
+- Sackmann tennis data is CC BY-NC-SA (non-commercial); the upstream GitHub
+  repos were removed in Sep 2026, so `data/tennis_data.py` falls through to
+  the `Aneeshers/tennis-sackmann-archive` mirror (same licence, snapshot
+  June 2026). MLB Stats API terms permit personal/non-commercial use; its
+  CDN wants a browser-like User-Agent from datacenter IPs (406 otherwise).
 - Table-tennis fast leagues carry documented match-fixing risk — their
   higher `min_edge_override` / lower stake caps are deliberate.
 
