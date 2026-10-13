@@ -380,6 +380,11 @@ def running_arms_for(cfg: dict) -> set[str]:
         signal = str(sc.get("signal", "model")).lower()
         if signal not in SIGNALS:
             raise ValueError(f"sports.{sport}.signal must be one of {SIGNALS}")
+        if signal == TOUCH_SIGNAL:
+            # `signal: touch` loads no model: only the touch block below can
+            # quote the sport, and it only ever rests. A touch/taker arm here
+            # was a phantom that took a paper budget share (2026-10-13).
+            continue
         out.add(arm_name(sport, signal, "taker"))
         if post:
             out.add(arm_name(sport, signal, "maker"))

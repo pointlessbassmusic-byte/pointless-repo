@@ -1116,16 +1116,33 @@ class Runner:
         Bounded by `max_wait` (default TTL + 10 s)."""
         ex = self.executor
         ttl = float(ex.order_ttl)
-        deadline = time.time() + (ttl + 10.0 if max_wait is None else float(max_wait))
         fills_before = len(self.store.all_bets(self.mode))
+        # Wait for the NEWEST order's TTL, not the oldest's: a touch-all cycle
+        # posts for minutes, and stopping at the first expiry left the late
+        # posts `open` when the process exited (2026-10-13: 20 of 30), to be
+        # swept as orphans without a tape shadow. Orders past their TTL are
+        # expired (and shadowed) as the loop goes, so each one's window ends
+        # at its own TTL.
+        if max_wait is not None:
+            deadline = time.time() + float(max_wait)
+        elif ex._open:
+            newest = max(t.placed_at for t in ex._open.values())
+            remaining = ttl - (datetime.now(timezone.utc) - newest).total_seconds()
+            deadline = time.time() + max(0.0, remaining) + 10.0
+        else:
+            deadline = time.time()
+        canceled = 0
         while ex._open and time.time() < deadline:
-            oldest = min(t.placed_at for t in ex._open.values())
-            if (datetime.now(timezone.utc) - oldest).total_seconds() >= ttl:
+            ex.reconcile_open_orders()
+            canceled += ex.expire_stale_orders()
+            if not ex._open:
                 break
             time.sleep(max(0.0, min(poll_seconds, deadline - time.time())))
-            ex.reconcile_open_orders()
         ex.reconcile_open_orders()
-        canceled = ex.expire_stale_orders()
+        canceled += ex.expire_stale_orders()
+        # Anything still resting (a failed cancel, or max_wait cut the wait
+        # short) is cancelled now with its shadow rather than left open.
+        canceled += ex.cancel_all_resting("drain_end")
         self._alert_new_fills(fills_before)
         return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
                 "canceled": canceled, "still_resting": len(ex._open)}

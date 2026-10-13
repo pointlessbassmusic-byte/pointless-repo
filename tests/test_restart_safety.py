@@ -161,3 +161,49 @@ def test_run_forever_stops_on_request_and_cancels_resting_orders(tmp_path, monke
     row = {o["client_id"]: o for o in r.store.all_orders()}[order.client_id]
     assert row["status"] == "canceled" and row["raw"]["canceled_reason"] == "shutdown"
     assert r.executor._open == {}
+
+
+def test_drain_waits_for_the_newest_order_and_leaves_nothing_open(tmp_path, monkeypatch):
+    """A touch-all cycle posts for minutes: the drain must wait for the newest
+    order's TTL and leave no order `open` (2026-10-13: 20 of 30 were left)."""
+    from sportsbot.bot.runner import Runner
+
+    r = Runner.__new__(Runner)
+    r.mode = "paper"
+    r.store = Store(str(tmp_path / "t.sqlite"))
+    r.exchange = PaperExchange(data_client=_Tape(), starting_balance=100.0)
+    r.executor = Executor(r.exchange, r.store, mode="paper", order_ttl_seconds=0.3)
+    old = _rest_one(r.executor)
+    # backdate the first order past its TTL, as if posted at the cycle's start
+    tr = next(iter(r.executor._open.values()))
+    tr.placed_at = tr.placed_at - timedelta(seconds=10)
+    young = _rest_one(r.executor, _market(market_id="m2", slug="lad-sd"))
+    monkeypatch.setattr(r, "_alert_new_fills", lambda before: 0)
+    out = r.drain_resting(poll_seconds=0.05)
+    assert out["still_resting"] == 0 and r.executor._open == {}
+    rows = {o["client_id"]: o for o in r.store.all_orders()}
+    for o in (old, young):
+        assert rows[o.client_id]["status"] in ("canceled", "filled")
+        assert rows[o.client_id]["status"] != "open"
+    # the young one was not cut short: it rested its own TTL before expiry
+    assert rows[young.client_id]["raw"].get("canceled_reason") != "drain_end"
+
+
+def test_drain_with_a_short_max_wait_cancels_the_rest_with_shadow(tmp_path, monkeypatch):
+    from sportsbot.bot.runner import Runner
+
+    r = Runner.__new__(Runner)
+    r.mode = "paper"
+    r.store = Store(str(tmp_path / "t.sqlite"))
+    class Quiet(_Tape):            # nothing prints: the order cannot fill
+        def recent_trades(self, market, since):
+            return []
+
+    r.exchange = PaperExchange(data_client=Quiet(), starting_balance=100.0)
+    r.executor = Executor(r.exchange, r.store, mode="paper", order_ttl_seconds=120.0)
+    o = _rest_one(r.executor)
+    monkeypatch.setattr(r, "_alert_new_fills", lambda before: 0)
+    out = r.drain_resting(poll_seconds=0.01, max_wait=0.02)
+    assert out["still_resting"] == 0
+    row = {x["client_id"]: x for x in r.store.all_orders()}[o.client_id]
+    assert row["status"] == "canceled" and row["raw"]["canceled_reason"] == "drain_end"
