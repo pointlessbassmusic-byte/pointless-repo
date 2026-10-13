@@ -214,6 +214,15 @@ Pipeline per cycle:
       /sportsbot` on the arbitrage desk's node — one private address for
       phone and desktop, no new auth surface. `deploy/DEPLOYMENT.md` has the
       commands; the webhook can be the desk's.
+- [x] Polymarket discovery: listing-date floor removed (2026-10-13). Gamma's
+      event `startDate` is the listing time; the 21-day floor hid every game
+      the venue listed early — this week's NHL slate (46 open moneylines for
+      Oct 13–18, listed Sep 16–21) and NFL week 7 (listed Sep 4–7). The sim's
+      "142 hockey dropped" on Oct 12 were the far-dated games only. Found by
+      the touch arm's read-only dry run (0 NHL games inside its 12 h window
+      at 07:00Z; 193 hockey markets and today's 23:00Z games after the fix).
+      Staleness stays per market on `gameStartTime`; volume ordering keeps
+      live games on the first page (offsets 0–4 measured).
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against

@@ -305,11 +305,12 @@ def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_g
     assert calls, "discovery made no request"
     p = calls[0]
     assert p["order"] == "volume24hr" and p["ascending"] == "false"
-    # The floor stays, but far enough back to keep events listed days ahead:
-    # Gamma's startDate is the listing time, not the game time.
-    from datetime import datetime, timedelta, timezone
-    assert datetime.fromisoformat(p["start_date_min"]).date() <= (
-        datetime.now(timezone.utc) - timedelta(days=14)).date()
+    # No listing-date floor: Gamma's startDate is the listing time, not the
+    # game time, and every floor so far has hidden a slate the venue listed
+    # early (2026-09-30 wild cards at "yesterday"; the 2026-10-13 NHL week
+    # and NFL week 7, listed 3-6 weeks ahead, at 21 days). Staleness is
+    # judged per market on gameStartTime instead.
+    assert "start_date_min" not in p
 
 
 def test_polymarket_discovery_keeps_games_listed_days_ahead_and_drops_finished_ones():
