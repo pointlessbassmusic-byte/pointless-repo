@@ -1321,11 +1321,12 @@ _The user asked for every game book, not only ours. First a survey of
 the top 2,000 Polymarket events by 24-hour volume (Gamma, 09:50Z), then
 the Result 15 construction on each book large enough to measure: the
 last 30 days of resolved markets, up to 150 per sport, train/test 70/30
-by start time, `wallet-follow --maker-ticks 1`. Champions League
-returned no resolved games because Gamma dates those events outside
-the scanner's end-date windows; EPL stands in for soccer (three-way
-books: each outcome is its own binary market and its own "game" here).
-Tapes truncated by 429s: LoL 2 pages, CS2 4, CFB 1, the rest none._
+by start time, `wallet-follow --maker-ticks 1`. Champions League had
+no matchday inside the 30-day window (its last resolved matches were
+2026-09-08 to 09-10; the next are 10-13 and 10-20/21), so it was run on
+60 days instead; soccer is three-way, so each outcome is its own
+binary market and its own "game" here. Tapes truncated by 429s: LoL 2
+pages, CS2 4, CFB 1, the rest none (retries added the same day)._
 
 **The venue, 2026-10-13** (24-hour volume on moneyline events; spread
 and touch size from live books sampled for the next 48 hours):
@@ -1355,6 +1356,9 @@ test games only, intervals clustered by market:**
 | College football | 150 (45) | 120 s | 13.7% | **+0.0053 [+0.0020, +0.0084]** | **+0.30 [+0.02, +0.55]** |
 | | | 30 min | 37.4% | **+0.0081 [+0.0033, +0.0121]** | +0.21 [−0.10, +0.57] |
 | | | to start | 65.2% | **+0.0053 [+0.0013, +0.0091]** | +0.19 [−0.03, +0.44] |
+| Champions League (per outcome, 60 d) | 96 (29; 26 with prints) | 120 s | 26.6% | **+0.0065 [+0.0019, +0.0111]** | −0.05 [−0.35, +0.21] |
+| | | 30 min | 70.6% | **+0.0119 [+0.0040, +0.0203]** | −0.05 [−0.47, +0.27] |
+| | | to start | 92.7% | **+0.0118 [+0.0042, +0.0203]** | −0.05 [−0.48, +0.27] |
 | EPL (per outcome) | 69 (21) | 120 s | 22.9% | **+0.0100 [+0.0037, +0.0145]** | +0.05 [−0.41, +0.53] |
 | | | 30 min | 53.5% | **+0.0120 [+0.0032, +0.0186]** | −0.01 [−0.48, +0.42] |
 | | | to start | 89.8% | **+0.0137 [+0.0017, +0.0237]** | −0.05 [−0.48, +0.41] |
@@ -1380,10 +1384,15 @@ test games only, intervals clustered by market:**
    football carries the half point at every deadline with the realised
    return agreeing (positive, interval above zero at 120 s), and behind
    the best-CLV wallets it doubles to +0.0132 [+0.0109, +0.0158] on 63
-   fills — the MLB pattern exactly. EPL carries a full point of CLV per
-   fill on 20–21 outcome markets; its realised returns are too wide to
-   say anything (±0.45), which is a sample-size statement, not a
-   divergence. Dota 2 is small-positive on both yardsticks.
+   fills — the MLB pattern exactly. Soccer carries a point of CLV per
+   fill: EPL +1.0 to +1.4 on 21 outcome markets, Champions League +0.7
+   to +1.2 on 26, intervals above zero in both; their realised returns
+   are centred near zero on intervals of ±0.3 to ±0.5, which is a
+   sample-size statement, not a divergence (compare the esports rows,
+   where the return interval sits below zero on the same sample size).
+   Behind the best-CLV wallets the Champions League number rises to
+   +0.0170 [+0.0048, +0.0306] resting to start. Dota 2 is small-positive
+   on both yardsticks.
 2. *Fast esports books split the yardsticks.* League of Legends and
    Counter-Strike 2 show the same positive CLV per fill as everything
    else — and negative realised returns, with the 120-second interval
@@ -1403,9 +1412,12 @@ measured touch book; it is Saturday's slate and the live test can carry
 it once a Kalshi start time exists for NCAAF tickers (the harness key
 `americanfootball_ncaaf` is the missing piece). Soccer is the promising
 unknown: the venue's largest game books outside esports, a point of CLV
-on a small sample, and the paper sim now rests on every outcome of
-every UCL, EPL, La Liga, EFL and AFC CL match inside its window, so the
-sample grows daily. Esports stay paper-only with the divergence
+per fill on 47 outcome markets across two competitions with the
+realised return not yet readable, and the paper sim now rests on every
+outcome of every UCL, EPL, La Liga, EFL and AFC CL match inside its
+window, so the sample grows daily; it becomes a measured book when the
+return interval clears zero or 60 more outcome markets agree with the
+CLV. Esports stay paper-only with the divergence
 recorded in the arm's allocation comment. Tennis and NBA are quoted for
 fill-share evidence with no expectation of CLV. The binding caveat is
 unchanged everywhere: every fill here is a queue-priority fill at the
