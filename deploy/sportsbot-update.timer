@@ -1,0 +1,10 @@
+[Unit]
+Description=Run sportsbot-update daily after the morning check-in has committed the seed
+
+[Timer]
+OnCalendar=*-*-* 14:17:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

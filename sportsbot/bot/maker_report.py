@@ -84,6 +84,7 @@ def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> di
         "fill_share_contracts": (filled_shadowed / tape_contracts) if tape_contracts else None,
         "paper_self_check_mismatches": self_check,
         "by_status": {},
+        "orphaned": sum(1 for o in orders if (o.get("raw") or {}).get("orphaned")),
     })
     for o in orders:
         rep["by_status"][o["status"]] = rep["by_status"].get(o["status"], 0) + 1
@@ -183,7 +184,9 @@ def format_maker_report(rep: dict) -> str:
     share_o = rep["fill_share_orders"]
     share_c = rep["fill_share_contracts"]
     lines += [
-        f"  status: {rep['by_status']}",
+        f"  status: {rep['by_status']}"
+        + (f"  (orphaned by a restart, no shadow, excluded from the share: {rep['orphaned']})"
+           if rep.get("orphaned") else ""),
         f"  contracts posted {rep['contracts_posted']}, filled {rep['contracts_filled']} "
         f"({rep['orders_filled']} orders)",
         f"  tape shadow on {rep['orders_shadowed']} orders: the tape rule would have filled "

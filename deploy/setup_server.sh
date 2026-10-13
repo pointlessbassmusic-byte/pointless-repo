@@ -51,12 +51,15 @@ cp "$APP_DIR/deploy/weather-snapshot.service" /etc/systemd/system/weather-snapsh
 cp "$APP_DIR/deploy/sportsbot-sim.service" /etc/systemd/system/sportsbot-sim.service
 cp "$APP_DIR/deploy/sportsbot-board.service" /etc/systemd/system/sportsbot-board.service
 cp "$APP_DIR/deploy/sportsbot-boardserve.service" /etc/systemd/system/sportsbot-boardserve.service
+cp "$APP_DIR/deploy/sportsbot-update.service" /etc/systemd/system/sportsbot-update.service
+cp "$APP_DIR/deploy/sportsbot-update.timer" /etc/systemd/system/sportsbot-update.timer
 systemctl daemon-reload
 systemctl enable sportsbot
 systemctl enable --now weather-snapshot   # read-only data collection; safe to start now
 systemctl enable --now sportsbot-sim      # $100 paper book on live markets; no real money
 systemctl enable --now sportsbot-board    # rebuilds the dashboard HTML every minute
 systemctl enable --now sportsbot-boardserve  # board.html on localhost:8001 for Tailscale Serve
+systemctl enable --now sportsbot-update.timer  # daily pull + refit + restart of the PAPER units only
 
 echo "==> initial model fit (tennis + baseball; table tennis bootstraps from Polymarket)"
 # The CLI resolves config/default.yaml against the working directory, and

@@ -1,0 +1,9 @@
+[Unit]
+Description=sportsbot daily unattended update of the paper stack (never the live unit)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/sportsbot
+ExecStart=/bin/bash /opt/sportsbot/deploy/update.sh

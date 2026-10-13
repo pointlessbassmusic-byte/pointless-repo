@@ -252,6 +252,75 @@ class Executor:
                             order.order_id or client_id)
         return n
 
+    RESTING_STATUSES = ("pending", "open", "partial")
+
+    def cancel_all_resting(self, reason: str = "shutdown") -> int:
+        """Cancel every tracked resting order now, TTL or not, and record why
+        (`raw.canceled_reason`). The run loop calls this on SIGTERM so a
+        restart never strands a paper order in memory or a live order on
+        the venue. Each order still gets its tape shadow for the window it
+        actually rested. A failed cancel stays tracked and is reported."""
+        now = datetime.now(timezone.utc)
+        n = 0
+        for client_id, tracked in list(self._open.items()):
+            order = tracked.order
+            ok = self.exchange.cancel_order(order.order_id or client_id)
+            if not ok:
+                log.warning("shutdown cancel failed for %s", order.order_id or client_id)
+                continue
+            order.status = OrderStatus.CANCELED
+            order.raw = {**(order.raw or {}), "canceled_reason": reason}
+            self._tape_shadow(tracked, now)
+            self._persist_order(order)
+            self._open.pop(client_id, None)
+            n += 1
+        return n
+
+    def sweep_orphans(self) -> int:
+        """Startup: order rows the store still shows resting from a previous
+        process. Nothing in memory tracks them, so they would stay `open`
+        forever and the maker report would count them as live orders. Paper
+        rows are marked canceled/orphaned (the paper book they rested on
+        died with the process). In live mode the venue is asked for its
+        resting orders first and ours are cancelled there before the row is
+        closed; a venue order the store does not know is logged, never
+        touched. Orphaned rows carry no tape shadow (no market context) and
+        the report excludes them from the fill share."""
+        rows = [o for o in self.store.all_orders() if o.get("status") in self.RESTING_STATUSES
+                and o.get("client_id") not in self._open]
+        if not rows:
+            return 0
+        venue_open: dict[str, Order] = {}
+        if self.mode == "live":
+            try:
+                for vo in self.exchange.get_open_orders():
+                    venue_open[vo.order_id] = vo
+                    venue_open[vo.client_id] = vo
+            except Exception:
+                log.exception("sweep: venue open-orders lookup failed; closing rows locally only")
+        known_ids = {o.get("order_id") for o in rows} | {o.get("client_id") for o in rows}
+        for oid, vo in venue_open.items():
+            if oid not in known_ids:
+                log.warning("sweep: venue holds resting order %s the store does not know; left alone", oid)
+        n = 0
+        for o in rows:
+            vo = venue_open.get(o.get("order_id") or "") or venue_open.get(o.get("client_id") or "")
+            if vo is not None:
+                if not self.exchange.cancel_order(vo.order_id or vo.client_id):
+                    log.warning("sweep: venue cancel failed for %s; row left resting for retry", vo.order_id)
+                    continue
+            raw = dict(o.get("raw") or {})
+            raw.update({"orphaned": True, "canceled_reason": "orphaned_on_restart",
+                        "orphaned_at": datetime.now(timezone.utc).isoformat()})
+            self.store.record_order(
+                client_id=o["client_id"], order_id=o.get("order_id") or "", market_id=o["market_id"],
+                side=o["side"], price=float(o["price"]), size=float(o["size"]),
+                filled=float(o.get("filled") or 0.0), status=OrderStatus.CANCELED.value, raw=raw)
+            n += 1
+        if n:
+            log.warning("sweep: closed %d order row(s) orphaned by a previous process", n)
+        return n
+
     def settle_paper(self, market_id: str, yes_won: bool) -> float:
         if isinstance(self.exchange, PaperExchange):
             return self.exchange.settle(market_id, yes_won)
