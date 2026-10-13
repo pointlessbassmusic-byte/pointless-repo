@@ -263,6 +263,24 @@ def build_exchange(cfg: dict):
             contract, series multiplier applied)."""
             return kalshi_maker_fee_per_share(
                 market_id or "", data_client.fee_multiplier(market_id)) * shares
+    elif venue == "polymarket_us":
+        from sportsbot.exchanges.polymarket_us import PolymarketUSClient, taker_fee_us
+
+        # One client for data and orders: the public gateway needs no keys;
+        # orders need POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY and the
+        # live gate below. The venue publishes no keyless trade tape, so in
+        # paper mode resting orders here never fill (no tape, no fill).
+        data_client = PolymarketUSClient()
+
+        def fee_fn(price, shares, market_id=None):
+            """Taker 0.0695 x C x p x (1 - p) on every sport the client
+            discovers (table tennis' 0.10 is never listed here)."""
+            return taker_fee_us(price, shares)
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """Makers pay nothing on Polymarket US; the rebate (0.0125 coefficient
+            until 2026-10-19, volume tiers after) is ignored (conservative)."""
+            return 0.0
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 

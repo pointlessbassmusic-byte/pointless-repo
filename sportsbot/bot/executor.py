@@ -89,6 +89,7 @@ class Executor:
             "start_time": market.start_time.isoformat() if market.start_time else None,
             "book": _book_snapshot(quote),
         }
+        order.post_only = str(order.raw["arm"]).endswith("/maker")
         if isinstance(self.exchange, PaperExchange):
             order = self.exchange.place_order(order, quote=quote, market=market,
                                               now=placed_at)

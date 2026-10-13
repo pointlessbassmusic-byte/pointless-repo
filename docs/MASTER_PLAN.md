@@ -302,6 +302,22 @@ Pipeline per cycle:
       readable. NCAAF needs a Kalshi start
       time (`americanfootball_ncaaf` harness key) before the live test can
       carry it.
+- [x] Polymarket US venue client (2026-10-13, `exchanges/polymarket_us.py`,
+      `exchange: polymarket_us`). Measured first, keyless: its fee schedule
+      charges takers 0.0695 x C x p x (1 - p) and makers NOTHING (a 0.0125
+      rebate until 2026-10-19 13:00 ET, volume tiers after, zero below $10M
+      a month), every game carries `gameStartTime`, and its own books are
+      deep on team sports (NHL touch median 58,770 contracts, MLB 819,395,
+      CFB 167,521) and thin on tennis (80). Discovery by league series, one
+      moneyline per event (props, totals and spreads skipped), team names
+      canonical, MLB home from the side flagged home; books, settlement,
+      Ed25519-signed orders (YES-terms prices, `participateDontInitiate` from
+      the new `Order.post_only`, which the executor sets for maker arms),
+      cancel by slug, open orders, positions, balance; GETs retry on 429/5xx,
+      orders never. Paper mode on it cannot fill (no keyless trade tape); the
+      live test's tape shadow there needs a websocket collector, buildable
+      once keys exist. `docs/MAKER_TEST.md` now prefers this venue. Soccer is
+      not mapped (UCL events carry no moneyline type there).
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
