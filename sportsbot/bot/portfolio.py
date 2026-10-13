@@ -272,7 +272,11 @@ def allocate_arms(bankroll: float, cfg: dict, alloc: AllocationConfig,
             entry["source"] = "disabled in allocation.yaml"
         elif name not in running:
             entry["source"] = "not running: this signal/style is not what the config trades"
-        elif priceable is not None and parse_arm(name)[0] not in priceable:
+        elif (priceable is not None and parse_arm(name)[0] not in priceable
+              and parse_arm(name)[1] != TOUCH_SIGNAL):
+            # The touch arm rests at the venue's own price and needs no
+            # model: it runs in a sport nothing else can price (NHL/NFL
+            # without a sharp line), so this gate does not apply to it.
             entry["source"] = ("nothing can price this sport right now "
                                "(no fitted ratings / no sharp lines on record)")
         elif setting.weight is not None:
@@ -407,7 +411,7 @@ RESULTS: tuple[tuple[str, str, str], ...] = (
     ("12", "crypto Up/Down", "DMI/ADX below a coin; spot fair value loses; complete sets are market making"),
     ("13", "other venues / arbitrage / HFT", "every class closed, fee-eaten, or a name-matching artefact"),
     ("14", "copying wallets", "informed MLB takers exist (+1.0 pt) but a copy nets −0.7 pt; tennis has none"),
-    ("15", "MLB maker at the touch", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; tennis none"),
+    ("15", "maker at the touch (MLB, NHL, NFL)", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; NHL +0.4–0.6 and NFL +0.5–0.7 the same on 27/24 markets; tennis none; NBA not measurable yet (11 pre-season markets)"),
 )
 
 

@@ -314,6 +314,43 @@ def sharp_snapshot(config: str = CONFIG_OPT,
     console.print(coll.snapshot(wanted, force=force))
 
 
+@app.command("digest")
+def digest(config: str = CONFIG_OPT,
+           post: bool = typer.Option(False, help="also post to SPORTSBOT_DISCORD_WEBHOOK")):
+    """The daily three lines per book (equity, touch arm, distance to the
+    bar); `--post` sends them to the webhook when one is configured."""
+    cfg = _setup(config)
+    from sportsbot.bot import alerts
+    from sportsbot.bot.ledger import ACCOUNTS
+    from sportsbot.dashboard import edge_bar_rows, starting_balance
+    from sportsbot.data.store import Store
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    today_rows = [r for r in edge_bar_rows(store, "sim", days=1)]
+    touch = alerts.touch_today(store)
+    texts = []
+    for acct, mode in ACCOUNTS.items():
+        texts.append(alerts.digest_text(store, acct, mode, starting_balance(cfg, acct),
+                                        touch=touch if acct == "sim" else None,
+                                        edge_rows=today_rows if acct == "sim" else None))
+    text = "\n".join(texts)
+    console.print(text)
+    if post:
+        sent = alerts.notify("digest", text, dedupe_seconds=0.0)
+        console.print("posted" if sent else "not posted (no webhook configured, or it failed)")
+
+
+@app.command("board-serve")
+def board_serve(directory: str = typer.Option("data", help="where board.html is rendered"),
+                port: int = typer.Option(8001, help="localhost port for Tailscale Serve to proxy"),
+                host: str = typer.Option("127.0.0.1", help="bind address; keep it local")):
+    """Serve board.html / dashboard.html (nothing else) on localhost, for
+    `tailscale serve --set-path /sportsbot http://127.0.0.1:PORT`."""
+    from sportsbot.boardserve import serve
+
+    serve(directory=directory, port=port, host=host)
+
+
 @app.command("maker-report")
 def maker_report_cmd(config: str = CONFIG_OPT,
                      mode: str = typer.Option("paper", help="bets book to grade (paper | live)"),
@@ -356,7 +393,7 @@ def sharp_report(config: str = CONFIG_OPT,
 
 
 @app.command("wallet-follow")
-def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tennis"),
+def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tennis | hockey | basketball | football"),
                   days: int = typer.Option(60, help="resolved-market lookback"),
                   max_games: int = typer.Option(2000, help="highest-volume games kept"),
                   top: int = typer.Option(20, help="wallets followed"),

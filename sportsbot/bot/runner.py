@@ -33,6 +33,7 @@ from sportsbot.bot.positions import (
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
 from sportsbot.bot.ledger import account_equity, snapshot_equity
+from sportsbot.bot import alerts
 from sportsbot.bot.touch import TouchConfig, evaluate_touch
 from sportsbot.bot.portfolio import (
     allocate_arms,
@@ -69,6 +70,18 @@ SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
               "football": Sport.FOOTBALL, "hockey": Sport.HOCKEY}
 # Sports with no rating engine in this repo: only the sharp line can price them.
 SHARP_ONLY_SPORTS = ("basketball", "football", "hockey")
+
+
+class _Unpriced:
+    """A market the touch arm quotes without a prediction (no model, no
+    sharp line on record): what `_touch_pass` and the decision feed need
+    of a ScannedMarket, with `prediction` None."""
+
+    __slots__ = ("market", "prediction")
+
+    def __init__(self, market):
+        self.market = market
+        self.prediction = None
 
 
 def load_config(path: str = "config/default.yaml",
@@ -713,6 +726,24 @@ class Runner:
         except Exception:
             log.exception("exit decision record failed")
 
+    def _alert_new_fills(self, bets_before: int) -> int:
+        """One alert per cycle naming the fills booked since `bets_before`
+        (arm, side, price, size); nothing when there were none."""
+        try:
+            rows = self.store.all_bets(self.mode)
+            new = rows[bets_before:]
+            if not new:
+                return 0
+            parts = [f"{r.get('arm') or '?'} {r['side']} {float(r['size']):.2f} @ {float(r['entry_price']):.3f}"
+                     for r in new[:8]]
+            more = f" (+{len(new) - 8} more)" if len(new) > 8 else ""
+            alerts.notify("fill", f"[{self.mode}] {len(new)} fill(s): " + "; ".join(parts) + more,
+                          dedupe_seconds=0.0)
+            return len(new)
+        except Exception:
+            log.exception("fill alert failed")
+            return 0
+
     def _record_edge_bar(self, edge_seen: dict) -> None:
         """Fold this cycle's best edge per sport into today's row
         (`edgebar:<account>:<date>`), so the board can show how far the
@@ -737,6 +768,21 @@ class Runner:
             self.store.set_kv(key, row)
         except Exception:
             log.exception("edge-bar record failed")
+
+    def _touch_only_markets(self, drops) -> list:
+        """Markets the scanner dropped for want of a sharp line whose sport
+        the touch arm quotes anyway: it rests at the venue's own price and
+        needs no model. Every other drop category stays dropped."""
+        if not getattr(self.touch, "enabled", False):
+            return []
+        out = []
+        for d in drops:
+            if d.category != "no sharp line":
+                continue
+            key = d.market.sport.value if d.market.sport else None
+            if key and self.touch.runs(key):
+                out.append(d.market)
+        return out
 
     def _touch_pass(self, sm, quote, exposure: dict, strategy_cfg, summary: dict) -> bool:
         """The touch-maker arm's turn on one quoted market (bot/touch.py).
@@ -793,7 +839,7 @@ class Runner:
                 title=sm.market.slug or sm.market.market_id,
                 action=action,
                 side=intent.side.value if intent is not None else None,
-                model_prob=sm.prediction.prob_yes,
+                model_prob=sm.prediction.prob_yes if sm.prediction is not None else None,
                 market_prob=mid,
                 price=intent.price if intent is not None else None,
                 edge=intent.edge if intent is not None else None,
@@ -877,6 +923,7 @@ class Runner:
         summary = {"markets": 0, "scanned": 0, "dropped": 0, "intents": 0,
                    "orders": 0, "arbs": 0, "settled": 0, "exits": 0,
                    "blocked": None, "touch": {"posted": 0, "vetoed": 0, "skipped": {}}}
+        bets_before = len(self.store.all_bets(self.mode))
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
         summary["sharp_closes"] = self._sharp_backfill()
@@ -884,6 +931,7 @@ class Runner:
         if not ok:
             log.warning("cycle blocked by risk: %s", reason)
             summary["blocked"] = reason
+            alerts.notify("halt", f"[{self.mode}] cycle blocked: {reason}", dedupe_seconds=6 * 3600)
             return summary
         staking_cfg, strategy_cfg = self._cycle_configs()
 
@@ -985,8 +1033,26 @@ class Runner:
                 self._record_decision(sm, "skip", mid, intent=intent,
                                       reason="order rejected by venue")
 
+        # The touch arm needs no price: it also quotes the markets the
+        # scanner dropped for want of a sharp line in the sports it runs
+        # (NHL/NFL moneylines without ODDS_API_KEY), so the paper fill
+        # evidence keeps accruing when nothing else can price the slate.
+        for m in self._touch_only_markets(drops):
+            try:
+                quote = self.exchange.get_quote(m)
+            except Exception:
+                log.exception("quote failed for %s", m.market_id)
+                continue
+            quoted[m.market_id] = (m, quote)
+            self.store.snapshot_quote(m.market_id, quote.bid, quote.ask)
+            tally = summary.setdefault("touch", {"posted": 0, "vetoed": 0, "skipped": {}})
+            tally["unpriced"] = tally.get("unpriced", 0) + 1
+            if self._touch_pass(_Unpriced(m), quote, exposure, strategy_cfg, summary):
+                exposure = self.store.exposure_by()
+
         summary["exits"] = self._manage_positions(quoted, strategy_cfg)
         self._record_edge_bar(edge_seen)
+        self._alert_new_fills(bets_before)
 
         canceled = self.executor.expire_stale_orders()
         if canceled:
@@ -1021,6 +1087,7 @@ class Runner:
             ex.reconcile_open_orders()
         ex.reconcile_open_orders()
         canceled = ex.expire_stale_orders()
+        self._alert_new_fills(fills_before)
         return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
                 "canceled": canceled, "still_resting": len(ex._open)}
 

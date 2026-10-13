@@ -4,8 +4,11 @@ Result 15 (`docs/EDGE_VERDICT_2026-09-23.md`) measured that a bid resting
 one tick under MLB taker prints on Polymarket earns **+0.6 pt of
 closing-line value per fill** (+1.1 to +1.8 pt behind the best-CLV
 wallets), interval above zero, and that every one of those fills was a
-queue-priority fill at the existing bid. The tape cannot say what share
-of them a *new* order would get. That share is the only number standing
+queue-priority fill at the existing bid. Its 2026-10-13 addendum measured
+the same half-point on NHL (27 markets) and NFL (24) moneylines — the
+books in season once the World Series ends — and nothing measurable yet
+on NBA (11 pre-season markets). The tape cannot say what share of those
+fills a *new* order would get. That share is the only number standing
 between rank 2 of the research report and a funded arm, and it can only
 be measured with real resting orders. This page fixes the test before it
 runs so the answer cannot be argued with afterwards.
@@ -13,18 +16,24 @@ runs so the answer cannot be argued with afterwards.
 ## What runs
 
 The touch-maker arm (`sportsbot/bot/touch.py`, config block `touch:`):
-on each pre-game MLB moneyline with a two-sided book, rest **$1** at the
+on each pre-game MLB, NHL or NFL moneyline (`touch.sports`) with a
+two-sided book, rest **$1** at the
 best bid, then on the next cycle $1 at the best ask (`improve: false`,
 the configuration Result 15 measured), cancel after the bot's
 `order_ttl_seconds`, re-post while the window holds. One market holds at
 most `max_stake_per_market` ($4) of cost basis. Every fill is a `bets`
-row on the arm `baseball/touch/maker`, graded against the venue close by
+row on the arm `<sport>/touch/maker`, graded against the venue close by
 the position manager and against the Pinnacle close by the sharp-line
 harness once `ODDS_API_KEY` is set.
 
-Venue: **Kalshi** (US-legal; the maker fee is 0.0025 × 0.5 per MLB
+Venue: **Kalshi** (US-legal; the maker fee is 0.0025 × 0.5 per
 contract, about 0.12 pt of the measured 0.6) or **Polymarket US** when
-it carries MLB moneylines. Never the main Polymarket CLOB from a US IP.
+it carries these moneylines. Never the main Polymarket CLOB from a US IP.
+Kalshi's NHL and NFL tickers carry no start time, and the risk layer
+refuses an entry whose start it does not know; today that time comes
+from the sharp harness's commence field, so on Kalshi the NHL/NFL leg of
+this test needs `ODDS_API_KEY` as well as the venue keys. The paper sim
+on Polymarket has the start from Gamma and needs nothing.
 
 ## What is recorded, per resting order
 
