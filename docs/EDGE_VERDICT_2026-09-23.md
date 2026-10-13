@@ -1553,3 +1553,81 @@ recorded as `single_venue`, with a 1.5-day lead floor because of the late
 `endDate`, and scored separately. A bank whose Kalshi read fails is skipped
 for that cycle rather than treated as single-venue. This builds the
 out-of-sample record about seven times faster than the Fed alone.
+
+## Result 21 (Polymarket MLB in-play): the venue moves before the official feed; a feed-driven taker earns nothing
+
+_2026-10-13. `sportsbot/backtest/score_latency.py` (`sportsbot score-latency
+--days 45 --max-games 200 --out ...`); rows in
+`docs/SCORE_LATENCY_ROWS_2026-10-13.csv`. Candidate queue item 4._
+
+**Question.** Does Polymarket's in-play MLB price react to a run before
+MLB's official feed records it? If the feed comes first, a bot reading it
+could lift stale asks. If the venue comes first, in-play is a maker game
+at best.
+
+**Method.** The 200 highest-volume resolved Polymarket MLB moneylines of
+the last 45 days (regular-season close and the 2026 postseason, $0.47M to
+$2.9M volume each), matched to MLB gamePks on both team names and the
+nearest first pitch. Every run-scoring play from the GUMBO feed:
+- `t_pitch` is the start of the play's last pitch.
+- `t_feed` is the play's `endTime`. The archive's `feed/live/timestamps`
+  first carries the new score at exactly this stamp. I checked this on three
+  plays of the 2026-10-07 LAD@ATL game. It is the earliest any feed
+  consumer could know. Real delivery (CDN, polling) is later, so this choice
+  favours the feed.
+
+Prices come from the public taker tape, in the scoring team's frame:
+- pre-price is the median of the last 5 prints in the 3 minutes before the
+  pitch;
+- post-price is the median of the prints 1–4 minutes after `t_feed`;
+- a play counts if it moved the price at least 4c toward the scorer.
+
+The venue's reaction is the first print after the pitch that covers half
+the move. The taker residual at lag L is the post-price minus the first
+scoring-side print (a lifted ask) L seconds after `t_feed`, minus the
+0.05·p·(1−p) fee.
+
+The tape's timestamps are settlement times, a few seconds after the
+match, so venue times are late if anything.
+
+**Result.** 873 scoring plays in 198 games; the median move is 12c.
+
+| | plays | feed stamp after pitch | half-move after pitch | half-move vs feed | venue first |
+|---|---|---|---|---|---|
+| all | 873 | 14 s | 6 s | −8 s | 81% (67% by ≥ 5 s) |
+| home runs | 308 | 26 s | 5 s | −21 s | 97% |
+| other scoring plays | 565 | 12 s | 7 s | −5 s | 73% |
+| postseason only | 85 | 12 s | 6 s | −7 s | 88% |
+
+Left for a taker reading the feed, per $1 of price, net of fee, with a
+95% CI clustered by game:
+
+| lag after the feed stamp | all plays | jump ≥ 10c (selected on the outcome) |
+|---|---|---|
+| 0 s | −0.16c [−0.53, +0.20] | +0.65c [+0.15, +1.15] |
+| 5 s | −0.34c [−0.68, +0.01] | +0.37c [−0.09, +0.85] |
+| 30 s | −0.36c [−0.67, −0.03] | — |
+
+The postseason alone is worse for the taker: −1.6c at 0 s, with the CI
+excluding zero.
+
+**Reading.**
+1. **The venue moves first.** Half the move is in the tape a median 6 s
+   after the pitch, before the play is even stamped in the official record.
+   Home runs are stamped last (26 s, after the trot), and the venue
+   precedes the stamp on 97% of them. Someone watching the game (the TV
+   feed, or being in the stadium) is the price-setter.
+2. **Nothing is left for a feed reader.** At zero latency the
+   all-plays residual is zero within ±0.5c, and it is negative by 5–30 s.
+   The only positive cell is the ≥ 10c subset at 0 s. That subset is
+   selected on the post-price it is measured against, which biases it
+   upward, and it already needs a delivery delay no real feed achieves.
+   By 5 s it is gone.
+3. **Item 4 closes for MLB.** In-play is a maker game at best: a resting
+   quote is what gets picked off by the faster watcher. No in-play taker
+   code should be written. NBA is unmeasured, but the same mechanism
+   (TV-speed viewers ahead of the stat feed) applies; measure it with the
+   same script pattern before assuming otherwise.
+
+**What changes.** Nothing trades. The candidate queue's item 4 is closed.
+CLAUDE.md records the finding.

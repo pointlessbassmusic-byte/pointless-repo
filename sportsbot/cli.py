@@ -483,6 +483,52 @@ def maker_flow(sport: str = typer.Argument("baseball", help="baseball | tennis")
     console.print(mf.format_report(mf.run(games, tapes), sport))
 
 
+@app.command("score-latency")
+def score_latency(days: int = typer.Option(45, help="resolved-market lookback"),
+                  max_games: int = typer.Option(200, help="highest-volume games kept"),
+                  min_jump: float = typer.Option(0.04, help="smallest price move that counts"),
+                  out: str = typer.Option("", help="write the per-play rows to this CSV")):
+    """Does Polymarket's in-play MLB price move before the official feed
+    records a run, and what is left for a taker reading the feed? Data only."""
+    _setup("config/default.yaml")
+    import csv
+    from datetime import timedelta
+
+    import httpx
+
+    from sportsbot.backtest import score_latency as sl
+    from sportsbot.backtest import wallet_follow as wf
+    from sportsbot.backtest.polymarket_market import fetch_resolved
+
+    games = [g for g in fetch_resolved("baseball", days=days) if g.condition_id]
+    games = sorted(sorted(games, key=lambda g: -g.volume)[:max_games], key=lambda g: g.start_ts)
+    if not games:
+        console.print("no resolved games")
+        return
+    http = httpx.Client(timeout=60, headers=sl.UA)
+    sched = sl.schedule(games[0].date - timedelta(days=1), games[-1].date + timedelta(days=1), http)
+    feeds, tapes = {}, {}
+    for g in games:
+        pk = sl.match(g, sched)
+        feed = sl.fetch_feed(pk, http) if pk is not None else None
+        if feed:
+            feeds[g.condition_id] = feed
+            tapes[g.condition_id] = wf.orient(wf.fetch_trades(g.condition_id), g)
+    rows = sl.run(games, tapes, feeds, min_jump=min_jump)
+    console.print(sl.format_report(rows, len(feeds)))
+    if out:
+        fields = ["game", "event", "inning", "pre", "post", "jump", "feed_vs_pitch",
+                  "half_vs_pitch", "half_vs_feed"] + [f"resid_{int(x)}s" for x in sl.LAGS]
+        with open(out, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=fields)
+            w.writeheader()
+            for r in rows:
+                w.writerow({**{k: (round(r[k], 4) if isinstance(r[k], float) else r[k])
+                               for k in fields[:9]},
+                            **{f"resid_{int(x)}s": round(r["resid"][x], 4)
+                               for x in sl.LAGS if x in r["resid"]}})
+
+
 @app.command("updown-maker")
 def updown_maker(days: float = typer.Option(7.0, help="resolved BTC 5-minute windows to replay"),
                  workers: int = typer.Option(8, help="parallel fetches")):

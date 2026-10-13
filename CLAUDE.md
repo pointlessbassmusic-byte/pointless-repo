@@ -91,6 +91,7 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Live smoke (reads only, safe): `sportsbot scan`.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
+- In-play feed latency (MLB): `sportsbot score-latency` (network; Result 21).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Operator: `sportsbot digest [--post]` (daily lines, Discord webhook via
@@ -310,6 +311,12 @@ the outcome and fabricates longshot edge.
   source (the sharp-line harness) instead. Maker paired positions on crypto
   Up/Down windows lose in every configuration: the leg left unpaired is the
   loser by construction (0 of 701 won).
+- In-play MLB is not a feed race anyone outside the stadium wins
+  (EDGE_VERDICT Result 21, `sportsbot score-latency`): on 873 scoring plays
+  Polymarket's price covers half the move 6 s after the pitch, 8 s before
+  MLB's own feed stamps the play, and a taker reading the feed at zero
+  delay nets -0.16c per $1 (CI spans zero), going negative within 5 s.
+  Write no in-play taker code; NBA is unmeasured.
 - PnL from hundreds of bets cannot settle an edge claim: per-bet return SD on
   50c binaries is ~1.0, so 2% ROI needs ~10,000 bets (PR #22's power
   analysis). Closing-line value needs ~80-500 observations. Judge strategies

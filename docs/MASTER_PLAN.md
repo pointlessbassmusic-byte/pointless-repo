@@ -498,10 +498,14 @@ item names the measurement that would move it, and the standing rules apply
    - Build only if the operator wants it: a `docs/PERKS_LEDGER.md` with each
      offer's terms, cap, lock date and realised conversion, so the harvest is
      accounted like any other arm.
-4. **Score-feed latency measurement** before any in-play code: time-stamp
-   the first venue print after a scoring event against the official feed for
-   a week of MLB/NBA; if the venue moves first, in-play is a maker game at
-   best and the item closes.
+4. **Score-feed latency measurement** before any in-play code. **Closed
+   for MLB, 2026-10-13 (EDGE_VERDICT Result 21):** on 873 scoring plays in
+   200 games the venue's price covers half the move a median 6 s after the
+   pitch and 8 s before the official feed stamps the play (97% of home runs
+   are priced before the stamp). A taker reading the feed instantly nets
+   −0.16c [−0.53, +0.20] per $1, and it is negative by 5–30 s. In-play is a
+   maker game at best; write no in-play taker code. NBA is unmeasured
+   (`sportsbot score-latency` is the template).
 5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
    October, see the roadmap item above ($101/24h series volume this year).
 6. **Weather arm**: stays excluded (beats climatology, loses to the market,
