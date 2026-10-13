@@ -11,10 +11,10 @@ T0 = 1_800_000_000.0
 START = datetime.fromtimestamp(T0 + 3600, timezone.utc)
 
 
-def _mi(exchange, mid, home, away, sport=Sport.HOCKEY, start=START):
+def _mi(exchange, mid, home, away, sport=Sport.HOCKEY, start=START, close=None):
     return MarketInfo(exchange=exchange, market_id=mid, yes_token_id=f"{mid}-y", no_token_id=f"{mid}-n",
                       question="", slug=mid, sport=sport, home=home, away=away, start_time=start,
-                      close_time=None, active=True, tick_size=0.01, min_order_size=1, neg_risk=False)
+                      close_time=close, active=True, tick_size=0.01, min_order_size=1, neg_risk=False)
 
 
 def _q(mid, bid, ask, bq, aq):
@@ -49,6 +49,8 @@ class FakeUS:
 
 
 class FakePM:
+    quote = (0.48, 0.51, 900.0, 300.0)                         # main YES = the US short side
+
     def __init__(self, markets, prints=()):
         self.markets = markets
         self.prints = list(prints)
@@ -58,11 +60,15 @@ class FakePM:
         return [m for m in self.markets if m.sport.value == sport]
 
     def get_quote(self, m):
-        return _q(m.market_id, 0.48, 0.51, 900.0, 300.0)       # main YES = the US short side
+        return _q(m.market_id, *self.quote)
 
     def recent_trades(self, m, since):
         self.tape_calls.append(since)
         return [p for p in self.prints if p.ts >= since]
+
+
+class FakeKalshi(FakePM):
+    quote = (0.47, 0.50, 40.0, 25.0)
 
 
 def test_main_book_matches_on_names_and_start_not_on_names_alone():
@@ -80,6 +86,22 @@ def test_main_book_matches_on_names_and_start_not_on_names_alone():
     assert qs.match_main("baseball", us_mlb, [pm_mlb])[1] is True
 
 
+def test_kalshi_matches_on_names_and_a_close_shortly_after_the_us_start():
+    us = _mi(Exchange.POLYMARKET_US, "aec-nhl-nj-det", "New Jersey Devils", "Detroit Red Wings")
+    tonight = _mi(Exchange.KALSHI, "KXNHLGAME-26OCT13NJDET-DET", "Detroit Red Wings", "New Jersey Devils",
+                  start=None, close=START + timedelta(hours=3))
+    next_week = _mi(Exchange.KALSHI, "KXNHLGAME-26OCT20NJDET-DET", "Detroit Red Wings", "New Jersey Devils",
+                    start=None, close=START + timedelta(days=7, hours=3))
+    no_times = _mi(Exchange.KALSHI, "KX-X", "Detroit Red Wings", "New Jersey Devils", start=None)
+    k, same = qs.match_kalshi("hockey", us, [next_week, no_times, tonight])
+    assert k.market_id == "KXNHLGAME-26OCT13NJDET-DET" and same is False
+    assert qs.match_kalshi("hockey", us, [next_week, no_times]) is None
+    mlb_us = _mi(Exchange.POLYMARKET_US, "aec-mlb", "Cleveland Guardians", "Tampa Bay Rays", sport=Sport.BASEBALL)
+    mlb_k = _mi(Exchange.KALSHI, "KXMLBGAME-X-CLE", "cleveland guardians", "tampa bay rays",
+                sport=Sport.BASEBALL, start=START + timedelta(minutes=5))
+    assert qs.match_kalshi("baseball", mlb_us, [mlb_k])[1] is True    # Kalshi's own start, when it has one
+
+
 def test_sampler_stores_both_venues_in_the_us_long_frame_and_stops_at_the_start(tmp_path):
     clock = Clock()
     us_m = _mi(Exchange.POLYMARKET_US, "aec-nhl-nj-det", "New Jersey Devils", "Detroit Red Wings")
@@ -88,19 +110,28 @@ def test_sampler_stores_both_venues_in_the_us_long_frame_and_stops_at_the_start(
     pm_m = _mi(Exchange.POLYMARKET, "c1", "Detroit Red Wings", "New Jersey Devils")
     prints = [TapePrint(ts=datetime.fromtimestamp(T0 + 10, timezone.utc), price_yes=0.52, size=5.0),
               TapePrint(ts=datetime.fromtimestamp(T0 - 600, timezone.utc), price_yes=0.40, size=9.0)]
+    k_m = _mi(Exchange.KALSHI, "KXNHLGAME-NJDET-NJ", "New Jersey Devils", "Detroit Red Wings",
+              start=None, close=START + timedelta(hours=3))
     pm = FakePM([pm_m], prints)
-    s = qs.QueueSampler(str(tmp_path / "q.sqlite"), us=FakeUS([us_m, late]), pm=pm, clock=clock)
+    kalshi = FakeKalshi([k_m], [TapePrint(ts=datetime.fromtimestamp(T0 + 15, timezone.utc),
+                                          price_yes=0.46, size=7.0)])
+    s = qs.QueueSampler(str(tmp_path / "q.sqlite"), us=FakeUS([us_m, late]), pm=pm, kalshi=kalshi,
+                        clock=clock)
     assert s.discover(("hockey",), window_h=12) == 1                   # the 21 h game is outside
-    assert s.sample_once() == 2
+    assert s.sample_once() == 3
     conn = sqlite3.connect(str(tmp_path / "q.sqlite"))
     rows = {r[0]: r[1:] for r in conn.execute(
         "SELECT venue, bid, ask, bid_qty, ask_qty, traded, last_px FROM samples")}
     assert rows["us"] == (0.49, 0.50, 60000.0, 120000.0, 100.0, 0.49)
     # main YES (Detroit) bid 0.48 / ask 0.51 is a Devils bid 0.49 / ask 0.52, sizes swapped
     assert rows["pm"] == (pytest.approx(0.49), pytest.approx(0.52), 300.0, 900.0, None, None)
+    assert rows["kalshi"] == (0.47, 0.50, 40.0, 25.0, None, None)      # Kalshi YES = Devils: as is
+    assert conn.execute("SELECT k_ticker, k_yes_is_us_long, pm_yes_is_us_long FROM games").fetchone() == (
+        "KXNHLGAME-NJDET-NJ", 1, 0)
     clock.t = T0 + 20
-    assert s.store_tape(T0) == 1                                        # only prints after the run began
-    assert conn.execute("SELECT price, size FROM prints").fetchall() == [(pytest.approx(0.48), 5.0)]
+    assert s.store_tape(T0) == 2                                        # only prints after the run began
+    assert conn.execute("SELECT venue, price, size FROM prints ORDER BY venue").fetchall() == [
+        ("kalshi", 0.46, 7.0), ("pm", pytest.approx(0.48), 5.0)]
     clock.t = START.timestamp()
     assert s.sample_once() == 0                                         # started: pre-game only
     s.conn.close()
@@ -110,7 +141,8 @@ def test_run_loops_until_the_deadline_and_collects_the_tape_at_the_end(tmp_path)
     clock = Clock()
     us_m = _mi(Exchange.POLYMARKET_US, "aec-nhl-nj-det", "New Jersey Devils", "Detroit Red Wings")
     pm_m = _mi(Exchange.POLYMARKET, "c1", "New Jersey Devils", "Detroit Red Wings")
-    s = qs.QueueSampler(str(tmp_path / "q.sqlite"), us=FakeUS([us_m]), pm=FakePM([pm_m]), clock=clock)
+    s = qs.QueueSampler(str(tmp_path / "q.sqlite"), us=FakeUS([us_m]), pm=FakePM([pm_m]),
+                        kalshi=FakeKalshi([]), clock=clock)
     res = s.run(minutes=5, interval=30, sports=("hockey",), sleep=clock.sleep)
     assert res["games"] == 1 and res["passes"] == 10 and res["rows"] == 20
 
@@ -118,10 +150,12 @@ def test_run_loops_until_the_deadline_and_collects_the_tape_at_the_end(tmp_path)
 def _seed(path, us_rows, pm_rows=(), prints=(), start=T0 + 600):
     conn = sqlite3.connect(path)
     conn.executescript(qs.SCHEMA)
-    conn.execute("INSERT INTO games VALUES (1,'hockey','g','A','B',?,'c','y','n',1,?)", (start, T0))
+    conn.execute("INSERT INTO games(game_id,sport,us_slug,us_long,us_short,start_ts,pm_condition,"
+                 "pm_yes_token,pm_no_token,pm_yes_is_us_long,created_ts) "
+                 "VALUES (1,'hockey','g','A','B',?,'c','y','n',1,?)", (start, T0))
     conn.executemany("INSERT INTO samples VALUES (?,1,'us',?,?,?,?,?,?)", us_rows)
     conn.executemany("INSERT INTO samples VALUES (?,1,'pm',?,?,?,?,NULL,NULL)", pm_rows)
-    conn.executemany("INSERT INTO prints VALUES (1,?,?,?)", prints)
+    conn.executemany("INSERT INTO prints(game_id, ts, price, size) VALUES (1,?,?,?)", prints)
     conn.commit()
     conn.close()
 
@@ -156,3 +190,28 @@ def test_report_needs_a_sample_near_the_start_to_grade_clv(tmp_path):
     _seed(db, us, start=T0 + 7200)                           # last sample 2 h before the start
     u = qs.report(db, interval=30)["us"]["hockey"]
     assert u["through"] == 1 and u["clv_n"] == 0 and "clv_mean" not in u
+
+
+def test_a_log_written_before_kalshi_joined_migrates_and_still_reports(tmp_path):
+    db = str(tmp_path / "old.sqlite")
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE games (game_id INTEGER PRIMARY KEY, sport TEXT NOT NULL, us_slug TEXT NOT NULL UNIQUE,
+            us_long TEXT NOT NULL, us_short TEXT NOT NULL, start_ts REAL NOT NULL, pm_condition TEXT,
+            pm_yes_token TEXT, pm_no_token TEXT, pm_yes_is_us_long INTEGER, created_ts REAL NOT NULL);
+        CREATE TABLE samples (ts REAL NOT NULL, game_id INTEGER NOT NULL, venue TEXT NOT NULL,
+            bid REAL, ask REAL, bid_qty REAL, ask_qty REAL, traded REAL, last_px REAL);
+        CREATE TABLE prints (game_id INTEGER NOT NULL, ts REAL NOT NULL, price REAL NOT NULL,
+            size REAL NOT NULL);""")
+    conn.execute("INSERT INTO games VALUES (1,'hockey','g','A','B',?,'c','y','n',1,?)", (T0 + 600, T0))
+    conn.executemany("INSERT INTO samples VALUES (?,1,'pm',0.49,0.50,5,5,NULL,NULL)", [(T0,), (T0 + 30,)])
+    conn.execute("INSERT INTO prints VALUES (1,?,0.48,2)", (T0 + 10,))
+    conn.commit()
+    conn.close()
+    assert qs.report(db, interval=30)["pm_exact"]["hockey"]["through"] == 1   # old prints read as main's
+    us = _mi(Exchange.POLYMARKET_US, "g", "New Jersey Devils", "Detroit Red Wings")
+    k_m = _mi(Exchange.KALSHI, "KX-NJ", "New Jersey Devils", "Detroit Red Wings",
+              start=None, close=START + timedelta(hours=3))
+    s = qs.QueueSampler(db, us=FakeUS([us]), pm=FakePM([]), kalshi=FakeKalshi([k_m]), clock=Clock())
+    s.discover(("hockey",))
+    assert s.conn.execute("SELECT k_ticker FROM games WHERE us_slug='g'").fetchone() == ("KX-NJ",)

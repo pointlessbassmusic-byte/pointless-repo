@@ -18,9 +18,12 @@ level and came back inside one interval are missed, so the US count is a
 lower bound. Polymarket main is sampled the same way (its CLOB book) and its
 real taker tape is stored too, so the report gives main's count on both the
 coarse rule (like for like) and the exact rule (any print through).
+Kalshi, the other US-legal venue, is sampled the same way with its public
+tape; its NHL/NBA/tennis tickers carry no start time, so a Kalshi market is
+matched by names and a close time within 12 h after the US start.
 
 Every price is stored in the US venue's LONG frame (its outcomes[0]); a
-main-book market whose YES is the other team is flipped on the way in.
+reference market whose YES is the other team is flipped on the way in.
 """
 
 from __future__ import annotations
@@ -48,12 +51,14 @@ CREATE TABLE IF NOT EXISTS games (
     pm_yes_token TEXT,
     pm_no_token TEXT,
     pm_yes_is_us_long INTEGER,
-    created_ts REAL NOT NULL
+    created_ts REAL NOT NULL,
+    k_ticker TEXT,                     -- NULL when Kalshi lists no matching game
+    k_yes_is_us_long INTEGER
 );
 CREATE TABLE IF NOT EXISTS samples (
     ts REAL NOT NULL,
     game_id INTEGER NOT NULL,
-    venue TEXT NOT NULL,               -- 'us' | 'pm'
+    venue TEXT NOT NULL,               -- 'us' | 'pm' | 'kalshi'
     bid REAL, ask REAL, bid_qty REAL, ask_qty REAL,
     traded REAL,                       -- US cumulative sharesTraded; NULL for pm
     last_px REAL                       -- US lastTradePx; NULL for pm
@@ -63,14 +68,29 @@ CREATE TABLE IF NOT EXISTS prints (
     game_id INTEGER NOT NULL,
     ts REAL NOT NULL,
     price REAL NOT NULL,               -- US long frame
-    size REAL NOT NULL
+    size REAL NOT NULL,
+    venue TEXT NOT NULL DEFAULT 'pm'   -- 'pm' | 'kalshi' (taker tapes)
 );
 CREATE INDEX IF NOT EXISTS prints_game ON prints(game_id, ts);
 """
 
 SPORTS = ("hockey", "baseball", "basketball", "football", "college_football", "tennis")
+REFERENCES = ("pm", "kalshi")
 MATCH_START_TOLERANCE_H = 3.0     # same teams on another day is another game (playoff series)
+KALSHI_CLOSE_AFTER_START_H = 12.0  # Kalshi closes a game market a few hours after it starts
 EPS = 1e-9
+
+# Columns added after the first logs were written: (table, column, decl).
+MIGRATIONS = (("games", "k_ticker", "TEXT"), ("games", "k_yes_is_us_long", "INTEGER"),
+              ("prints", "venue", "TEXT NOT NULL DEFAULT 'pm'"))
+
+
+def _migrate(conn) -> None:
+    for table, col, decl in MIGRATIONS:
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if col not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    conn.commit()
 
 
 def _key(sport: str, name: str) -> str:
@@ -98,6 +118,28 @@ def match_main(sport: str, us_market, pm_markets) -> Optional[tuple]:
     return None
 
 
+def match_kalshi(sport: str, us_market, k_markets) -> Optional[tuple]:
+    """The Kalshi market for the same game: same two names, and its start
+    within MATCH_START_TOLERANCE_H of the US start or, with no start (NHL,
+    NBA, tennis tickers), its close inside KALSHI_CLOSE_AFTER_START_H after
+    it. Returns (Kalshi MarketInfo, k_yes_is_us_long)."""
+    names = frozenset((_key(sport, us_market.home), _key(sport, us_market.away)))
+    if len(names) != 2 or us_market.start_time is None:
+        return None
+    for k in k_markets:
+        if frozenset((_key(sport, k.home), _key(sport, k.away))) != names:
+            continue
+        if k.start_time is not None:
+            if abs((k.start_time - us_market.start_time).total_seconds()) > MATCH_START_TOLERANCE_H * 3600:
+                continue
+        elif k.close_time is None or not (
+                timedelta(0) < k.close_time - us_market.start_time
+                <= timedelta(hours=KALSHI_CLOSE_AFTER_START_H)):
+            continue
+        return k, _key(sport, k.home) == _key(sport, us_market.home)
+    return None
+
+
 def _flip(bid, ask, bq, aq, flip: bool):
     if not flip:
         return bid, ask, bq, aq
@@ -106,26 +148,39 @@ def _flip(bid, ask, bq, aq, flip: bool):
 
 
 class QueueSampler:
-    def __init__(self, db_path: str = "data/queue.sqlite", us=None, pm=None, clock=time.time):
+    def __init__(self, db_path: str = "data/queue.sqlite", us=None, pm=None, kalshi=None,
+                 clock=time.time):
         self.conn = sqlite3.connect(db_path)
         self.conn.executescript(SCHEMA)
+        _migrate(self.conn)
         self.us = us
-        self.pm = pm
+        self.refs = {"pm": pm, "kalshi": kalshi}
         self.clock = clock
-        self._games: dict[int, tuple] = {}      # game_id -> (us MarketInfo, pm MarketInfo|None, flip)
-        self._tape_since: dict[int, float] = {}
+        # game_id -> (us MarketInfo, {venue: (MarketInfo, flip)})
+        self._games: dict[int, tuple] = {}
+        self._tape_since: dict[tuple, float] = {}
 
     def _clients(self):
         if self.us is None:
             from sportsbot.exchanges.polymarket_us import PolymarketUSClient
             self.us = PolymarketUSClient()
-        if self.pm is None:
+        if self.refs["pm"] is None:
             from sportsbot.exchanges.polymarket import PolymarketClient
-            self.pm = PolymarketClient()
+            self.refs["pm"] = PolymarketClient()
+        if self.refs["kalshi"] is None:
+            from sportsbot.exchanges.kalshi import KalshiClient
+            self.refs["kalshi"] = KalshiClient(env="prod")      # public reads only
+
+    def _ref_markets(self, venue: str, sport: str) -> list:
+        try:
+            return self.refs[venue].list_sports_markets(sport)
+        except Exception as exc:  # noqa: BLE001 — a venue without the sport: sample the rest
+            log.info("%s discovery skipped for %s: %s", venue, sport, exc)
+            return []
 
     # ------------------------------------------------------------ discovery
     def discover(self, sports=SPORTS, window_h: float = 12.0) -> int:
-        """Every US moneyline starting within `window_h`, matched to main."""
+        """Every US moneyline starting within `window_h`, matched to main and Kalshi."""
         self._clients()
         now = datetime.fromtimestamp(self.clock(), timezone.utc)
         n = 0
@@ -139,33 +194,43 @@ class QueueSampler:
                           and now < m.start_time <= now + timedelta(hours=window_h)]
             if not us_markets:
                 continue
-            try:
-                pm_markets = self.pm.list_sports_markets(sport)
-            except Exception as exc:  # noqa: BLE001 — sample the US side alone
-                log.warning("main discovery failed for %s: %s", sport, exc)
-                pm_markets = []
+            pm_markets = self._ref_markets("pm", sport)
+            k_markets = self._ref_markets("kalshi", sport)
             for m in us_markets:
+                refs = {}
                 hit = match_main(sport, m, pm_markets)
-                pmm, same = hit if hit else (None, None)
+                if hit:
+                    refs["pm"] = (hit[0], not hit[1])
+                hit = match_kalshi(sport, m, k_markets)
+                if hit:
+                    refs["kalshi"] = (hit[0], not hit[1])
+                pmm, pflip = refs.get("pm", (None, None))
+                km, kflip = refs.get("kalshi", (None, None))
                 self.conn.execute(
                     "INSERT OR IGNORE INTO games(sport,us_slug,us_long,us_short,start_ts,pm_condition,"
-                    "pm_yes_token,pm_no_token,pm_yes_is_us_long,created_ts) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "pm_yes_token,pm_no_token,pm_yes_is_us_long,created_ts,k_ticker,k_yes_is_us_long) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sport, m.market_id, m.home or "", m.away or "", m.start_time.timestamp(),
                      pmm.market_id if pmm else None, pmm.yes_token_id if pmm else None,
-                     pmm.no_token_id if pmm else None, None if pmm is None else int(same), self.clock()))
+                     pmm.no_token_id if pmm else None, None if pmm is None else int(not pflip),
+                     self.clock(), km.market_id if km else None, None if km is None else int(not kflip)))
+                if km is not None:     # a game logged before Kalshi joined the study
+                    self.conn.execute("UPDATE games SET k_ticker=?, k_yes_is_us_long=? "
+                                      "WHERE us_slug=? AND k_ticker IS NULL",
+                                      (km.market_id, int(not kflip), m.market_id))
                 gid = self.conn.execute("SELECT game_id FROM games WHERE us_slug=?",
                                         (m.market_id,)).fetchone()[0]
                 if gid not in self._games:
-                    self._games[gid] = (m, pmm, pmm is not None and not same)
                     n += 1
+                self._games[gid] = (m, refs)
         self.conn.commit()
         return n
 
     # ------------------------------------------------------------ sampling
     def sample_once(self) -> int:
-        """One pass: US bbo + book, main book, for every game not yet started."""
+        """One pass: US bbo + book and each reference book, for every game not yet started."""
         rows = []
-        for gid, (um, pmm, flip) in self._games.items():
+        for gid, (um, refs) in self._games.items():
             if self.clock() >= um.start_time.timestamp():
                 continue                          # pre-game only: the touch arm stops at the start
             try:
@@ -176,39 +241,40 @@ class QueueSampler:
                              bbo.get("traded"), bbo.get("last_px")))
             except Exception as exc:  # noqa: BLE001 — a missing read is a missing row
                 log.debug("US read failed %s: %s", um.market_id, exc)
-            if pmm is not None:
+            for venue, (rm, flip) in refs.items():
                 try:
-                    pq = self.pm.get_quote(pmm)
-                    bid, ask, bq, aq = _flip(pq.bid, pq.ask, pq.bids[0].size if pq.bids else None,
-                                             pq.asks[0].size if pq.asks else None, flip)
-                    rows.append((self.clock(), gid, "pm", bid, ask, bq, aq, None, None))
+                    rq = self.refs[venue].get_quote(rm)
+                    bid, ask, bq, aq = _flip(rq.bid, rq.ask, rq.bids[0].size if rq.bids else None,
+                                             rq.asks[0].size if rq.asks else None, flip)
+                    rows.append((self.clock(), gid, venue, bid, ask, bq, aq, None, None))
                 except Exception as exc:  # noqa: BLE001
-                    log.debug("main read failed %s: %s", pmm.market_id, exc)
+                    log.debug("%s read failed %s: %s", venue, rm.market_id, exc)
         self.conn.executemany("INSERT INTO samples VALUES (?,?,?,?,?,?,?,?,?)", rows)
         self.conn.commit()
         return len(rows)
 
     def store_tape(self, start_ts: float) -> int:
-        """Main's taker prints since the last fetch (or `start_ts`), long frame,
-        for every game whose pre-start window is not yet fully stored."""
+        """Each reference venue's taker prints since the last fetch (or
+        `start_ts`), long frame, for every game whose pre-start window is not
+        yet fully stored."""
         n = 0
-        for gid, (um, pmm, flip) in self._games.items():
-            if pmm is None:
-                continue
-            since = self._tape_since.get(gid, start_ts)
-            if since >= um.start_time.timestamp():
-                continue
-            try:
-                prints = self.pm.recent_trades(pmm, datetime.fromtimestamp(since, timezone.utc))
-            except Exception as exc:  # noqa: BLE001
-                log.debug("tape failed %s: %s", pmm.market_id, exc)
-                continue
-            rows = [(gid, p.ts.timestamp(), round(1.0 - p.price_yes, 6) if flip else p.price_yes, p.size)
-                    for p in prints if p.ts.timestamp() > since]
-            self.conn.executemany("INSERT INTO prints VALUES (?,?,?,?)", rows)
-            if rows:
-                self._tape_since[gid] = max(r[1] for r in rows)
-            n += len(rows)
+        for gid, (um, refs) in self._games.items():
+            for venue, (rm, flip) in refs.items():
+                since = self._tape_since.get((gid, venue), start_ts)
+                if since >= um.start_time.timestamp():
+                    continue
+                try:
+                    prints = self.refs[venue].recent_trades(rm, datetime.fromtimestamp(since, timezone.utc))
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("%s tape failed %s: %s", venue, rm.market_id, exc)
+                    continue
+                rows = [(gid, p.ts.timestamp(), round(1.0 - p.price_yes, 6) if flip else p.price_yes,
+                         p.size, venue) for p in prints if p.ts.timestamp() > since]
+                self.conn.executemany(
+                    "INSERT INTO prints(game_id, ts, price, size, venue) VALUES (?,?,?,?,?)", rows)
+                if rows:
+                    self._tape_since[(gid, venue)] = max(r[1] for r in rows)
+                n += len(rows)
         self.conn.commit()
         return n
 
@@ -252,7 +318,8 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
     * through: intervals in which a print went strictly through the touch
       sampled at the interval's start (bid side below the bid, ask side above
       the ask) — a strict fill for a resting order at that touch. `us` and
-      `pm_coarse` use the last print per interval; `pm_exact` any print;
+      the `*_coarse` rules use the last print per interval, `*_exact` any
+      print (main and Kalshi publish full tapes);
     * pulled: the touch moved away (bid down, ask up) with no print through
       it — the level was cancelled, so an order left there would now sit
       alone at the front; fills from there are the adverse kind and are not
@@ -262,14 +329,17 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
       the closing mid for an ask fill; mean and se clustered by game.
     """
     conn = sqlite3.connect(db_path)
+    _migrate(conn)
     games = {g[0]: g for g in conn.execute("SELECT game_id, sport, start_ts FROM games")}
     acc: dict = defaultdict(lambda: {"games": set(), "hours": 0.0, "queue": [], "volume": 0.0,
                                      "intervals": 0, "through": 0, "pulled": 0, "clv": [], "clv_g": []})
     max_gap = 3.0 * interval
     for gid, sport, start_ts in games.values():
-        prints = conn.execute("SELECT ts, price, size FROM prints WHERE game_id=? ORDER BY ts",
-                              (gid,)).fetchall()
-        for venue in ("us", "pm"):
+        tapes: dict = defaultdict(list)
+        for ts, price, size, venue in conn.execute(
+                "SELECT ts, price, size, venue FROM prints WHERE game_id=? ORDER BY ts", (gid,)):
+            tapes[venue].append((ts, price, size))
+        for venue in ("us",) + REFERENCES:
             s = conn.execute("SELECT ts, bid, ask, bid_qty, ask_qty, traded, last_px FROM samples "
                              "WHERE game_id=? AND venue=? AND ts < ? ORDER BY ts",
                              (gid, venue, start_ts)).fetchall()
@@ -279,7 +349,7 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
             last = s[-1]
             if start_ts - last[0] <= close_within_s and last[1] is not None and last[2] is not None:
                 close = (last[1] + last[2]) / 2
-            rules = ("us",) if venue == "us" else ("pm_coarse", "pm_exact")
+            rules = ("us",) if venue == "us" else (f"{venue}_coarse", f"{venue}_exact")
             for rule in rules:
                 a = acc[(rule, sport)]
                 a["games"].add(gid)
@@ -293,15 +363,15 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
                     a["hours"] += dt / 3600
                     a["intervals"] += 1
                     if rule == "us":
-                        if prev[5] is None or cur[5] is None:
-                            continue
-                        vol = max(0.0, cur[5] - prev[5])
+                        vol = 0.0
+                        if prev[5] is not None and cur[5] is not None:
+                            vol = max(0.0, cur[5] - prev[5])
                         lasts = [cur[6]] if vol > 0 and cur[6] is not None else []
                     else:
-                        inside = [p for p in prints if prev[0] < p[0] <= cur[0]]
+                        inside = [p for p in tapes[venue] if prev[0] < p[0] <= cur[0]]
                         vol = sum(p[2] for p in inside)
                         prices = [p[1] for p in inside]
-                        lasts = prices[-1:] if rule == "pm_coarse" else prices
+                        lasts = prices[-1:] if rule.endswith("_coarse") else prices
                     a["volume"] += vol
                     bid_hit = any(p < prev[1] - EPS for p in lasts)
                     ask_hit = any(p > prev[2] + EPS for p in lasts)
@@ -334,15 +404,15 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
 
 
 def format_report(r: dict) -> str:
-    lines = ["rule       sport              games  mkt-h   touchQ   vol/h  through  /mkt-h  pulled   CLV/fill (n)"]
-    for rule in ("us", "pm_coarse", "pm_exact"):
+    lines = ["rule          sport              games  mkt-h    touchQ    vol/h  through  /mkt-h  pulled   CLV/fill (n)"]
+    for rule in ("us",) + tuple(f"{v}_{k}" for v in REFERENCES for k in ("coarse", "exact")):
         for sport, x in sorted(r.get(rule, {}).items()):
             clv = (f"{x['clv_mean']:+.4f} ± {x['clv_se']:.4f} ({x['clv_n']})"
                    if x.get("clv_n") else "—")
             q = x["touch_queue_median"]
             v = x["volume_per_hour"]
             per = x["through_per_market_hour"]
-            lines.append(f"{rule:10s} {sport:18s} {x['games']:5d} {x['market_hours']:6.1f} "
-                         f"{(q if q is not None else float('nan')):8,.0f} {(v if v is not None else float('nan')):7,.0f} "
+            lines.append(f"{rule:13s} {sport:18s} {x['games']:5d} {x['market_hours']:6.1f} "
+                         f"{(q if q is not None else float('nan')):9,.0f} {(v if v is not None else float('nan')):8,.0f} "
                          f"{x['through']:7d} {(per if per is not None else float('nan')):7.2f} {x['pulled']:7d}   {clv}")
     return "\n".join(lines)
