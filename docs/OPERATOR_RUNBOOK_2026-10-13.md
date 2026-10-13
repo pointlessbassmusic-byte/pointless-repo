@@ -7,6 +7,11 @@ a scheduled Routine) reads the results and proposes the next change. The
 only things that stay manual are the ones that should: funding, keys, and
 the decision to enable a real-money unit.
 
+Server: Linode `ubuntu-pointless`, Dedicated 4 GB, Newark, `97.107.138.196`
+(`ssh root@97.107.138.196`; LISH console `ssh -t PunchyBison@lish-us-east.linode.com ubuntu-pointless`
+is the back door if SSH is ever locked out). `/opt/sportsbot` is the bot;
+`/opt/pointless-repo` is the older engine suite.
+
 ## What you need on your computer
 
 Nothing to write code. Claude Code on the web (this session) writes, tests
@@ -48,6 +53,12 @@ git -C /opt/sportsbot fetch origin && echo OK
 If it prints `OK`, the server can pull. (If `/opt/sportsbot` does not exist
 yet, run `bash <(curl -sL https://raw.githubusercontent.com/pointlessbassmusic-byte/pointless-repo/main/deploy/setup_server.sh)`
 first, then come back here.)
+
+**Linode Cloud Firewall.** The Linode has a firewall ("Fire") on its public
+interface. GitHub Actions connects over SSH from changing IP addresses, so
+the inbound rule for TCP 22 must allow **all** sources (`0.0.0.0/0`), not
+just your home IP. Linode → Firewalls → Fire → Inbound Rules. Keep
+everything else closed; `fail2ban` is already installed by `setup_server.sh`.
 
 ## Phase 1 — One-time: bring the server up to this branch (5 min)
 
@@ -97,12 +108,20 @@ variables → Actions → New repository secret**:
 
 Then delete the private file from your laptop if you like; GitHub holds it.
 
-**2c. Test it.** GitHub → **Actions → deploy → Run workflow** (keep the
-default branch) → Run. Green means: from now on, every push Claude makes
-that passes the test suite is on the server within about two minutes, with
-no action from you. Then **Actions → telemetry → Run workflow**; green means
-a `telemetry` branch now exists with the server's reports under
-`telemetry/latest/`, refreshed every night at 09:17 UTC.
+**2c. Test it.** GitHub → **Actions → deploy → Run workflow**, choose the
+branch `claude/sports-betting-engine-consolidate-m5x0m9` → Run. Green
+means the whole chain works. Then **Actions → telemetry → Run workflow**
+(same branch); green means a `telemetry` branch now exists with the
+server's reports under `telemetry/latest/`.
+
+**2d. Put the workflows on `main`.** GitHub only fires *automatic* triggers
+(the after-tests deploy, the nightly telemetry schedule) for workflow files
+that exist on the default branch. Manual runs work from any branch, which is
+why 2c works, but hands-off operation needs this branch merged into `main`.
+Open the pull request GitHub offers ("Compare & pull request" on the repo
+page, or ask Claude to open it), check CI is green, merge. From then on:
+every push that passes tests is on the server within about two minutes,
+and telemetry refreshes nightly at 09:17 UTC, with no action from you.
 
 What the automation can and cannot do, by design:
 - It CAN pull code, reinstall, refresh units, restart the data-only
@@ -213,11 +232,12 @@ required. Code changes under `sportsbot/` should keep the click.
 | Symptom | Where to look | What to do |
 |---|---|---|
 | Kill switch tripped | `telemetry/latest/status_pilot.txt`, board banner | Read the drawdown; if you want to continue, `sportsbot reset-kill-switch -c config/pilot.yaml` on the server. Ask Claude to review first. |
-| Deploy workflow red | GitHub → Actions → deploy | Usually the SSH secret or the server's GitHub deploy key. Paste the log into Claude. |
+| Deploy workflow red | GitHub → Actions → deploy | Usually the SSH secret, the Linode firewall, or the server's GitHub deploy key. Paste the log into Claude. |
 | Doctor FAIL | its table | Paste the table into Claude. |
 | Recorder stopped | `telemetry/latest/services.txt` | `systemctl restart sportsbot-prematch` on the server; Claude reads `log_sportsbot-prematch.txt`. |
 | Want to pause everything | server | `systemctl stop sportsbot-pilot sportsbot-pilot-pmus`. Recorders can keep running. |
 | Want to change a sleeve by hand | `/opt/sportsbot/config/local.yaml` | `allocation: {manual: {tennis: 0.6, baseball: 0.4}, paused: [table_tennis]}`; restart the pilot unit. |
+| Locked out of SSH | Linode LISH console | `ssh -t PunchyBison@lish-us-east.linode.com ubuntu-pointless`, then fix `ufw`/the firewall. |
 
 ## Honesty note
 
