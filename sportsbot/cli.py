@@ -612,6 +612,35 @@ def twobook_report(db: str = typer.Option("data/twobook.sqlite"),
     console.print(format_report(report(db, step=step)))
 
 
+@app.command("queue-log")
+def queue_log(config: str = CONFIG_OPT,
+              minutes: float = typer.Option(120.0, help="how long to sample"),
+              interval: float = typer.Option(30.0, help="seconds between passes"),
+              sports: str = typer.Option("hockey,baseball,basketball,football,college_football,tennis"),
+              window_h: float = typer.Option(12.0, help="games starting within this many hours"),
+              db: str = typer.Option("data/queue.sqlite")):
+    """Sample Polymarket US (bbo + book) and Polymarket main (book + taker
+    tape) for every US moneyline about to start. Data only (substrate_bridge):
+    public reads, no keys, no orders. Answers whether a $1 order resting at
+    the touch is ever traded through before the start on each venue."""
+    _setup(config)
+    from sportsbot.substrate_bridge.queue_study import QueueSampler
+
+    res = QueueSampler(db).run(minutes=minutes, interval=interval, window_h=window_h,
+                               sports=tuple(s.strip() for s in sports.split(",") if s.strip()))
+    console.print(res)
+
+
+@app.command("queue-report")
+def queue_report(db: str = typer.Option("data/queue.sqlite"),
+                 interval: float = typer.Option(30.0, help="the log interval in seconds")):
+    """Touch queue, volume, strict fills per market-hour and CLV per fill,
+    Polymarket US against Polymarket main on the same games."""
+    from sportsbot.substrate_bridge.queue_study import format_report, report
+
+    console.print(format_report(report(db, interval=interval)), soft_wrap=True)
+
+
 @app.command("venue-survey")
 def venue_survey(sports: str = typer.Option("nfl,nba,nhl,ufc,tennis,mlb"),
                  out: str = typer.Option("", help="also dump the paired books to this JSON path")):
