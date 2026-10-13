@@ -223,6 +223,20 @@ Pipeline per cycle:
       at 07:00Z; 193 hockey markets and today's 23:00Z games after the fix).
       Staleness stays per market on `gameStartTime`; volume ordering keeps
       live games on the first page (offsets 0–4 measured).
+- [x] First Linode deploy of sportsbot (2026-10-13, operator-run): three
+      setup defects found and fixed the same hour. (1) `setup_server.sh` ran
+      the model fit from `/root`, which the service user cannot read
+      (PR #65). (2) The MLB Stats API answered 406 Not Acceptable to the
+      `sportsbot/1.0` agent from the Linode address while the same request
+      returned 200 elsewhere; the client now sends browser-like headers,
+      overridable with `SPORTSBOT_HTTP_USER_AGENT`. (3) Jeff Sackmann's
+      tennis repositories were removed from GitHub in September 2026 (every
+      year 404 on master and main), so `fit tennis` fell back to the Kalshi
+      bootstrap (1,529 matches, no surfaces); the downloader now falls
+      through to the `Aneeshers/tennis-sackmann-archive` mirror (CC BY-NC-SA
+      4.0, snapshot June 2026). Tennis is not in the sim; MLB is, and until
+      the fit succeeds on the box the sim drops MLB as "model unfit" and the
+      touch arm quotes NHL/NFL only.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against

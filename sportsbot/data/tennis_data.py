@@ -26,6 +26,22 @@ log = logging.getLogger(__name__)
 # File naming inside the repos is <tour>_matches_<year>.csv (atp_matches_2024.csv),
 # NOT <repo>_matches_<year>.csv. The repos' default branch is master.
 RAW_BASE = "https://raw.githubusercontent.com/JeffSackmann/{repo}/master/{tour}_matches_{year}.csv"
+# The upstream repositories were removed from GitHub in September 2026
+# (every year 404s on master and main; measured 2026-10-13). The archival
+# mirror below carries the same files under <tour>/, same CC BY-NC-SA 4.0
+# licence, snapshot taken from upstream commits of June 2026 -- so the
+# current season is partial after that month. Upstream is still tried
+# first in case it returns.
+MIRROR_BASES = (
+    "https://raw.githubusercontent.com/Aneeshers/tennis-sackmann-archive/main/{tour}/{tour}_matches_{year}.csv",
+    "https://huggingface.co/datasets/Aneeshers/tennis-sackmann-archive/resolve/main/{tour}/{tour}_matches_{year}.csv",
+)
+
+
+def candidate_urls(tour: str, year: int) -> list[str]:
+    """Where one year of one tour may be found, in the order to try."""
+    url = RAW_BASE.format(repo=f"tennis_{tour}", tour=tour, year=year)
+    return [url, url.replace("/master/", "/main/")] + [b.format(tour=tour, year=year) for b in MIRROR_BASES]
 
 SURFACES = ("Hard", "Clay", "Grass", "Carpet")
 
@@ -76,20 +92,20 @@ def normalize_player(name: str) -> str:
 def download_year(tour: str, year: int, cache_dir: str = "data/raw/tennis",
                   force: bool = False, timeout: float = 60.0) -> Optional[str]:
     """Fetch one year of one tour ('atp'|'wta'); returns local path or None."""
-    repo = f"tennis_{tour}"
     os.makedirs(cache_dir, exist_ok=True)
     path = os.path.join(cache_dir, f"{tour}_matches_{year}.csv")
     if os.path.exists(path) and not force:
         return path
-    url = RAW_BASE.format(repo=repo, tour=tour, year=year)
     resp = None
-    for candidate in (url, url.replace("/master/", "/main/")):
+    for candidate in candidate_urls(tour, year):
         try:
             resp = httpx.get(candidate, timeout=timeout, follow_redirects=True)
             if resp.status_code == 404:
                 resp = None
                 continue
             resp.raise_for_status()
+            if "sackmann-archive" in candidate:
+                log.info("tennis %s %s from the archival mirror (snapshot June 2026)", tour, year)
             break
         except httpx.HTTPError as exc:
             log.error("tennis download failed %s %s: %s", tour, year, exc)
