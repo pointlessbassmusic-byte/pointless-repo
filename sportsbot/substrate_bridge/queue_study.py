@@ -320,19 +320,27 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
       the ask) — a strict fill for a resting order at that touch. `us` and
       the `*_coarse` rules use the last print per interval, `*_exact` any
       print (main and Kalshi publish full tapes);
+    * touched: a print AT or through the touch — the paper venue's rule,
+      which implies front-of-queue (an upper bound on fills; Result 15's
+      edge was measured on it); `through` is the lower bound;
+    * queue_turnover_per_hour: volume per hour over the median touch queue —
+      how often the queue in front of a new order turns over, which decides
+      where real fills fall between the two bounds;
     * pulled: the touch moved away (bid down, ask up) with no print through
       it — the level was cancelled, so an order left there would now sit
       alone at the front; fills from there are the adverse kind and are not
       credited here;
     * clv: closing mid (the venue's last sample, when it is within
       `close_within_s` of the start) minus the bid for a bid fill, ask minus
-      the closing mid for an ask fill; mean and se clustered by game.
+      the closing mid for an ask fill; mean and se clustered by game, for
+      the strict fills (`clv_*`) and the at-or-through fills (`clv_at_*`).
     """
     conn = sqlite3.connect(db_path)
     _migrate(conn)
     games = {g[0]: g for g in conn.execute("SELECT game_id, sport, start_ts FROM games")}
     acc: dict = defaultdict(lambda: {"games": set(), "hours": 0.0, "queue": [], "volume": 0.0,
-                                     "intervals": 0, "through": 0, "pulled": 0, "clv": [], "clv_g": []})
+                                     "intervals": 0, "through": 0, "touched": 0, "pulled": 0,
+                                     "clv": [], "clv_g": [], "clv_at": [], "clv_at_g": []})
     max_gap = 3.0 * interval
     for gid, sport, start_ts in games.values():
         tapes: dict = defaultdict(list)
@@ -376,17 +384,22 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
                     bid_hit = any(p < prev[1] - EPS for p in lasts)
                     ask_hit = any(p > prev[2] + EPS for p in lasts)
                     a["through"] += int(bid_hit) + int(ask_hit)
+                    bid_at = any(p <= prev[1] + EPS for p in lasts)
+                    ask_at = any(p >= prev[2] - EPS for p in lasts)
+                    a["touched"] += int(bid_at) + int(ask_at)
                     if cur[1] is not None and cur[1] < prev[1] - EPS and not bid_hit:
                         a["pulled"] += 1
                     if cur[2] is not None and cur[2] > prev[2] + EPS and not ask_hit:
                         a["pulled"] += 1
                     if close is not None:
-                        if bid_hit:
-                            a["clv"].append(close - prev[1])
-                            a["clv_g"].append(gid)
-                        if ask_hit:
-                            a["clv"].append(prev[2] - close)
-                            a["clv_g"].append(gid)
+                        for hit, at, clv in ((bid_hit, bid_at, close - prev[1]),
+                                             (ask_hit, ask_at, prev[2] - close)):
+                            if hit:
+                                a["clv"].append(clv)
+                                a["clv_g"].append(gid)
+                            if at:
+                                a["clv_at"].append(clv)
+                                a["clv_at_g"].append(gid)
     out = {}
     for (rule, sport), a in sorted(acc.items()):
         row = {"games": len(a["games"]), "market_hours": round(a["hours"], 2),
@@ -394,25 +407,39 @@ def report(db_path: str = "data/queue.sqlite", interval: float = 30.0,
                "volume_per_hour": a["volume"] / a["hours"] if a["hours"] else None,
                "through": a["through"],
                "through_per_market_hour": a["through"] / a["hours"] if a["hours"] else None,
+               "touched": a["touched"],
+               "touched_per_market_hour": a["touched"] / a["hours"] if a["hours"] else None,
                "pulled": a["pulled"],
-               "clv_n": len(a["clv"])}
+               "clv_n": len(a["clv"]), "clv_at_n": len(a["clv_at"])}
+        if row["touch_queue_median"] and row["volume_per_hour"] is not None:
+            row["queue_turnover_per_hour"] = row["volume_per_hour"] / row["touch_queue_median"]
         if a["clv"]:
             m, se = _clustered(a["clv"], a["clv_g"])
             row.update(clv_mean=m, clv_se=se)
+        if a["clv_at"]:
+            m, se = _clustered(a["clv_at"], a["clv_at_g"])
+            row.update(clv_at_mean=m, clv_at_se=se)
         out.setdefault(rule, {})[sport] = row
     return out
 
 
 def format_report(r: dict) -> str:
-    lines = ["rule          sport              games  mkt-h    touchQ    vol/h  through  /mkt-h  pulled   CLV/fill (n)"]
+    def num(v, fmt):
+        return format(v, fmt) if v is not None else "—"
+
+    def clv(x, key):
+        n = x.get(f"{key}_n") or 0
+        return f"{x[f'{key}_mean']:+.4f} ± {x[f'{key}_se']:.4f} ({n})" if n else "—"
+
+    lines = ["rule          sport              games  mkt-h    touchQ    vol/h  turn/h | strict /mkt-h"
+             "  CLV strict (n)            | at+thru /mkt-h  CLV at-or-through (n)     | pulled"]
     for rule in ("us",) + tuple(f"{v}_{k}" for v in REFERENCES for k in ("coarse", "exact")):
         for sport, x in sorted(r.get(rule, {}).items()):
-            clv = (f"{x['clv_mean']:+.4f} ± {x['clv_se']:.4f} ({x['clv_n']})"
-                   if x.get("clv_n") else "—")
-            q = x["touch_queue_median"]
-            v = x["volume_per_hour"]
-            per = x["through_per_market_hour"]
-            lines.append(f"{rule:13s} {sport:18s} {x['games']:5d} {x['market_hours']:6.1f} "
-                         f"{(q if q is not None else float('nan')):9,.0f} {(v if v is not None else float('nan')):8,.0f} "
-                         f"{x['through']:7d} {(per if per is not None else float('nan')):7.2f} {x['pulled']:7d}   {clv}")
+            lines.append(
+                f"{rule:13s} {sport:18s} {x['games']:5d} {x['market_hours']:6.1f} "
+                f"{num(x['touch_queue_median'], '9,.0f'):>9s} {num(x['volume_per_hour'], '8,.0f'):>8s} "
+                f"{num(x.get('queue_turnover_per_hour'), '6.2f'):>6s} | {x['through']:6d} "
+                f"{num(x['through_per_market_hour'], '6.2f'):>6s}  {clv(x, 'clv'):25s} | "
+                f"{x['touched']:7d} {num(x['touched_per_market_hour'], '6.2f'):>6s}  "
+                f"{clv(x, 'clv_at'):25s} | {x['pulled']:6d}")
     return "\n".join(lines)

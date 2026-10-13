@@ -178,7 +178,12 @@ def test_report_counts_strict_fills_and_grades_them_against_the_closing_mid(tmp_
     assert u["volume_per_hour"] == pytest.approx(350.0 / (90 / 3600))
     assert u["touch_queue_median"] == 6e4
     assert u["pulled"] == 1      # 60 -> 90: bid 0.47 -> 0.46 with nothing through it (30 -> 60 was a sweep)
+    # at-or-through (the paper rule): the sweep, plus 60 -> 90's print AT the 0.48 ask
+    assert u["touched"] == 2 and u["clv_at_n"] == 2
+    assert u["clv_at_mean"] == pytest.approx(((0.455 - 0.49) + (0.48 - 0.455)) / 2)
+    assert u["queue_turnover_per_hour"] == pytest.approx(u["volume_per_hour"] / 6e4)
     assert r["pm_coarse"]["hockey"]["through"] == 0          # last print 0.50 is not through anything
+    assert r["pm_coarse"]["hockey"]["touched"] == 1          # ...but it is AT the 0.50 ask
     assert r["pm_exact"]["hockey"]["through"] == 1           # the 0.48 print is
     assert r["pm_exact"]["hockey"]["clv_mean"] == pytest.approx(0.455 - 0.49)
     assert "pm_exact" in qs.format_report(r)
