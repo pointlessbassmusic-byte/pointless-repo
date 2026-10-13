@@ -100,6 +100,16 @@ def main() -> None:
         regions=cfg.odds.get("regions", "us"),
         cache_ttl_sec=float(cfg.odds.get("cache_ttl_sec", 3600)),
     )
+    # The sportsbook-consensus model is this engine's reason to exist, and it is
+    # silently inert without a key: the odds client logs one line per sport and
+    # the cycle then reports signals as usual, all of them from other arms. Say
+    # so once, plainly, at the level an operator reads.
+    if cfg.sports and not cfg.odds_api_key:
+        log.warning("ODDS_API_KEY is not set: the sportsbook-consensus model is "
+                    "OFF for all %d configured sports. Any signals this cycle "
+                    "come from other arms only (see `python -m src.report` for "
+                    "the mix). Free key: https://the-odds-api.com", len(cfg.sports))
+
     gate = RiskGate(db, cfg.raw.get("risk", {}), Path(__file__).resolve().parent.parent)
     executor = Executor(clob, db, live=live, risk_gate=gate)
     wcfg = cfg.model.get("weather", {})

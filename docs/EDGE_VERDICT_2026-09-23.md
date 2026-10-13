@@ -1164,6 +1164,157 @@ re-measurement with at least 60 days of games. Nothing here changes the
 gate (200 CLV-graded fills, interval lower bound above zero) or supports
 a stake above the minimum.
 
+## Result 18: learning from the wallets instead of copying them — what they do, and the maker versions
+
+_2026-10-09 03:00–05:00Z. Two follow-ups to Result 14 and to a further X
+article (@Dan1ro0, "50+ Polymarket bots… BTC Up/Down 5m"): (a) can the
+informed MLB flow be taken without the delay and the fee, i.e. as a resting
+order; (b) do the article's paired-position structures work as a MAKER,
+since Result 12 measured only their taker versions and the one profitable
+wallet behind these posts is a two-sided maker. Reproduce with
+`sportsbot wallet-follow baseball --maker` and `sportsbot updown-maker`._
+
+**(a) What the informed MLB wallets do.** Same data and split as Result 14
+(683 games, 70/30 by start, the 20 best-CLV wallets chosen on the first
+part only). On the ranking window, against the whole taker population:
+they trade earlier (median **9.2 h** before first pitch vs 5.3 h), larger
+(median $60 vs $9; p90 $1,067 vs $146), and lean to the underdog (40% of
+their trades on the favourite vs 54%). Their test-window CLV is the same
+whatever the price did in the 30 minutes before (+1.04 after a fall,
++1.04 flat, +0.97 after a rise) — they are not reading the tape, they are
+acting on information from outside it — and it is largest at 6 h+ before
+the start (+1.4) and smallest inside the last half hour (+0.8). That is
+the profile of a sharp-line or lineup/pitcher-news trader. Wallet-blind
+proxies for it do not hold up: large prints (≥ $200) carry −0.2 to −0.05
+points in the ranking window and +0.3 to +0.4 in the test window, and a
+broader "informed" set (81 wallets with train t ≥ 2) carries nothing.
+Chasing a move is the one stable population pattern: buying after the
+own-side price rose ≥ 1.5c in 30 minutes returned −1.3 points in the
+ranking window (CI excludes zero; test −0.3, CI spans zero).
+
+**Delay was never the problem; the fee is.** The taker copy nets −0.69 /
+−0.71 / −0.71 points at a 2 / 10 / 30 s delay (n 972). The information
+survives the delay; the 0.05·p(1−p) fee plus half a spread eats it.
+
+**The maker version needs queue position the tape cannot show.** Rest a
+post-only bid in the informed direction instead. A bid AT the informed
+price is only possible when that ask level was used up by their trade; the
+next same-direction print says it was still there in 74% of signals
+(where a bid at that price would cross and pay the fee). So the order is
+placed at the signal price when the ask was consumed (44 of 308 signals)
+and one tick lower otherwise, cancelled after 10 or 60 minutes:
+
+| fill model | cancel | fill rate | filled CLV | per signal |
+|---|---|---|---|---|
+| strict (a print trades THROUGH the bid) | 10 m | 4.9% | +0.0184 [+0.0020, +0.0367] (n 15) | +0.0009 |
+| strict | 60 m | 9.5% | +0.0073 [−0.0039, +0.0176] (n 27) | +0.0007 |
+| front of queue (a print AT the bid fills it) | 10 m | 26.6% | +0.0119 [+0.0075, +0.0158] (n 82) | +0.0032 |
+| front of queue | 60 m | 42.8% | +0.0079 [+0.0049, +0.0114] (n 122) | +0.0034 |
+
+Without the dominant wallet the table is the same to a tenth of a point.
+Under the strict model the order almost never fills; under the
+front-of-queue bound it earns about a third of a point per signal — about
+$0.17 on a $50 order, ~300 signals over the 205 test games. Where the truth sits
+between those rows is queue position, which only real orders measure. The
+first pass of this test showed +0.84 points at a 54% fill: that was bids at
+the informed price that would have crossed the still-standing ask, i.e.
+taker fills booked as maker fills.
+
+**What to take from them.** Their edge is earlier access to the same
+external information, not anything on the Polymarket tape. The
+repository's version of that is the sharp-line harness (rank 1, built,
+waiting on `ODDS_API_KEY`): it reads the source they appear to read, at the
+same time, and can post a resting bid at a Pinnacle-derived fair value
+instead of following anyone. Following wallets adds a delay and a
+dependence on one account (59% of the signal) to a source we can read
+directly.
+
+**(b) BTC Up/Down 5m as a maker: every structure loses, for a structural
+reason.** 2,016 resolved windows, 2026-10-02 03:20Z to 10-09 03:15Z (every
+window in the week; Up won 50.9%), each window's full public taker tape
+(median ~1,500 prints). Rest one-share bids at T on Up and on Down when the
+window opens; when a leg fills, stop bidding that side (inventory limit) and
+either keep the other bid at T or raise it to 1 − (first leg) − m, the
+"working price = fair value − inventory penalty" completion the article
+describes; optionally re-post after a completed set (up to 5); cancel 10 s
+before the end and hold anything unpaired. Maker fee 0; the 20% rebate is
+shown, not added:
+
+| bid T | second leg | strict fills, PnL per window | front-of-queue bound | sets / window | windows left unpaired | rebate |
+|---|---|---|---|---|---|---|
+| 0.20 | m = 0.01 | −0.0386 ± 0.0020 | −0.0171 ± 0.0016 | 0.77 | 23% | +0.004 |
+| 0.30 | m = 0.02 | −0.0478 ± 0.0029 | −0.0319 ± 0.0026 | 0.79 | 21% | +0.005 |
+| 0.40 | hold at T | −0.0721 ± 0.0067 | −0.0596 ± 0.0066 | 0.55 | 45% | +0.005 |
+| 0.45 | m = 0.02 | −0.0875 ± 0.0044 | −0.0781 ± 0.0043 | 0.77 | 23% | +0.006 |
+| 0.49 | hold at T | −0.1133 ± 0.0050 | −0.1078 ± 0.0049 | 0.74 | 26% | +0.006 |
+| 0.45 | m = 0.02, up to 5 sets | −0.2379 ± 0.0056 | −0.2108 ± 0.0057 | 2.72 | 65% | +0.021 |
+
+All 60 cells of the grid (T 0.20–0.49 × hold / m 0.02 / m 0.01 × 1 or 5
+sets × both fill models) are negative, in both halves of the week, and the
+rebate never covers the gap. The mechanism is exact rather than
+statistical: a leg is left unpaired precisely when the price never comes
+back through the other bid, and in a window that ends at 0 or 1 that means
+it lost — **0 of 701 unpaired legs won** (T 0.45, hold). Completed sets earn
+1 − 2T or m; the legs that never pair cost their whole price; and re-posting
+for more sets only adds more chances to be left holding the loser. The
+article's warning ("until the second outcome has been acquired, the
+position is not really arbitrage") is the whole result. The profitable maker
+behind these posts (Result 12) is not doing this with a resting ladder;
+whatever it does needs sub-second quote management against Chainlink, which
+this stack cannot measure (Result 12 addendum) or run.
+
+**Verdict.** Nothing new to trade. (a) The informed MLB direction is real
+but reaching it without a fee depends on queue position (strict fills
+≈ 0, front-of-queue ≈ +0.3 points per signal); the durable lesson is the
+source, which the sharp-line harness already targets. (b) Maker paired
+positions on BTC 5-minute windows lose in every configuration, because the
+unpaired leg is by construction the losing one.
+
+## Result 19 (Polymarket MLB): the maker side is paid, a little, on small fills — rank 3 of the research report
+
+_2026-10-09 04:30Z. `sportsbot maker-flow baseball` on the Result 14/15
+tape (683 games, 70/30 by start). Every pre-game taker fill has a maker who
+holds the opposite side at the taker's price; grade that side against the
+close and at settlement, split by trailing VPIN (50 volume buckets per
+market, 20-bucket window, terciles fitted on train: 0.873 / 0.950), fill
+size and price. Maker fee 0; the 20% rebate would add +0.24 points a share
+on this price mix and is not included._
+
+| | train (478 games, 131,954 fills) | test (205 games, 55,361 fills) |
+|---|---|---|
+| maker CLV to close | **+0.0033** [+0.0020, +0.0045] | **+0.0015** [+0.0001, +0.0027] |
+| held to settlement | +0.0239 [+0.0015, +0.0440] | −0.0018 [−0.0375, +0.0313] |
+| VPIN low tercile | +0.0106 [+0.0056, +0.0136] | +0.0030 [+0.0005, +0.0052] |
+| VPIN mid | +0.0033 [+0.0026, +0.0039] | +0.0018 [+0.0007, +0.0030] |
+| VPIN high | +0.0030 [+0.0022, +0.0037] | +0.0014 [+0.0004, +0.0023] |
+| fills under $10 | +0.0036 [+0.0023, +0.0049] | +0.0028 [+0.0009, +0.0047] |
+| fills $10–100 | +0.0031 [+0.0015, +0.0051] | +0.0015 [+0.0003, +0.0026] |
+| fills $100–1,000 | +0.0027 [+0.0009, +0.0047] | **−0.0021** [−0.0038, −0.0006] |
+| fills ≥ $1,000 | +0.0005 [−0.0009, +0.0020] | **−0.0038** [−0.0054, −0.0023] |
+
+Four things follow. **The maker side is paid on average** — a few tenths of
+a point to the close, plus the rebate, against the taker's −0.15 to −0.33
+(Result 14): the mirror image, as it must be. **Settlement cannot decide
+it**: 205 games put a ±3.5-point interval around the settlement mean, an
+order of magnitude wider than the effect, which is why CLV stays the
+metric. **Toxicity sorts the way Bartlett & O'Hara say** — low trailing
+VPIN pays makers most in both halves, high least — but here even the high
+tercile is positive, so a VPIN quote-pull rule would cost fills without
+removing a loss. **Size is the sharper split**: makers win on fills under
+$100 and in the test window lose on the larger ones, which are the informed
+sweeps of Results 14–15.
+
+What it means for a strategy: resting quotes earn roughly +0.2 to +0.5
+points per share (CLV plus rebate) on the fill mix incumbents get. A new
+quoter at the back of the queue gets a different mix — more of the large
+sweeps that clear several levels, where makers lose — so the per-share
+figure is an upper bound, and the gap between the two is the queue-position
+question rank 2 exists to answer with real, minimum-size orders. Two
+constraints bound it: on $50 quotes this is cents per fill, and the
+Polymarket main CLOB is geoblocked for US accounts (a US account would need
+Polymarket US or Kalshi, where the maker fee is not zero — Result 4 found
+Kalshi's maker variant no better than taker).
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
@@ -1226,3 +1377,82 @@ a principle.
 The go-live gate stands: the paper book has produced no settled bets, so
 none of the four criteria is met, and this backtest is a reason to expect
 that to continue rather than a reason to relax them.
+
+## Result 20 (Polymarket, 15 central banks): the Fed rule does not generalise as written; the G10 subset holds, post hoc
+
+_2026-10-12. `polymarket-edge/src/cb_study.py` (`python -m src.cb_study`;
+`--cached` re-scores the saved rows offline); rows in
+`docs/CB_STUDY_ROWS_2026-10-12.csv`._
+
+**Question.** The Fed rule (buy the decision bucket at ≥ 0.90 within 7 days,
+hold) rests on 18 meetings with no loss, which bounds the surprise rate only
+at ~16% against a ~2.4% breakeven. Every central bank whose decision is
+priced by a deep rates market is the same class of event. Does the rule hold
+across them, and does pooling tighten the bound?
+
+**Method.** Every resolved per-meeting decision event on Polymarket for 15
+banks (Dec 2024 – Sep 2026), found by search and tag listing: one event per
+meeting (an "August" and a "September" listing of one Bank of Israel meeting
+merged), buckets with exactly one YES. Anchor = 00:00 UTC of the
+announcement date. Every bank here announces after 00:30 UTC. Polymarket usually
+dates these events on the announcement day, but some are dated the next morning
+(ECB Oct 2026, RBA Nov 2026), so the 24 h snapshot can fall after the decision.
+Re-scored without the 24 h and 48 h snapshots, the G10 rows are identical (57
+fires, 0 losses, +2.3%) and the pooled table only loses one loss (Colombia,
+Jul), so no win here comes from a late anchor. Favourite = the highest bucket's last trade at 168,
+120, 72, 48 and 24 h before the anchor. The first horizon at ≥ 0.90 is the
+entry, which is what the recorder would store. Cost is price + 1c + the
+market's own taker fee. Every print used is under 24 h old, and the table is
+unchanged when stale prints are excluded.
+
+| group | meetings | first fires ≥ 0.90 | losses | mean return | se | avg price | loss rate ≤ (rule of three) |
+|---|---|---|---|---|---|---|---|
+| Fed | 13 | 11 | 0 | +2.99% | 0.96% | 0.962 | 27% |
+| ECB, BoE, BoJ, BoC, RBA, RBNZ | 50 | 46 | 0 | +2.15% | 0.39% | 0.969 | 6.5% |
+| BoK, Brazil, Mexico, Colombia, Russia, Israel, PBoC | 40 | 30 | **3** | −6.41% | 5.83% | 0.948 | — |
+| **all 15** | **103** | **87** | **3** | **−0.69%** | 2.05% | 0.961 | — |
+| entries at 0.90–0.95 | | 26 | 3 | −5.15% | 6.86% | 0.921 | — |
+| entries at ≥ 0.95 | | 61 | 0 | +1.21% | 0.17% | 0.978 | 4.9% |
+
+The three losses are real decisions, not data errors:
+
+- **Colombia, Apr 2026.** "Increase" was at 0.91 five days out; the bank held.
+- **Colombia, Jul 2026.** "Increase" was at 0.94 two days out; the bank held.
+- **Israel, Aug 2026.** "Hold" was at 0.90 a week out; the bank cut 25 bp.
+
+The G10 fires all came 72–168 h before the announcement date, 51 of them at
+168 h, so a mis-dated event cannot explain the G10 result.
+
+**Verdict.**
+
+1. **As written, the rule is not a central-bank rule.** Applied to every
+   bank Polymarket lists, it loses money: 3 losses in 87 fires is a 3.4%
+   loss rate against a ~2.4% breakeven, and the mean is −0.7%. The Fed's
+   18/18 is not evidence about central banks in general.
+2. **The G10 subset is where the property CLAUDE.md names holds.** That
+   property is a deep, liquid OIS/futures market pricing the identical
+   decision. Fed + ECB/BoE/BoJ/BoC/RBA/RBNZ give 57 fires with 0 losses at
+   +2.3% (se 0.4%), which tightens the loss-rate bound from 16% to 5.3%.
+   That is still about twice the breakeven.
+3. **The split was drawn after the losses were seen.** The rationale (where
+   the reference market is deep) is a priori, but the cut is not
+   pre-registered. The ≥ 0.95 cut is the same kind of finding. Neither is a
+   result until the forward record confirms it out of sample.
+4. **Getting the bound under breakeven takes a forward record.** About 130
+   G10 fires with no loss are needed. At ~50 fires a year (7 banks, ~8
+   meetings each, ~90% fire), that is about 2.5 years of recording.
+5. **The 0.80–0.90 band remains untested and is not a rule.** The ten
+   G10 rows in it all won (Fed 4, the others 6), but 3 of the 13 non-G10
+   rows lost.
+
+**What changes.** Nothing trades. CLAUDE.md's Fed bullet gains the
+G10/non-G10 finding. On the operator's go-ahead (2026-10-13) the recorder
+now covers the six other G10 banks: `arb-scanner/src/cb_watch.py`, every
+arb-scanner cycle and `python -m src.cb_watch --report`. Kalshi lists all
+six (`KXCBDECISION{EU,ENGLAND,JAPAN,CANADA,AUSTRALIA,NZ}`), so the Fed
+gates apply unchanged: ask >= 0.90, within 7 days of the earliest close,
+other venue's mid >= 0.85. A bucket with no Kalshi market at all is
+recorded as `single_venue`, with a 1.5-day lead floor because of the late
+`endDate`, and scored separately. A bank whose Kalshi read fails is skipped
+for that cycle rather than treated as single-venue. This builds the
+out-of-sample record about seven times faster than the Fed alone.

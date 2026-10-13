@@ -10,9 +10,11 @@ Two structures on binary markets:
 2. Same-platform bundle: yes_ask + no_ask < 1 - fees on a single market.
    No matching risk; rarer and smaller.
 
-Fees: Kalshi charges roughly fee_rate * P * (1-P) per contract on taker fills
-(0.07 general schedule); Polymarket trading is fee-free but on-chain execution
-costs gas, modeled as a flat per-trade amount amortized by trade size.
+Fees: both venues charge takers fee_rate * P * (1-P) per contract. Kalshi's
+rate is 0.07 x a series multiplier (1.0 almost everywhere; 0.5 on MLB, so 0.07
+overstates those and only ever hides an edge). Polymarket sets the rate per
+market (Gamma feeSchedule: 0.03 NFL/NBA, 0.04-0.05 most else, 0 where fees are
+off), carried on BinaryMarket.fee_rate; poly_fee_per_contract adds gas on top.
 """
 from __future__ import annotations
 
@@ -50,6 +52,10 @@ def kalshi_fee(price: float, fee_rate: float) -> float:
     return fee_rate * price * (1 - price)
 
 
+# Both venues charge takers rate * P * (1-P); only the rate differs.
+taker_fee = kalshi_fee
+
+
 class ArbDetector:
     def __init__(self, cfg: dict):
         self.min_net_edge = float(cfg.get("min_net_edge", 0.02))
@@ -57,12 +63,16 @@ class ArbDetector:
         # are NOT the same question — surface it as a suspect match, not an arb
         self.max_net_edge = float(cfg.get("max_net_edge", 0.15))
         self.kalshi_fee_rate = float(cfg.get("kalshi_fee_rate", 0.07))
+        # used only when Gamma does not report a market's own feeSchedule
+        self.poly_fee_rate = float(cfg.get("poly_fee_rate", 0.05))
         self.poly_fee = float(cfg.get("poly_fee_per_contract", 0.0))
 
-    def _fees(self, platform: str, price: float) -> float:
-        if platform == "kalshi":
-            return kalshi_fee(price, self.kalshi_fee_rate)
-        return self.poly_fee
+    def _fees(self, m: BinaryMarket, price: float) -> float:
+        if m.platform == "kalshi":
+            rate = self.kalshi_fee_rate if m.fee_rate is None else m.fee_rate
+            return taker_fee(price, rate)
+        rate = self.poly_fee_rate if m.fee_rate is None else m.fee_rate
+        return taker_fee(price, rate) + self.poly_fee
 
     def _check(self, kind: str, sim: float, desc: str,
                yes_m: BinaryMarket, no_m: BinaryMarket) -> Opportunity | None:
@@ -70,10 +80,12 @@ class ArbDetector:
             return None
         yes_ask, no_ask = yes_m.yes_ask, no_m.no_ask
         gross = 1.0 - yes_ask - no_ask
-        net = gross - self._fees(yes_m.platform, yes_ask) - self._fees(no_m.platform, no_ask)
+        net = gross - self._fees(yes_m, yes_ask) - self._fees(no_m, no_ask)
         if net < self.min_net_edge:
             return None
-        if kind == "cross_platform" and net > self.max_net_edge:
+        # judge plausibility on the price disagreement itself: fees shrink net
+        # but cannot make two different questions the same question
+        if kind == "cross_platform" and gross > self.max_net_edge:
             kind = "suspect_match"
         return Opportunity(
             kind=kind, description=desc,
