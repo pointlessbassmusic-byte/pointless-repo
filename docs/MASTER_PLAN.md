@@ -288,8 +288,17 @@ Pipeline per cycle:
       measurement. First esports measurement (LoL, 150 matches, 30 days):
       maker baseline CLV +0.0065 [+0.0018, +0.0130] at 120 s but realised
       return −0.090 [−0.171, −0.001] per dollar — the pre-game close is a
-      poor value proxy in fast-resolving series; not a candidate. CS2, UCL,
-      UFC, CFB, EPL, Dota 2 and cricket are running; addendum to follow.
+      poor value proxy in fast-resolving series; not a candidate. Addendum 2
+      in EDGE_VERDICT has all eight: college football carries the edge with
+      both yardsticks agreeing (+0.0053 to +0.0081 CLV, realised +0.30
+      [+0.02, +0.55] at 120 s) and joins MLB/NHL/NFL as a measured book;
+      EPL +1.0–1.4 pt CLV on 21 outcome markets (returns ±0.45: sample);
+      Dota 2 small-positive on both; CS2 repeats the LoL divergence (CLV
+      positive, realised −0.11 [−0.22, −0.00]); UFC nothing on 14 markets;
+      cricket nothing on 41 (both yardsticks span zero; 0.001 ticks);
+      UCL unmeasurable from Gamma's event dates. NCAAF needs a Kalshi start
+      time (`americanfootball_ncaaf` harness key) before the live test can
+      carry it.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
@@ -442,9 +451,11 @@ item names the measurement that would move it, and the standing rules apply
    fill share of a new order in the touch queue. The decisive experiment
    is a minimum-size live maker order that records fill rate and CLV per
    fill; it is the smallest capital question in the queue. The 2026-10-13
-   addendum extends the measured edge to NHL and NFL (same half-point,
-   27/24 markets), so the test is not bounded by the MLB season; NBA is a
-   December re-measurement. Also
+   addenda extend the measured edge to NHL, NFL and college football (same
+   half-point, realised returns agreeing), so the test is not bounded by
+   the MLB season; soccer is the promising unknown (a point of CLV on 21
+   outcome markets, sample growing in paper daily); esports are excluded on
+   realised returns; NBA is a December re-measurement. Also
    measurable in paper: tape-verified fills produce `baseball/model/maker`
    and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
    CLV-graded fills, interval lower bound > 0). Gate on the sharp close once

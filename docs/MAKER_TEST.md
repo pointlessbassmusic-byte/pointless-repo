@@ -4,11 +4,14 @@ Result 15 (`docs/EDGE_VERDICT_2026-09-23.md`) measured that a bid resting
 one tick under MLB taker prints on Polymarket earns **+0.6 pt of
 closing-line value per fill** (+1.1 to +1.8 pt behind the best-CLV
 wallets), interval above zero, and that every one of those fills was a
-queue-priority fill at the existing bid. Its 2026-10-13 addendum measured
-the same half-point on NHL (27 markets) and NFL (24) moneylines — the
-books in season once the World Series ends — and nothing measurable yet
-on NBA (11 pre-season markets). The tape cannot say what share of those
-fills a *new* order would get. That share is the only number standing
+queue-priority fill at the existing bid. Its 2026-10-13 addenda measured
+the same half-point on NHL (27 markets), NFL (24) and college football
+(45; realised return agrees) — the books in season once the World Series
+ends — a point of CLV on EPL outcome markets (21; sample), nothing
+measurable yet on NBA, nothing on UFC, and on LoL/CS2 a positive CLV
+with a NEGATIVE realised return, which excludes esports from this test
+whatever the paper fill share says. The tape cannot say what share of
+those fills a *new* order would get. That share is the only number standing
 between rank 2 of the research report and a funded arm, and it can only
 be measured with real resting orders. This page fixes the test before it
 runs so the answer cannot be argued with afterwards.
