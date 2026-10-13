@@ -105,6 +105,7 @@ def evaluate_touch(
     now: Optional[datetime] = None,
     sport_budget: Optional[float] = None,
     style: str = "both",
+    resting_usd: float = 0.0,
 ) -> tuple[Optional[BetIntent], str]:
     """One resting order at the touch for `market`, or the reason not to.
 
@@ -143,7 +144,11 @@ def evaluate_touch(
         return None, (f"market cost basis {held:.2f} + {cfg.stake_usd:.2f} would pass "
                       f"the {cfg.max_stake_per_market:.2f} touch cap")
     if sport_budget is not None:
-        in_sport = float((exposure.get("by_sport") or {}).get(sport_key, 0.0))
+        # Filled exposure PLUS what is already resting: a resting order can
+        # fill at any moment, so unfilled stake reserves budget too. Measured
+        # 2026-10-13 on the first touch-all cycle: without this the arm
+        # posted 181 one-dollar orders against a $100 paper book.
+        in_sport = float((exposure.get("by_sport") or {}).get(sport_key, 0.0)) + float(resting_usd or 0.0)
         if in_sport + cfg.stake_usd > sport_budget + 1e-9:
             return None, f"sport budget {sport_budget:.2f} would be exceeded"
 

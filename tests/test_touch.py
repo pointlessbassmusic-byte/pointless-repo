@@ -391,3 +391,41 @@ def test_load_models_signal_touch_loads_nothing_and_touch_only_sports_require_it
     assert load_models({"sports": {"tennis": {"enabled": False}, "baseball": {"enabled": False},
                                    "table_tennis": {"enabled": False}}, "sharp": {"enabled": False}},
                        str(tmp_path), store=store) == {}
+
+
+def test_resting_touch_orders_reserve_the_sport_budget(tmp_path):
+    """A resting order can fill any moment, so unfilled stake counts against
+    the sport budget: with $2.50 of budget the arm posts two $1 orders and
+    refuses the third while they rest (2026-10-13: 181 posts on a $100 book)."""
+    from types import SimpleNamespace
+
+    from sportsbot.bot.risk import RiskConfig, RiskManager
+    from sportsbot.bot.runner import Runner
+    from sportsbot.bot.strategy import StrategyConfig
+
+    r = Runner.__new__(Runner)
+    r.store = Store(str(tmp_path / "t.sqlite"))
+    r.account = "sim"
+    r.touch = _cfg(sports=["baseball"])
+    r.maker_fee_fn = lambda price, market_id="": 0.0
+    r.executor = Executor(PaperExchange(starting_balance=100.0), r.store, mode="paper")
+    r.risk = RiskManager(RiskConfig(min_minutes_before_start=10), r.store)
+    scfg = StrategyConfig()
+    scfg.sport_budget = {"baseball": 2.5}
+    scfg.style_override = {"baseball": "maker"}
+    soon = datetime.now(timezone.utc) + timedelta(hours=3)
+    q = MarketQuote(market_id="x", bid=0.44, ask=0.47,
+                    bids=[BookLevel(price=0.44, size=200.0)], asks=[BookLevel(price=0.47, size=200.0)])
+    summary = {"orders": 0}
+    posted = 0
+    for mid in ("m1", "m2", "m3", "m4"):
+        sm = SimpleNamespace(market=_market(market_id=mid, start_time=soon), prediction=SimpleNamespace(prob_yes=0.5))
+        posted += r._touch_pass(sm, q, EMPTY, scfg, summary)
+    assert posted == 2
+    assert round(r.executor.resting_stake_by_sport()["baseball"], 2) == 2.0
+    assert summary["touch"]["skipped"] == {"sport": 2}           # "sport budget ... would be exceeded"
+    # once the resting orders are gone the budget frees up again
+    assert r.executor.cancel_all_resting("test") == 2
+    assert r.executor.resting_stake_by_sport() == {}
+    sm = SimpleNamespace(market=_market(market_id="m5", start_time=soon), prediction=SimpleNamespace(prob_yes=0.5))
+    assert r._touch_pass(sm, q, EMPTY, scfg, summary) is True
