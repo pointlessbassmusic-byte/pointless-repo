@@ -37,6 +37,7 @@ class Sport(str, enum.Enum):
 class Exchange(str, enum.Enum):
     POLYMARKET = "polymarket"
     KALSHI = "kalshi"
+    POLYMARKET_US = "polymarket_us"   # the CFTC-regulated US exchange (exchanges/polymarket_us.py)
     PAPER = "paper"
 
 
@@ -166,10 +167,12 @@ class Order(BaseModel):
     size: float = 0.0
     filled: float = 0.0
     status: OrderStatus = OrderStatus.PENDING
-    # Venue-enforced lifetime and maker-only flag (live venues; paper has its
-    # own TTL). A crashed process must not leave a quote resting into the
+    # Venue-enforced lifetime (live venues; paper has its own TTL). A crashed process must not leave a quote resting into the
     # game, where faster watchers pick it off (EDGE_VERDICT Result 21).
     expires_at: Optional[datetime] = None
+    # Maker-only: the venue must reject rather than let the order cross.
+    # Set by the executor for `.../maker` arms; sent as Polymarket US
+    # `participateDontInitiate`, Kalshi `post_only`, Polymarket SDK `post_only`.
     post_only: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

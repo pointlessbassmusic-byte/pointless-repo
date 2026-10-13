@@ -98,3 +98,16 @@ def test_kalshi_body_carries_expiration_time_and_post_only():
     assert b["time_in_force"] == "good_till_canceled"
     assert b["expiration_time"] == int(datetime(2026, 10, 13, 12, tzinfo=timezone.utc).timestamp())
     assert b["post_only"] is True
+
+
+def test_polymarket_us_sends_good_till_date_with_the_expiry():
+    from sportsbot.exchanges.polymarket_us import PolymarketUSClient
+
+    b = PolymarketUSClient.order_body(PolymarketUSClient.__new__(PolymarketUSClient),
+                                      _order(post_only=True))
+    assert b["tif"] == "TIME_IN_FORCE_GOOD_TILL_DATE"
+    assert b["goodTillTime"] == "2026-10-13T12:00:00Z"
+    assert b["participateDontInitiate"] is True
+    plain = Order(exchange=Exchange.POLYMARKET, market_id="m1", price=0.5, size=4.0)
+    b = PolymarketUSClient.order_body(PolymarketUSClient.__new__(PolymarketUSClient), plain)
+    assert b["tif"] == "TIME_IN_FORCE_GOOD_TILL_CANCEL" and "goodTillTime" not in b

@@ -263,6 +263,24 @@ def build_exchange(cfg: dict):
             contract, series multiplier applied)."""
             return kalshi_maker_fee_per_share(
                 market_id or "", data_client.fee_multiplier(market_id)) * shares
+    elif venue == "polymarket_us":
+        from sportsbot.exchanges.polymarket_us import PolymarketUSClient, taker_fee_us
+
+        # One client for data and orders: the public gateway needs no keys;
+        # orders need POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY and the
+        # live gate below. The venue publishes no keyless trade tape, so in
+        # paper mode resting orders here never fill (no tape, no fill).
+        data_client = PolymarketUSClient()
+
+        def fee_fn(price, shares, market_id=None):
+            """Taker 0.0695 x C x p x (1 - p) on every sport the client
+            discovers (table tennis' 0.10 is never listed here)."""
+            return taker_fee_us(price, shares)
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """Makers pay nothing on Polymarket US; the rebate (0.0125 coefficient
+            until 2026-10-19, volume tiers after) is ignored (conservative)."""
+            return 0.0
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
@@ -1116,16 +1134,33 @@ class Runner:
         Bounded by `max_wait` (default TTL + 10 s)."""
         ex = self.executor
         ttl = float(ex.order_ttl)
-        deadline = time.time() + (ttl + 10.0 if max_wait is None else float(max_wait))
         fills_before = len(self.store.all_bets(self.mode))
+        # Wait for the NEWEST order's TTL, not the oldest's: a touch-all cycle
+        # posts for minutes, and stopping at the first expiry left the late
+        # posts `open` when the process exited (2026-10-13: 20 of 30), to be
+        # swept as orphans without a tape shadow. Orders past their TTL are
+        # expired (and shadowed) as the loop goes, so each one's window ends
+        # at its own TTL.
+        if max_wait is not None:
+            deadline = time.time() + float(max_wait)
+        elif ex._open:
+            newest = max(t.placed_at for t in ex._open.values())
+            remaining = ttl - (datetime.now(timezone.utc) - newest).total_seconds()
+            deadline = time.time() + max(0.0, remaining) + 10.0
+        else:
+            deadline = time.time()
+        canceled = 0
         while ex._open and time.time() < deadline:
-            oldest = min(t.placed_at for t in ex._open.values())
-            if (datetime.now(timezone.utc) - oldest).total_seconds() >= ttl:
+            ex.reconcile_open_orders()
+            canceled += ex.expire_stale_orders()
+            if not ex._open:
                 break
             time.sleep(max(0.0, min(poll_seconds, deadline - time.time())))
-            ex.reconcile_open_orders()
         ex.reconcile_open_orders()
-        canceled = ex.expire_stale_orders()
+        canceled += ex.expire_stale_orders()
+        # Anything still resting (a failed cancel, or max_wait cut the wait
+        # short) is cancelled now with its shadow rather than left open.
+        canceled += ex.cancel_all_resting("drain_end")
         self._alert_new_fills(fills_before)
         return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
                 "canceled": canceled, "still_resting": len(ex._open)}

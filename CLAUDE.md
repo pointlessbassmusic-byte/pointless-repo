@@ -24,7 +24,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
   archived/dead, never reintroduce it), `kalshi.py` (2026 API: dollar-string
-  prices, Create Order V2 bid/ask semantics, RSA-PSS signing), `paper.py`
+  prices, Create Order V2 bid/ask semantics, RSA-PSS signing),
+  `polymarket_us.py` (the CFTC-regulated US exchange: public gateway for
+  events/books/settlement, Ed25519-signed orders, prices in YES terms,
+  post-only via `participateDontInitiate`, makers pay nothing; no keyless
+  trade tape, so paper orders there never fill), `paper.py`
   (book-walk fills at placement; a resting order fills only when the
   venue's public taker tape prints through it, for the size printed —
   no tape, no fill; maker fee charged).

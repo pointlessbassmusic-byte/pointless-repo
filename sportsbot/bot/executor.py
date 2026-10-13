@@ -95,8 +95,6 @@ class Executor:
         placed_at = datetime.now(timezone.utc)
         sport = market.sport.value if market.sport else "unknown"
         order.expires_at = venue_expiry(placed_at, self.order_ttl)
-        # A resting maker quote must never cross and pay the taker fee.
-        order.post_only = (intent.reason or "").strip().endswith("maker")
         # What the maker test needs per order (docs/MAKER_TEST.md): which
         # arm posted it, the book it saw, and when. Persisted in `raw`.
         order.raw = {
@@ -106,6 +104,7 @@ class Executor:
             "start_time": market.start_time.isoformat() if market.start_time else None,
             "book": _book_snapshot(quote),
         }
+        order.post_only = str(order.raw["arm"]).endswith("/maker")
         start = market.start_time
         if start is not None and start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)

@@ -11,7 +11,9 @@
 # tennis/table tennis are off. Secrets NEVER go here.
 
 mode: paper            # paper | live  (live also requires SPORTSBOT_LIVE=1 in the environment)
-exchange: kalshi       # US-legal venue; KALSHI_ENV=demo in .env routes orders to the demo exchange first
+exchange: kalshi       # kalshi | polymarket_us — both US-legal. Polymarket US is preferred (makers pay
+                       # nothing, every game has a start time; POLYMARKET_US_KEY_ID/SECRET in .env);
+                       # Kalshi: KALSHI_ENV=demo routes orders to the demo exchange first
 
 accounts:
   sim:

@@ -429,3 +429,22 @@ def test_resting_touch_orders_reserve_the_sport_budget(tmp_path):
     assert r.executor.resting_stake_by_sport() == {}
     sm = SimpleNamespace(market=_market(market_id="m5", start_time=soon), prediction=SimpleNamespace(prob_yes=0.5))
     assert r._touch_pass(sm, q, EMPTY, scfg, summary) is True
+
+
+
+def test_touch_signal_sports_run_only_the_touch_maker_arm():
+    """`signal: touch` loads no model, so the sport's only arm is touch/maker;
+    a touch/taker phantom used to take a paper budget share."""
+    import yaml
+
+    s = yaml.safe_load(open("config/sim.yaml"))
+    arms = running_arms_for(s)
+    for sport in ("tennis", "soccer", "esports", "mma", "college_football", "cricket"):
+        assert f"{sport}/touch/maker" in arms
+        assert not any(a.startswith(f"{sport}/") and a != f"{sport}/touch/maker" for a in arms), sport
+    assert {"baseball/model/maker", "baseball/model/taker", "baseball/touch/maker"} <= arms
+    assert "hockey/sharp/taker" in arms and "hockey/touch/maker" in arms
+    # a touch-signal sport the touch block does not quote runs nothing at all
+    cfg = {"sports": {"soccer": {"enabled": True, "signal": "touch"}},
+           "touch": {"enabled": True, "sports": ["baseball"]}}
+    assert running_arms_for(cfg) == {"baseball/touch/maker"}      # soccer contributes nothing

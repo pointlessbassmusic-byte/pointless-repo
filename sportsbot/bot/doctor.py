@@ -21,6 +21,7 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 
 GAMMA_PING = "https://gamma-api.polymarket.com/events?limit=1"
 CLOB_PING = "https://clob.polymarket.com/ok"
+PMUS_PING = "https://gateway.polymarket.us/v1/sports"
 KALSHI_PING = {
     "prod": "https://api.elections.kalshi.com/trade-api/v2/exchange/status",
     "demo": "https://demo-api.kalshi.co/trade-api/v2/exchange/status",
@@ -51,7 +52,7 @@ def check_mode(cfg: dict) -> list[Check]:
     out.append(_ck("config.mode", mode in ("paper", "live"),
                    f"mode={mode}", f"unknown mode {mode!r}"))
     out.append(_ck("config.exchange",
-                   exchange in ("polymarket", "kalshi", "paper"),
+                   exchange in ("polymarket", "kalshi", "polymarket_us", "paper"),
                    f"exchange={exchange}", f"unknown exchange {exchange!r}"))
     if mode == "live":
         gate = os.environ.get("SPORTSBOT_LIVE") == "1"
@@ -109,7 +110,7 @@ def fee_floor(cfg: dict) -> float:
     trade can still lose money. Polymarket sports 0.05 x 0.25; Kalshi
     0.07 x 0.25 at the full series multiplier."""
     venue = str(cfg.get("exchange", "polymarket")).lower()
-    rate = 0.07 if venue == "kalshi" else 0.05
+    rate = {"kalshi": 0.07, "polymarket_us": 0.0695}.get(venue, 0.05)
     slip = float(cfg.get("execution", {}).get("slippage_buffer", 0.005))
     return rate * 0.25 + slip
 
@@ -219,6 +220,11 @@ def check_secrets(cfg: dict) -> list[Check]:
                                  "key file is group/world readable — chmod 600"))
             else:
                 out.append(Check("secrets.kalshi_key_file", PASS, "present"))
+    elif exchange == "polymarket_us":
+        for var in ("POLYMARKET_US_KEY_ID", "POLYMARKET_US_SECRET_KEY"):
+            out.append(_ck(f"secrets.{var}", bool(os.environ.get(var)),
+                           "set", "not set — orders, positions and balance unavailable",
+                           bad_level=missing_level))
     elif exchange == "polymarket" and mode == "live":
         out.append(_ck("secrets.POLYMARKET_PRIVATE_KEY",
                        bool(os.environ.get("POLYMARKET_PRIVATE_KEY")),
@@ -249,6 +255,8 @@ def check_network(cfg: dict) -> list[Check]:
     targets = []
     if exchange in ("polymarket", "paper"):
         targets += [("net.gamma", GAMMA_PING), ("net.clob", CLOB_PING)]
+    if exchange == "polymarket_us":
+        targets.append(("net.polymarket_us", PMUS_PING))
     if exchange == "kalshi":
         kalshi_env = (os.environ.get("KALSHI_ENV") or "demo").lower()
         targets.append(("net.kalshi",
