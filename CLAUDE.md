@@ -88,6 +88,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Live smoke (reads only, safe): `sportsbot scan`.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
+- Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
+  the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 
 ## Compliance notes (do not remove)
 

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sportsbot.bot.portfolio import arm_of_intent
+from sportsbot.core.books import tape_fill_size
 from sportsbot.core.types import (
     BetIntent,
     MarketQuote,
@@ -37,6 +38,15 @@ class _Tracked:
     intent: BetIntent
     placed_at: datetime
     booked_fill: float = 0.0   # fill size already recorded as a bet
+    first_fill_at: Optional[datetime] = None
+
+
+def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
+    if quote is None:
+        return None
+    return {"bid": quote.bid, "ask": quote.ask,
+            "bid_size": quote.bids[0].size if quote.bids else None,
+            "ask_size": quote.asks[0].size if quote.asks else None}
 
 
 class Executor:
@@ -68,15 +78,27 @@ class Executor:
             self.mode, intent.side.value.upper(), market.slug or market.market_id,
             intent.size, intent.price, intent.edge, intent.reason,
         )
+        placed_at = datetime.now(timezone.utc)
+        sport = market.sport.value if market.sport else "unknown"
+        # What the maker test needs per order (docs/MAKER_TEST.md): which
+        # arm posted it, the book it saw, and when. Persisted in `raw`.
+        order.raw = {
+            "arm": arm_of_intent(sport, intent.reason),
+            "reason": (intent.reason or "")[:120],
+            "placed_at": placed_at.isoformat(),
+            "start_time": market.start_time.isoformat() if market.start_time else None,
+            "book": _book_snapshot(quote),
+        }
         if isinstance(self.exchange, PaperExchange):
-            order = self.exchange.place_order(order, quote=quote, market=market)
+            order = self.exchange.place_order(order, quote=quote, market=market,
+                                              now=placed_at)
         else:
             order = self.exchange.place_order(order)
         self._persist_order(order)
 
-        tracked = _Tracked(order=order, intent=intent,
-                           placed_at=datetime.now(timezone.utc))
+        tracked = _Tracked(order=order, intent=intent, placed_at=placed_at)
         if order.filled > 0:
+            self._note_fill(tracked, placed_at)
             self._book_fill(tracked, order.filled)
         if order.status in (OrderStatus.OPEN, OrderStatus.PARTIAL):
             self._open[order.client_id] = tracked
@@ -113,6 +135,51 @@ class Executor:
         )
         tracked.booked_fill = new_total_fill
 
+    def _note_fill(self, tracked: _Tracked, now: Optional[datetime] = None) -> None:
+        """First time an order shows a fill: remember when, and how long
+        it rested, on the order itself (the maker test reads it back)."""
+        if tracked.first_fill_at is not None:
+            return
+        now = now or datetime.now(timezone.utc)
+        tracked.first_fill_at = now
+        tracked.order.raw = {**tracked.order.raw, "first_fill_at": now.isoformat(),
+                             "rested_seconds": round((now - tracked.placed_at).total_seconds(), 1)}
+
+    def _tape_client(self):
+        ex = self.exchange
+        return ex.data_client if isinstance(ex, PaperExchange) else ex
+
+    def _tape_shadow(self, tracked: _Tracked, now: Optional[datetime] = None) -> None:
+        """Apply the paper venue's fill rule to a LIVE order after the fact:
+        how much the public tape printed through its level while it rested
+        (bounded by the TTL and the game start). The maker test's fill
+        share is real fills divided by this, order by order. Stored on the
+        order as `tape_through`; failures leave it absent, never guessed."""
+        now = now or datetime.now(timezone.utc)
+        order = tracked.order
+        market = tracked.intent.market
+        before = min(now, tracked.placed_at + timedelta(seconds=self.order_ttl))
+        if market.start_time is not None:
+            start = market.start_time
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            before = min(before, start)
+        client = self._tape_client()
+        if client is None or before <= tracked.placed_at:
+            return
+        try:
+            prints = client.recent_trades(market, tracked.placed_at)
+        except Exception:
+            log.exception("tape shadow failed for %s", order.market_id)
+            return
+        through = tape_fill_size(prints, order.side, order.price,
+                                 after=tracked.placed_at, before=before)
+        order.raw = {**order.raw, "tape_through": round(min(order.size, through), 6),
+                     "tape_prints": len(prints),
+                     "rested_seconds": order.raw.get(
+                         "rested_seconds",
+                         round((before - tracked.placed_at).total_seconds(), 1))}
+
     def resting_sides(self, market_id: str) -> set[Side]:
         """Sides with a tracked resting order on `market_id` (so a quoting
         arm does not stack orders on a side it already rests)."""
@@ -133,10 +200,12 @@ class Executor:
                 tracked = self._open.get(order.client_id)
                 if tracked is None:
                     continue
+                self._note_fill(tracked)
                 self._book_fill(tracked, order.filled)
-                self._persist_order(order)
                 if order.status == OrderStatus.FILLED:
+                    self._tape_shadow(tracked)
                     self._open.pop(order.client_id, None)
+                self._persist_order(order)
             return
         try:
             venue_orders = {o.order_id: o for o in self.exchange.get_open_orders()}
@@ -148,13 +217,18 @@ class Executor:
             if venue is not None:
                 if venue.filled > tracked.order.filled:
                     tracked.order.filled = venue.filled
+                    self._note_fill(tracked)
                     self._book_fill(tracked, venue.filled)
                     self._persist_order(tracked.order)
             else:
                 # No longer resting: fully filled or canceled externally.
                 # Conservatively book it as fully filled only if partials
                 # were already seen; otherwise leave the booked exposure.
+                # Either way the tape shadow is taken now, while the window
+                # it rested in is still recent.
                 log.info("reconcile: order %s left the book", tracked.order.order_id)
+                self._tape_shadow(tracked)
+                self._persist_order(tracked.order)
                 self._open.pop(client_id, None)
 
     def expire_stale_orders(self) -> int:
@@ -169,6 +243,7 @@ class Executor:
             ok = self.exchange.cancel_order(order.order_id or client_id)
             if ok:
                 order.status = OrderStatus.CANCELED
+                self._tape_shadow(tracked, now)
                 self._persist_order(order)
                 self._open.pop(client_id, None)
                 n += 1

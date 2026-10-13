@@ -314,6 +314,21 @@ def sharp_snapshot(config: str = CONFIG_OPT,
     console.print(coll.snapshot(wanted, force=force))
 
 
+@app.command("maker-report")
+def maker_report_cmd(config: str = CONFIG_OPT,
+                     mode: str = typer.Option("paper", help="bets book to grade (paper | live)"),
+                     signal: str = typer.Option("touch", help="arm signal to read out")):
+    """Read out the maker fill-share test (docs/MAKER_TEST.md): fill share
+    against the tape rule, CLV per fill with a clustered interval, and
+    adverse selection by wait. Offline; reads the orders and bets tables."""
+    cfg = _setup(config)
+    from sportsbot.bot.maker_report import format_maker_report, maker_report
+    from sportsbot.data.store import Store
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    console.print(format_maker_report(maker_report(store, signal=signal, mode=mode)))
+
+
 @app.command("sharp-report")
 def sharp_report(config: str = CONFIG_OPT,
                  account: str = typer.Option("sim", help="decision feed to grade"),

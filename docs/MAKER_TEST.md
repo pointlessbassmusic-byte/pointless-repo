@@ -35,10 +35,23 @@ it carries MLB moneylines. Never the main Polymarket CLOB from a US IP.
   venue's fill rule applied to the same tape, so paper and live fill
   rates can be compared order by order)
 
+## How the evidence is kept
+
+The executor writes the trail itself, so the read-out needs no extra
+logging: every order's `raw` carries the arm that posted it, the book
+it saw (best bid/ask and sizes), when it was placed, when it first
+filled and how long it had rested; when it leaves the book -- filled,
+cancelled at the TTL or pulled by the venue -- the executor applies the
+paper venue's fill rule to the public tape over the window it rested in
+and stores `tape_through`, the size the tape would have credited. Paper
+orders carry both the venue's `tape_filled` and the shadow; they agree
+by construction and the report prints the mismatch count as a
+self-check. `sportsbot maker-report` reads it all back.
+
 ## Pre-registered read-out
 
 Run until **200 fills** or **30 calendar days**, whichever comes first.
-Then:
+Then (`sportsbot maker-report --mode live`):
 
 1. **Fill share.** Live fills divided by the fills the tape rule would
    have credited to the same orders. Result 15's numbers hold only in
