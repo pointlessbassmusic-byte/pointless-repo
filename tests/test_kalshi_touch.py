@@ -49,3 +49,22 @@ def test_run_scores_fills_against_the_close_net_of_the_fee():
     assert res["prints"] == 4 and front["fill_rate"] == 0.75
     assert abs(front["gross"]["mean"] - (0.04 - 0.03 - 0.04) / 3) < 1e-9
     assert abs(front["net"]["mean"] - (front["gross"]["mean"] - 0.001)) < 1e-12
+
+
+def test_start_is_the_earlier_of_ticker_and_schedule_and_unmatched_games_drop():
+    from sportsbot.backtest.kalshi_touch import anchor_starts
+
+    def g(home, away, ts):
+        return MarketGame(date=datetime(2026, 10, 12, tzinfo=timezone.utc), home=home,
+                          away=away, home_ticker=home, close_ts=ts + 99_999,
+                          home_won=True, start_ts=ts)
+
+    t = 1_791_849_600    # the ticker's 20:00 ET
+    sched = [{"pk": 1, "ts": t - 3 * 3600, "home": "milwaukee brewers",
+              "away": "los angeles dodgers"}]
+    out = anchor_starts([g("milwaukee brewers", "los angeles dodgers", t),
+                         g("boston red sox", "chicago cubs", t)], sched)
+    assert [(x.home, x.start_ts) for x in out] == [("milwaukee brewers", t - 3 * 3600)]
+    # a schedule later than the ticker never moves the anchor later
+    late = [{**sched[0], "ts": t + 600}]
+    assert anchor_starts([g("milwaukee brewers", "los angeles dodgers", t)], late)[0].start_ts == t

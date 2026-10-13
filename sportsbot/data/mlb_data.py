@@ -141,11 +141,14 @@ class MLBStatsClient:
         out.sort(key=lambda r: r.date)
         return out
 
-    def upcoming(self, days: int = 2) -> list[UpcomingGame]:
-        """Scheduled games from today forward, with probable pitchers."""
+    def upcoming(self, days: int = 2, back_days: int = 0) -> list[UpcomingGame]:
+        """Scheduled (and live) games from today forward, with probable
+        pitchers; ``back_days`` also reaches games filed under earlier dates
+        (an evening game's date is the US date, a UTC day behind)."""
         today = datetime.now(timezone.utc).date()
         out: list[UpcomingGame] = []
-        for g in self._schedule(today, today + timedelta(days=days)):
+        for g in self._schedule(today - timedelta(days=back_days),
+                                today + timedelta(days=days)):
             status = (g.get("status") or {}).get("abstractGameState")
             if status not in ("Preview", "Live"):
                 continue

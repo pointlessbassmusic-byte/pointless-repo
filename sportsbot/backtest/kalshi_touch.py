@@ -19,8 +19,12 @@ on settled `KXMLBGAME` games:
   (`kalshi_maker_fee_per_share`, the repo's deliberately non-zero default
   unless `KALSHI_MAKER_FEE_PER_CONTRACT` is set).
 
-Start time comes from the event ticker (MLB carries it); a game without
-one is skipped. Data only.
+Start time: the EARLIER of the event ticker's time and MLB's official
+scheduled first pitch. The ticker is not a reliable first pitch: the
+2026-10-12 LAD@MIL ticker says 20:00 ET for a game that started at
+21:00 UTC (17:00 ET), so a ticker anchor scored in-play prints as the
+close and that one game carried +0.23 per fill. A game missing from the
+schedule is skipped. Data only.
 """
 
 from __future__ import annotations
@@ -94,6 +98,25 @@ def fetch_tape(client, ticker: str, max_pages: int = 200) -> list[Print]:
             json.dump(rows, fh)
     return sorted((Print(ts=r[0], p_yes=r[1], taker_yes=bool(r[2])) for r in rows),
                   key=lambda t: t.ts)
+
+
+def anchor_starts(games: list[MarketGame], sched: list[dict],
+                  tol_h: float = 12.0) -> list[MarketGame]:
+    """Games re-anchored on min(ticker start, scheduled first pitch); a game
+    the schedule does not match (both teams, within ``tol_h``) is dropped."""
+    out = []
+    for g in games:
+        if g.start_ts is None:
+            continue
+        c = [x for x in sched if {x["home"], x["away"]} == {g.home, g.away}
+             and abs(x["ts"] - g.start_ts) <= tol_h * 3600]
+        if not c:
+            continue
+        s = min(c, key=lambda x: abs(x["ts"] - g.start_ts))["ts"]
+        out.append(MarketGame(date=g.date, home=g.home, away=g.away,
+                              home_ticker=g.home_ticker, close_ts=g.close_ts,
+                              home_won=g.home_won, start_ts=int(min(g.start_ts, s))))
+    return out
 
 
 def close_yes(tape: list[Print], start_ts: float) -> Optional[float]:
