@@ -236,7 +236,12 @@ Pipeline per cycle:
       through to the `Aneeshers/tennis-sackmann-archive` mirror (CC BY-NC-SA
       4.0, snapshot June 2026). Tennis is not in the sim; MLB is, and until
       the fit succeeds on the box the sim drops MLB as "model unfit" and the
-      touch arm quotes NHL/NFL only.
+      touch arm quotes NHL/NFL only. Follow-up the same hour: the 406 held on
+      every variant (browser headers, IPv4, HTTP/1.1) while `/teams` answered
+      200, so it is a per-address refusal of `/schedule`; `fit baseball` now
+      installs the committed `config/seeds/baseball.json` (refreshed by the
+      daily check-in with `--seed-out`) when the API errors, and the sim's
+      MLB context call was already guarded.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
