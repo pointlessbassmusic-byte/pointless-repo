@@ -309,3 +309,28 @@ def test_allocator_does_not_gate_the_touch_arm_on_a_priceable_sport():
                          priceable_sports={"baseball"})
     assert live["arms"]["hockey/touch/maker"]["budget"] == 0.0
     assert "gate not met" in live["arms"]["hockey/touch/maker"]["source"]
+
+
+def test_shipped_maker_test_config_is_inert_and_touch_only():
+    """config/maker_test.yaml: the pre-registered live test, shipped in paper
+    mode on Kalshi with the touch arm as its only funded path."""
+    import yaml
+
+    c = yaml.safe_load(open("config/maker_test.yaml"))
+    assert c["mode"] == "paper" and c["exchange"] == "kalshi"
+    assert c["accounts"]["real"]["starting_balance"] == 0.0
+    t = c["touch"]
+    assert t["enabled"] is True and t["sports"] == ["baseball", "hockey", "football"]
+    assert t["improve"] is False and t["stake_usd"] == 1.0 and t["max_stake_per_market"] == 4.0
+    assert c["bankroll"]["min_stake"] <= t["stake_usd"]
+    assert c["bankroll"]["max_stake_per_market"] >= t["max_stake_per_market"]
+    assert c["execution"]["order_ttl_seconds"] == 120           # the measured deadline
+    assert c["sports"]["tennis"]["enabled"] is False and c["sports"]["table_tennis"]["enabled"] is False
+    assert c["sports"]["basketball"]["enabled"] is False
+    assert c["allocation"]["path"] == "config/allocation.yaml"  # funding stays the operator's file
+    assert c["risk"]["daily_loss_fraction"] == 0.10 and c["risk"]["max_drawdown_fraction"] == 0.25
+    assert c["risk"]["daily_loss_limit"] <= 10.0 and c["risk"]["max_drawdown"] <= 25.0
+    assert set(c["scan"]["sports"]) == {"baseball", "hockey", "football"}
+    arms = running_arms_for(c)
+    assert {"baseball/touch/maker", "hockey/touch/maker", "football/touch/maker"} <= arms
+    assert not any(a.startswith("tennis/") for a in arms)
