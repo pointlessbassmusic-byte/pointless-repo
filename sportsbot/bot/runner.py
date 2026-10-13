@@ -839,6 +839,7 @@ class Runner:
                 self.maker_fee_fn,
                 sport_budget=strategy_cfg.sport_budget.get(sport_key),
                 style=strategy_cfg.style_override.get(sport_key, "both"),
+                resting_usd=self.executor.resting_stake_by_sport().get(sport_key, 0.0),
             )
         except Exception:
             log.exception("touch evaluation failed for %s", sm.market.market_id)
