@@ -1321,9 +1321,12 @@ across them, and does pooling tighten the bound?
 banks (Dec 2024 – Sep 2026), found by search and tag listing: one event per
 meeting (an "August" and a "September" listing of one Bank of Israel meeting
 merged), buckets with exactly one YES. Anchor = 00:00 UTC of the
-announcement date. Polymarket dates these events on the announcement day, and
-every bank here announces after 00:30 UTC, so no price at or before the anchor
-has seen the decision. Favourite = the highest bucket's last trade at 168,
+announcement date. Every bank here announces after 00:30 UTC. Polymarket usually
+dates these events on the announcement day, but some are dated the next morning
+(ECB Oct 2026, RBA Nov 2026), so the 24 h snapshot can fall after the decision.
+Re-scored without the 24 h and 48 h snapshots, the G10 rows are identical (57
+fires, 0 losses, +2.3%) and the pooled table only loses one loss (Colombia,
+Jul), so no win here comes from a late anchor. Favourite = the highest bucket's last trade at 168,
 120, 72, 48 and 24 h before the anchor. The first horizon at ≥ 0.90 is the
 entry, which is what the recorder would store. Cost is price + 1c + the
 market's own taker fee. Every print used is under 24 h old, and the table is
@@ -1370,8 +1373,13 @@ The G10 fires all came 72–168 h before the announcement date, 51 of them at
    rows lost.
 
 **What changes.** Nothing trades. CLAUDE.md's Fed bullet gains the
-G10/non-G10 finding. The obvious follow-up is extending the arb-scanner
-recorder to the six other G10 banks on Polymarket, Fed gates unchanged and
-record only. That would build the out-of-sample record about seven times
-faster than the Fed alone. It is a recorder change for the operator to
-approve, not done here.
+G10/non-G10 finding. On the operator's go-ahead (2026-10-13) the recorder
+now covers the six other G10 banks: `arb-scanner/src/cb_watch.py`, every
+arb-scanner cycle and `python -m src.cb_watch --report`. Kalshi lists all
+six (`KXCBDECISION{EU,ENGLAND,JAPAN,CANADA,AUSTRALIA,NZ}`), so the Fed
+gates apply unchanged: ask >= 0.90, within 7 days of the earliest close,
+other venue's mid >= 0.85. A bucket with no Kalshi market at all is
+recorded as `single_venue`, with a 1.5-day lead floor because of the late
+`endDate`, and scored separately. A bank whose Kalshi read fails is skipped
+for that cycle rather than treated as single-venue. This builds the
+out-of-sample record about seven times faster than the Fed alone.

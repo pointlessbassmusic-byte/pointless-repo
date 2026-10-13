@@ -13,11 +13,15 @@ gets more than eight chances a year.
 
 Method, per decision event (mutually exclusive rate buckets, one resolves
 YES):
-* anchor = 00:00 UTC of the event's `endDate` date. Polymarket dates these
-  events on the announcement day and every bank here announces after 00:30
-  UTC (RBNZ/BoK/PBoC ~01:00, BoJ ~03:00, RBA 03:30-04:30, the rest later),
-  so nothing at or before the anchor can have seen the decision. Events
-  resolved before their anchor are dropped as misdated.
+* anchor = 00:00 UTC of the event's `endDate` date. Polymarket usually
+  dates these events on the announcement day, and every bank here announces
+  after 00:30 UTC (RBNZ/BoK/PBoC ~01:00, BoJ ~03:00, RBA 03:30-04:30, the
+  rest later). Some events are dated the next morning instead (ECB Oct 2026
+  03:59Z, RBA Nov 2026 04:59Z), which puts the anchor up to ~1 day after the
+  decision; the 24 h snapshot can then be post-decision. Re-scoring without
+  the 24 h and 48 h snapshots leaves the G10 result unchanged (57 fires, 0
+  losses) and only removes a loss elsewhere, so no win in the table comes
+  from that. Events resolved before their anchor are dropped as misdated.
 * at each horizon h in HORIZONS_H before the anchor, the YES price of every
   bucket is its last trade at or before that time (data API; the CLOB's
   history is wiped on resolution); the favourite is the highest.

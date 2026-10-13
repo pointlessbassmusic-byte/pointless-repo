@@ -318,6 +318,14 @@ Pipeline per cycle:
       lacks. Two studies, two venues, two methods: the price is the sharper source unless
       an external reference beats it. That leaves reference-price edges (Fed decisions,
       sportsbook consensus) as the only class with evidence behind it.
+- [x] Extend the recorder to the other G10 banks (`arb-scanner/src/cb_watch.py`,
+      2026-10-13, operator go-ahead after Result 20). ECB, BoE, BoJ, BoC, RBA and RBNZ on
+      Kalshi (`KXCBDECISION*`) and Polymarket (Global-Rates / ecb tags), Fed gates
+      unchanged, its own `cb_signals` table and `docs/cb_signals.csv` export. Single-venue
+      buckets (no Kalshi market) are recorded with a 1.5-day lead floor and scored
+      apart. A failed Kalshi read drops the bank for the cycle (regression test). Live
+      2026-10-13: all six paired on both venues, nothing in the 7-day window (BoJ Oct
+      hold 0.94/0.95 and ECB Oct hold 0.93/0.92 at ~16 days).
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per

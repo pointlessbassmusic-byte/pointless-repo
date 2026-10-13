@@ -275,7 +275,12 @@ the outcome and fabricates longshot edge.
   fires on a decision bucket at >= 0.90 within 7 days when the other venue
   agrees, stores the first price it saw as the entry, and scores rows from
   Kalshi settlements. That settled record is the pre-live-gate evidence; do
-  not wire it to an executor before it exists.
+  not wire it to an executor before it exists. `arb-scanner/src/cb_watch.py`
+  runs the same rule and gates for ECB, BoE, BoJ, BoC, RBA and RBNZ (Kalshi
+  `KXCBDECISION*` + Polymarket). A bucket with no Kalshi market is
+  `single_venue`, needs a 1.5-day lead (Polymarket's endDate can trail the
+  announcement by a day) and is scored apart. A failed Kalshi read skips the
+  bank; it must never downgrade it to single-venue. Same rule: records only.
 - The Fed trade is short volatility: a surprise costs the stake, and one
   loss erases ~40 wins. Zero losses in 18 meetings bounds the surprise rate
   at ~16% (rule of three), six times the 2.4% breakeven, so the sample does
@@ -331,6 +336,7 @@ python -m src.report               # calibration vs real settlements (bot/engine
 python -m src.weather_divergence   # bot/engine: forecast vs market-implied temps
 python -m src.backtest             # kalshi-engine: replay history offline
 python -m src.fed_watch --report   # arb-scanner: FOMC rule state on both venues + settled record
+python -m src.cb_watch --report    # arb-scanner: the same rule for the six other G10 banks
 ```
 
 ### Safety invariants — do not weaken

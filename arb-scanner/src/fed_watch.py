@@ -156,13 +156,15 @@ def _mid(m: BinaryMarket | None) -> float | None:
     return m.yes_bid if m.yes_bid is not None else m.yes_ask
 
 
-def group_buckets(markets: list[BinaryMarket]) -> dict[tuple[str, str], BucketState]:
+def group_buckets(markets: list[BinaryMarket],
+                  parse_fn=None) -> dict[tuple[str, str], BucketState]:
     """Pair the two venues' markets by (meeting, bucket). The decision time is
     the earliest close across venues: Kalshi closes at the decision (2pm ET),
-    Polymarket's endDate runs to the following morning."""
+    Polymarket's endDate runs to the following morning. `parse_fn` lets the
+    other-central-bank recorder (cb_watch) reuse this with its own parser."""
     out: dict[tuple[str, str], BucketState] = {}
     for m in markets:
-        key = parse(m)
+        key = (parse_fn or parse)(m)
         if key is None:
             continue
         st = out.setdefault(key, BucketState(meeting=key[0], bucket=key[1], decision_time=None))
@@ -190,18 +192,28 @@ class FedWatcher:
         # Oct 2026); this default applies only when Gamma omits the schedule
         self.poly_fee_rate = float(cfg.get("poly_fee_rate", 0.05))
         self.stake_usd = float(cfg.get("stake_usd", 25))
+        # single-venue fires (cb_watch only, where Kalshi lists no market for
+        # the bank): Polymarket's endDate can fall up to ~1 day AFTER the
+        # announcement (ECB, RBA), so without a Kalshi close the lead must
+        # clear this margin or the "fire" could be a known outcome
+        self.single_venue_min_lead_days = float(cfg.get("single_venue_min_lead_days", 1.5))
 
     def net_return(self, platform: str, ask: float, fee_rate: float | None = None) -> float:
         if fee_rate is None:
             fee_rate = self.kalshi_fee_rate if platform == "kalshi" else self.poly_fee_rate
         return (1 - ask - kalshi_fee(ask, fee_rate)) / ask
 
-    def evaluate(self, markets: list[BinaryMarket],
-                 now: datetime | None = None) -> list[FedSignal]:
-        """Every (meeting, bucket, venue) the rule fires on right now."""
+    def evaluate(self, markets: list[BinaryMarket], now: datetime | None = None,
+                 parse_fn=None, allow_single_venue: bool = False) -> list[FedSignal]:
+        """Every (meeting, bucket, venue) the rule fires on right now.
+
+        `allow_single_venue` (off for the Fed) records a Polymarket fire when
+        no Kalshi market exists for the bucket at all, with `other_mid` None
+        and the stricter lead floor above. A Kalshi market that exists but
+        disagrees, or has no quote, still blocks the fire."""
         now = now or datetime.now(timezone.utc)
         signals: list[FedSignal] = []
-        for st in group_buckets(markets).values():
+        for st in group_buckets(markets, parse_fn).values():
             if st.decision_time is None:
                 continue
             lead = (st.decision_time - now).total_seconds() / 86400
@@ -213,7 +225,10 @@ class FedWatcher:
                 if venue.yes_ask < self.min_price:
                     continue
                 other_mid = _mid(other)
-                if other_mid is None or other_mid < self.agree_min:
+                if (other is None and allow_single_venue and venue.platform == "polymarket"):
+                    if lead < self.single_venue_min_lead_days:
+                        continue
+                elif other_mid is None or other_mid < self.agree_min:
                     log.info("fed: %s %s at %.2f on %s but the other venue reads %s — "
                              "not fired", st.meeting, st.bucket, venue.yes_ask,
                              venue.platform,
@@ -308,11 +323,12 @@ def scorecard(conn: sqlite3.Connection) -> Record:
                   surprise_upper95=None if upper is None else round(upper, 4))
 
 
-def state_lines(markets: list[BinaryMarket], now: datetime | None = None) -> list[str]:
+def state_lines(markets: list[BinaryMarket], now: datetime | None = None,
+                parse_fn=None) -> list[str]:
     """Human-readable live state of every open meeting across both venues."""
     now = now or datetime.now(timezone.utc)
     by_meeting: dict[str, list[BucketState]] = {}
-    for st in group_buckets(markets).values():
+    for st in group_buckets(markets, parse_fn).values():
         by_meeting.setdefault(st.meeting, []).append(st)
     lines = []
     for meeting in sorted(by_meeting):
