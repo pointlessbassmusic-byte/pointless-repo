@@ -38,5 +38,7 @@ arms:
   football/sharp/taker:   {weight: null, learn: false}
   hockey/sharp/maker:     {weight: null, learn: false}   # Oct–Jun
   hockey/sharp/taker:     {weight: null, learn: false}
+  hockey/touch/maker:     {weight: null, learn: false}   # Result 15 addendum: NHL carries the touch edge (+0.4–0.6 pt)
+  football/touch/maker:   {weight: null, learn: false}   # Result 15 addendum: NFL carries the touch edge (+0.5–0.7 pt)
   table_tennis/model/maker: {weight: 0.0, learn: false, enabled: false}   # no sharp line, integrity record: off
   table_tennis/model/taker: {weight: 0.0, learn: false, enabled: false}

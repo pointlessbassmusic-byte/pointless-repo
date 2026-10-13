@@ -211,6 +211,28 @@ Pipeline per cycle:
       contracts), CLV per fill vs venue and sharp close with clustered
       intervals, adverse selection by wait, the 200-fill gate line, and a
       paper self-check (venue fill == shadow).
+- [x] Result 15 addendum (2026-10-13): the same construction on Polymarket
+      hockey (89 games), football (80) and basketball (40). NHL and NFL carry
+      the touch edge — population maker baseline +0.0042 to +0.0063 (hockey,
+      27 test markets) and +0.0053 to +0.0065 (football, 24), every interval
+      above zero, the MLB number on a tenth of the markets; neither has
+      persistent informed wallets. NBA is not measurable yet (11 pre-season
+      markets, intervals span zero, one tape page lost to a 429): re-measure
+      with ≥60 regular-season days. The sim's touch arm now rests on hockey
+      and football too (`touch.sports`); the runner quotes those books for
+      the touch arm even when the scanner dropped them for want of a sharp
+      line (it needs no price), and the allocator no longer parks a touch
+      arm behind the priceable-sport gate. Live-mode funding is unchanged:
+      manual weight, evidence or `learn`, none of which is set.
+- [x] Operator path for real money (2026-10-13): `SPORTSBOT_DISCORD_WEBHOOK`
+      alerts (fills per cycle, risk halts once per six hours, nothing when
+      unset; a failed post never stops a cycle), `sportsbot digest [--post]`
+      (equity/CLV per book, touch posts and fills, distance to the bar),
+      `sportsbot board-serve` + `sportsbot-boardserve.service` (board.html
+      and dashboard.html only, localhost) for `tailscale serve --set-path
+      /sportsbot` on the arbitrage desk's node — one private address for
+      phone and desktop, no new auth surface. `deploy/DEPLOYMENT.md` has the
+      commands; the webhook can be the desk's.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
@@ -362,7 +384,10 @@ item names the measurement that would move it, and the standing rules apply
    the touch, +1.1–1.8 behind informed flow) with one unmeasurable: the
    fill share of a new order in the touch queue. The decisive experiment
    is a minimum-size live maker order that records fill rate and CLV per
-   fill; it is the smallest capital question in the queue. Also
+   fill; it is the smallest capital question in the queue. The 2026-10-13
+   addendum extends the measured edge to NHL and NFL (same half-point,
+   27/24 markets), so the test is not bounded by the MLB season; NBA is a
+   December re-measurement. Also
    measurable in paper: tape-verified fills produce `baseball/model/maker`
    and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
    CLV-graded fills, interval lower bound > 0). Gate on the sharp close once

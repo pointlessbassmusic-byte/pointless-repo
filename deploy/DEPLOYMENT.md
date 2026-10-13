@@ -119,6 +119,36 @@ book; it cannot start real trading, and it deliberately has no control that
 could. Real orders still require `mode: live` in config AND `SPORTSBOT_LIVE=1`
 in the environment, both set by hand on the host — see the gate below.
 
+## One address for phone and desktop (with the arbitrage desk's Tailscale node)
+
+The arbitrage desk on the same server already runs Tailscale Serve
+(`./desk.sh remote` in its repo), which gives one private HTTPS address
+that only devices signed into your tailnet can open. sportsbot's board
+can ride the same node on a path, so one bookmark covers both desks:
+
+```bash
+systemctl status sportsbot-boardserve      # board.html on 127.0.0.1:8001, whitelist only
+sudo tailscale serve --bg --set-path /sportsbot http://127.0.0.1:8001
+tailscale serve status                     # prints the https://<node>.<tailnet>.ts.net address
+# the board is then at https://<node>.<tailnet>.ts.net/sportsbot/
+```
+
+`sportsbot-boardserve.service` serves only `board.html` and
+`dashboard.html` from `data/` (never the SQLite store, never a listing),
+binds to localhost only, and adds no auth of its own: Tailscale is the
+auth. Without the desk's node, `sudo tailscale up` once on the server
+does the same. The SSH tunnel above keeps working either way.
+
+## Alerts on the phone
+
+Put a Discord webhook URL in `.env` as `SPORTSBOT_DISCORD_WEBHOOK` (the
+arbitrage desk can post to the same one). The bot then posts each
+cycle's fills (arm, side, size, price), any risk halt (once per six
+hours while it holds), and `sportsbot digest --post` sends the daily
+three lines per book: equity and CLV, the touch arm's posts and fills,
+and the distance to the bar. Unset, nothing is sent and nothing
+changes. A failed post is logged and never stops a cycle.
+
 ## Going live — the gate, not a suggestion
 
 Stay in paper mode until **all** of these hold, then flip `mode: live` in
