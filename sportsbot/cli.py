@@ -57,7 +57,10 @@ def fit(sport: str, config: str = CONFIG_OPT,
         tt_days: int = typer.Option(90, help="table_tennis: days of Polymarket history"),
         source: str = typer.Option(
             "auto", help="tennis: sackmann | kalshi | auto (Sackmann, "
-                         "falling back to a Kalshi bootstrap if unreachable)")):
+                         "falling back to a Kalshi bootstrap if unreachable)"),
+        seed_out: str = typer.Option(
+            "", help="baseball: also write the fitted ratings (with provenance) to this "
+                     "path, e.g. config/seeds/baseball.json, for hosts the Stats API refuses")):
     """Train ratings for one sport and save them to the ratings dir."""
     cfg = _setup(config)
     ratings_dir = cfg.get("storage", {}).get("ratings_dir", "data/ratings")
@@ -101,18 +104,59 @@ def fit(sport: str, config: str = CONFIG_OPT,
         })
         console.print(f"[green]saved {len(model.overall.ratings)} player ratings -> {path}")
     elif sport == "baseball":
+        import json
+        import shutil
+        from datetime import datetime, timezone
+
+        import httpx
+
         from sportsbot.data.mlb_data import MLBStatsClient
         from sportsbot.engine.baseball import BaseballModel
 
+        path = os.path.join(ratings_dir, "baseball.json")
+        seed = os.path.join(cfg.get("storage", {}).get("seeds_dir", "config/seeds"), "baseball.json")
         console.print(f"downloading {seasons} MLB seasons from statsapi.mlb.com…")
-        games = MLBStatsClient().history(seasons=seasons)
+        try:
+            games = MLBStatsClient().history(seasons=seasons)
+        except httpx.HTTPError as exc:
+            # The Stats API refuses /schedule from some hosts (406 from a
+            # Linode address, 2026-10-13, while /teams answers 200 and the
+            # same request succeeds elsewhere). A committed seed, refitted
+            # by the daily check-in where the API is reachable, keeps those
+            # hosts pricing MLB instead of dropping it as "model unfit".
+            if not os.path.exists(seed):
+                raise
+            try:
+                with open(seed) as fh:
+                    meta = (json.load(fh) or {}).get("seed_meta", {}) or {}
+            except Exception:
+                meta = {}
+            console.print(
+                f"[yellow]MLB Stats API refused this host ({type(exc).__name__}: "
+                f"{str(exc)[:120]}). Installing the committed seed ratings from {seed} "
+                f"(fitted {meta.get('fitted_at', 'unknown date')} on "
+                f"{meta.get('n_games', '?')} games) instead; the daily check-in "
+                "refreshes that seed where the API answers.[/yellow]")
+            shutil.copyfile(seed, path)
+            console.print(f"[green]installed seed ratings -> {path}")
+            return
         console.print(f"training on {len(games)} games")
         model = BaseballModel(
             home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)))
         model.fit(games)
-        path = os.path.join(ratings_dir, "baseball.json")
         model.save(path)
         console.print(f"[green]saved {len(model.elo.ratings)} team ratings -> {path}")
+        if seed_out:
+            model.save(seed_out)
+            with open(seed_out) as fh:
+                payload = json.load(fh)
+            payload["seed_meta"] = {
+                "fitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "n_games": len(games), "seasons": seasons,
+                "source": "statsapi.mlb.com via sportsbot fit baseball --seed-out"}
+            with open(seed_out, "w") as fh:
+                json.dump(payload, fh)
+            console.print(f"[green]seed written -> {seed_out}")
     elif sport == "table_tennis":
         from sportsbot.data.tabletennis_data import load_csv, results_from_polymarket
         from sportsbot.engine.tabletennis import TableTennisModel
