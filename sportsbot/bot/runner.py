@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Optional, Any
@@ -251,6 +252,35 @@ def build_exchange(cfg: dict):
         maker_fee_fn=maker_fee_fn,
     )
     return paper, data_client, fee_fn
+
+
+_EDGE_RE = re.compile(r"edge ([+-]?\d+\.\d+) vs the (\d+\.\d+) bar")
+
+
+def _tally_edge(seen: dict, market, intent, why: str, staking_cfg, strategy_cfg) -> None:
+    """One evaluated market's distance to the bar: the intent's edge when it
+    bet, the near-miss edge the strategy printed when it passed, and the
+    spread blocks separately (they never reached the edge test)."""
+    sport = market.sport.value if market.sport else "unknown"
+    bar = float(strategy_cfg.min_edge_override.get(sport, staking_cfg.min_edge))
+    d = seen.setdefault(sport, {"best": None, "priced": 0, "spread_blocked": 0,
+                                "within_1pt": 0, "bets": 0, "bar": bar})
+    d["priced"] += 1
+    edge = None
+    if intent is not None:
+        edge = float(intent.edge)
+        d["bets"] += 1
+    else:
+        m = _EDGE_RE.search(why or "")
+        if m:
+            edge = float(m.group(1))
+        elif "spread" in (why or ""):
+            d["spread_blocked"] += 1
+    if edge is not None:
+        if d["best"] is None or edge > d["best"]:
+            d["best"] = round(edge, 4)
+        if edge >= bar - 0.01:
+            d["within_1pt"] += 1
 
 
 class Runner:
@@ -683,6 +713,31 @@ class Runner:
         except Exception:
             log.exception("exit decision record failed")
 
+    def _record_edge_bar(self, edge_seen: dict) -> None:
+        """Fold this cycle's best edge per sport into today's row
+        (`edgebar:<account>:<date>`), so the board can show how far the
+        slate sat from the entry bar day by day -- the arbitrage desk's
+        "distance to breakeven", which a flat equity line cannot show.
+        Survives decision-feed pruning. Telemetry: never raises."""
+        if not edge_seen:
+            return
+        try:
+            key = f"edgebar:{self.account}:{datetime.now(timezone.utc).date().isoformat()}"
+            row = self.store.get_kv(key) or {}
+            for sport, d in edge_seen.items():
+                cur = row.get(sport) or {"best": None, "priced": 0, "spread_blocked": 0,
+                                         "within_1pt": 0, "bets": 0, "cycles": 0, "bar": d["bar"]}
+                if d["best"] is not None and (cur["best"] is None or d["best"] > cur["best"]):
+                    cur["best"] = d["best"]
+                for k in ("priced", "spread_blocked", "within_1pt", "bets"):
+                    cur[k] = cur.get(k, 0) + d[k]
+                cur["cycles"] = cur.get("cycles", 0) + 1
+                cur["bar"] = d["bar"]
+                row[sport] = cur
+            self.store.set_kv(key, row)
+        except Exception:
+            log.exception("edge-bar record failed")
+
     def _touch_pass(self, sm, quote, exposure: dict, strategy_cfg, summary: dict) -> bool:
         """The touch-maker arm's turn on one quoted market (bot/touch.py).
         Posts at most one resting order per market per cycle, through the
@@ -873,6 +928,7 @@ class Runner:
 
         exposure = self.store.exposure_by()
         quoted: dict[str, tuple] = {}
+        edge_seen: dict[str, dict] = {}
         for sm in scanned:
             try:
                 quote = self.exchange.get_quote(sm.market)
@@ -908,6 +964,7 @@ class Runner:
             )
             mid = ((quote.bid + quote.ask) / 2.0
                    if quote.bid is not None and quote.ask is not None else None)
+            _tally_edge(edge_seen, sm.market, intent, why, staking_cfg, strategy_cfg)
             if intent is None:
                 self._record_decision(sm, "skip", mid, reason=why)
                 continue
@@ -929,6 +986,7 @@ class Runner:
                                       reason="order rejected by venue")
 
         summary["exits"] = self._manage_positions(quoted, strategy_cfg)
+        self._record_edge_bar(edge_seen)
 
         canceled = self.executor.expire_stale_orders()
         if canceled:

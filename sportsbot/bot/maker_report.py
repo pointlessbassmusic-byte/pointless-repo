@@ -123,9 +123,48 @@ def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> di
     ci = rep["clv_venue"]
     rep["gate"] = {"fills": len(graded), "needed": GATE_FILLS,
                    "lower_bound_positive": bool(ci and ci.get("lo") is not None and ci["lo"] > 0)}
+    rep["pairs"] = locked_pairs(orders)
     rep["realised_pnl"] = round(sum(float(b["pnl"] or 0) for b in bets if b.get("pnl") is not None), 2)
     rep["bets"] = len(bets)
     return rep
+
+
+def locked_pairs(orders: list[dict]) -> dict:
+    """Both sides filled on one market is a complete set: it pays $1 at
+    settlement whoever wins, so those contracts earn 1 - (yes price + no
+    price) regardless of outcome (the arbitrage desk's "bundle", executed
+    as a maker). Contracts filled on one side only carry direction and
+    are where adverse selection lives. Pairing is per market at the
+    volume-weighted fill prices of each side."""
+    by_market: dict[str, dict] = {}
+    for o in orders:
+        f = float(o.get("filled") or 0)
+        if f <= 0:
+            continue
+        m = by_market.setdefault(o["market_id"], {"yes": [0.0, 0.0], "no": [0.0, 0.0]})
+        side = m["yes"] if o["side"] == "yes" else m["no"]
+        side[0] += f
+        side[1] += f * float(o["price"])
+    paired = naked_yes = naked_no = 0.0
+    locked_dollars = 0.0
+    markets_paired = 0
+    edges = []
+    for m in by_market.values():
+        (qy, cy), (qn, cn) = m["yes"], m["no"]
+        pq = min(qy, qn)
+        naked_yes += qy - pq
+        naked_no += qn - pq
+        if pq > 0:
+            markets_paired += 1
+            edge = 1.0 - (cy / qy) - (cn / qn)      # per paired contract, before fees
+            edges.append((edge, pq))
+            paired += pq
+            locked_dollars += edge * pq
+    return {"markets": len(by_market), "markets_paired": markets_paired,
+            "paired_contracts": round(paired, 2),
+            "naked_yes_contracts": round(naked_yes, 2), "naked_no_contracts": round(naked_no, 2),
+            "locked_edge_per_contract": (round(locked_dollars / paired, 4) if paired else None),
+            "locked_dollars": round(locked_dollars, 4)}
 
 
 def _fmt_ci(d: Optional[dict]) -> str:
@@ -157,6 +196,14 @@ def format_maker_report(rep: dict) -> str:
     ]
     for label, d in rep["by_wait"].items():
         lines.append(f"    wait {label:9s} {_fmt_ci(d['clv'])}")
+    pr = rep.get("pairs") or {}
+    if pr.get("markets"):
+        le = pr["locked_edge_per_contract"]
+        lines.append(f"  locked pairs: {pr['markets_paired']} of {pr['markets']} markets with fills "
+                     f"have both sides filled; {pr['paired_contracts']} contracts locked at "
+                     f"{'—' if le is None else f'{le * 100:+.2f} pt'} per contract "
+                     f"(${pr['locked_dollars']:+.4f} before fees, outcome-independent); naked "
+                     f"yes {pr['naked_yes_contracts']} / no {pr['naked_no_contracts']} carry direction")
     g = rep["gate"]
     lines.append(f"  gate: {g['fills']}/{g['needed']} graded fills; interval lower bound "
                  f"{'above' if g['lower_bound_positive'] else 'not above'} zero; "
