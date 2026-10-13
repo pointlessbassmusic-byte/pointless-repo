@@ -1315,6 +1315,103 @@ Polymarket main CLOB is geoblocked for US accounts (a US account would need
 Polymarket US or Kalshi, where the maker fee is not zero — Result 4 found
 Kalshi's maker variant no better than taker).
 
+### Result 15, addendum 2 (2026-10-13): the rest of the Polymarket venue
+
+_The user asked for every game book, not only ours. First a survey of
+the top 2,000 Polymarket events by 24-hour volume (Gamma, 09:50Z), then
+the Result 15 construction on each book large enough to measure: the
+last 30 days of resolved markets, up to 150 per sport, train/test 70/30
+by start time, `wallet-follow --maker-ticks 1`. Champions League
+returned no resolved games because Gamma dates those events outside
+the scanner's end-date windows; EPL stands in for soccer (three-way
+books: each outcome is its own binary market and its own "game" here).
+Tapes truncated by 429s: LoL 2 pages, CS2 4, CFB 1, the rest none._
+
+**The venue, 2026-10-13** (24-hour volume on moneyline events; spread
+and touch size from live books sampled for the next 48 hours):
+
+| book | events | 24 h volume | spread | touch size (contracts) |
+|---|---|---|---|---|
+| League of Legends (Worlds) | 5 | $6.8M | 1 tick | median 551, max 2,716 |
+| Tennis | 127 | $1.5M | 1 tick on 64 of 87 | median 1,374 |
+| Champions League | 18 (54 outcomes) | $1.1M | 1 tick on 54 of 54 | median 16,000, max 105,000 |
+| Dota 2 | 10 | $533k | 2 ticks | |
+| Counter-Strike 2 | 22 | $371k | 2 ticks | median 23 |
+| NFL | 25 | $347k | 1 tick | (no game within 48 h) |
+| NHL | 16 of 193 | $198k | 1 tick | 8,000–48,000 tonight |
+| International cricket | 8 | $131k | 2 ticks | |
+| College football | 23 | $80k | 1–2 ticks | median 11,700 |
+| UFC | 10 | $80k | 1 tick | median 286 |
+| NBA (preseason) | 5 | $38k | 1 tick | |
+| EPL | 10 | $31k | 1 tick | |
+| MLB (LCS) | 2 | $21k | 1 tick | |
+| Table tennis | 769 | $45 | median 17 cents | empty |
+
+**Population maker baseline, one tick under every pre-game taker print,
+test games only, intervals clustered by market:**
+
+| book | resolved (test) | deadline | fill rate | CLV per fill | realised return per $ |
+|---|---|---|---|---|---|
+| College football | 150 (45) | 120 s | 13.7% | **+0.0053 [+0.0020, +0.0084]** | **+0.30 [+0.02, +0.55]** |
+| | | 30 min | 37.4% | **+0.0081 [+0.0033, +0.0121]** | +0.21 [−0.10, +0.57] |
+| | | to start | 65.2% | **+0.0053 [+0.0013, +0.0091]** | +0.19 [−0.03, +0.44] |
+| EPL (per outcome) | 69 (21) | 120 s | 22.9% | **+0.0100 [+0.0037, +0.0145]** | +0.05 [−0.41, +0.53] |
+| | | 30 min | 53.5% | **+0.0120 [+0.0032, +0.0186]** | −0.01 [−0.48, +0.42] |
+| | | to start | 89.8% | **+0.0137 [+0.0017, +0.0237]** | −0.05 [−0.48, +0.41] |
+| Dota 2 | 150 (45) | 120 s | 26.5% | **+0.0067 [+0.0019, +0.0121]** | +0.06 [−0.07, +0.23] |
+| | | 30 min | 61.3% | **+0.0041 [+0.0004, +0.0076]** | +0.02 [−0.08, +0.16] |
+| | | to start | 86.8% | **+0.0040 [+0.0005, +0.0075]** | +0.00 [−0.09, +0.11] |
+| League of Legends | 150 (45) | 120 s | 35.1% | +0.0065 [+0.0018, +0.0130] | **−0.09 [−0.17, −0.00]** |
+| | | 30 min | 71.3% | +0.0086 [+0.0027, +0.0173] | −0.06 [−0.15, +0.03] |
+| | | to start | 92.8% | +0.0049 [+0.0026, +0.0074] | −0.08 [−0.15, +0.00] |
+| Counter-Strike 2 | 150 (45) | 120 s | 42.7% | +0.0042 [+0.0023, +0.0064] | **−0.11 [−0.22, −0.00]** |
+| | | 30 min | 82.1% | +0.0051 [+0.0031, +0.0073] | −0.08 [−0.19, +0.04] |
+| | | to start | 95.0% | +0.0055 [+0.0037, +0.0078] | **−0.10 [−0.20, −0.00]** |
+| UFC | 66 (20; 14 with prints) | 120 s | 41.8% | −0.0019 [−0.0168, +0.0143] | −0.20 [−0.35, +0.40] |
+| | | 30 min | 60.5% | −0.0098 [−0.0272, +0.0127] | −0.25 [−0.38, +0.06] |
+| | | to start | 91.0% | −0.0117 [−0.0283, +0.0097] | −0.23 [−0.36, +0.04] |
+| Cricket (per outcome) | 150 (45; 41 with prints) | 120 s | 17.4% | +0.0051 [−0.0129, +0.0219] | −0.17 [−0.39, +0.19] |
+| | | 30 min | 46.3% | +0.0009 [−0.0097, +0.0095] | −0.12 [−0.39, +0.28] |
+| | | to start | 80.5% | +0.0004 [−0.0065, +0.0079] | −0.14 [−0.46, +0.30] |
+
+**Reading it.** Three groups.
+
+1. *Slow pre-game team books behave like MLB, NHL and NFL.* College
+   football carries the half point at every deadline with the realised
+   return agreeing (positive, interval above zero at 120 s), and behind
+   the best-CLV wallets it doubles to +0.0132 [+0.0109, +0.0158] on 63
+   fills — the MLB pattern exactly. EPL carries a full point of CLV per
+   fill on 20–21 outcome markets; its realised returns are too wide to
+   say anything (±0.45), which is a sample-size statement, not a
+   divergence. Dota 2 is small-positive on both yardsticks.
+2. *Fast esports books split the yardsticks.* League of Legends and
+   Counter-Strike 2 show the same positive CLV per fill as everything
+   else — and negative realised returns, with the 120-second interval
+   excluding zero in both. The pre-game close is a poor value proxy
+   where a best-of series opens, trades and resolves within hours and
+   the informed money arrives in-play: a maker filled at the touch holds
+   the wrong side when it does. These are not candidates, whatever the
+   CLV column says, and they are the first clean case in this project
+   where CLV and PnL disagree on a sample this size.
+3. *Nothing.* UFC on 14 test markets: CLV spans zero, returns negative.
+   Cricket on 41: both yardsticks span zero at every deadline; many of
+   its outcome books tick at 0.001, so a one-tick rest is a different
+   object there and the construction is not comparable anyway.
+
+**What it changes.** College football joins MLB, NHL and NFL as a
+measured touch book; it is Saturday's slate and the live test can carry
+it once a Kalshi start time exists for NCAAF tickers (the harness key
+`americanfootball_ncaaf` is the missing piece). Soccer is the promising
+unknown: the venue's largest game books outside esports, a point of CLV
+on a small sample, and the paper sim now rests on every outcome of
+every UCL, EPL, La Liga, EFL and AFC CL match inside its window, so the
+sample grows daily. Esports stay paper-only with the divergence
+recorded in the arm's allocation comment. Tennis and NBA are quoted for
+fill-share evidence with no expectation of CLV. The binding caveat is
+unchanged everywhere: every fill here is a queue-priority fill at the
+existing bid; tonight's NHL touch sizes of 8,000–48,000 contracts say
+how far behind a new $1 order sits.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
