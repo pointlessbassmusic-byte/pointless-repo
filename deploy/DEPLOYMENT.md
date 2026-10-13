@@ -54,6 +54,7 @@ directory, and the service user cannot read `/root`.
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code (paper units) | automatic: `sportsbot-update.timer` runs `deploy/update.sh` daily at 14:17 UTC (pull `--ff-only`, venv refresh, `fit baseball`, restart sim/board/boardserve/weather); by hand: `bash /opt/sportsbot/deploy/update.sh` |
 | deploy new code (LIVE unit) | never automatic: read the change, then `systemctl restart sportsbot` yourself |
+| fix `insufficient permission ... .git/objects` | `chown -R sportsbot:sportsbot /opt/sportsbot` (a root-run `git pull` left root-owned objects; `update.sh` now does this itself) |
 | weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |
 | weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 

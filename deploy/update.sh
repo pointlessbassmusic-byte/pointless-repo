@@ -7,6 +7,10 @@
 set -euo pipefail
 APP_DIR=/opt/sportsbot
 cd "$APP_DIR"
+# Anything root touched (a hand-run `git pull`, an edited .env) must belong
+# to the service user again, or its pull fails with "insufficient permission
+# for adding an object to repository database" (seen 2026-10-13).
+chown -R sportsbot:sportsbot "$APP_DIR"
 before=$(git rev-parse HEAD)
 sudo -u sportsbot git pull --ff-only --quiet origin main
 after=$(git rev-parse HEAD)
