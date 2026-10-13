@@ -188,3 +188,56 @@ def test_shipped_configs_carry_the_touch_arm_off_by_default_and_on_in_the_sim():
     assert "baseball/touch/maker" not in running_arms_for(d)
     alloc = load_allocation("config/allocation.yaml")
     assert alloc.setting("baseball/touch/maker").learn is False
+
+
+def test_runner_drain_lets_resting_orders_live_out_the_ttl_then_shadows_them(tmp_path, monkeypatch):
+    """A one-shot cycle must not leave touch orders `open` forever: drain
+    reconciles until the TTL, then expires (and shadows) what is left."""
+    from sportsbot.bot.runner import Runner
+    from sportsbot.core.types import TapePrint
+    from sportsbot.exchanges.base import ExchangeClient
+
+    class Tape(ExchangeClient):
+        exchange = Exchange.POLYMARKET
+
+        def list_sports_markets(self, s):
+            return []
+
+        def get_quote(self, m):
+            raise RuntimeError
+
+        def place_order(self, o):
+            raise RuntimeError
+
+        def cancel_order(self, i):
+            return True
+
+        def get_open_orders(self):
+            return []
+
+        def get_positions(self):
+            return []
+
+        def get_balance(self):
+            return 0.0
+
+        def recent_trades(self, market, since):
+            return [TapePrint(ts=since + timedelta(milliseconds=100), price_yes=0.44, size=1.0)]
+
+    r = Runner.__new__(Runner)
+    r.store = Store(str(tmp_path / "t.sqlite"))
+    r.mode = "paper"
+    r.executor = Executor(PaperExchange(data_client=Tape(), starting_balance=100.0), r.store,
+                          mode="paper", order_ttl_seconds=0.2)
+    soon = datetime.now(timezone.utc) + timedelta(hours=3)
+    intent, _ = evaluate_touch(_market(start_time=soon), _quote(0.44, 0.47), _cfg(), EMPTY, [],
+                               NO_FEE, now=datetime.now(timezone.utc))
+    r.executor.submit(intent, quote=_quote(0.44, 0.47))
+    out = r.drain_resting(poll_seconds=0.05)
+    (o,) = r.store.all_orders()
+    # the tape printed 1 contract through the bid within the window: 1 of 2.27 filled,
+    # the rest cancelled at the TTL with the shadow recorded
+    assert out["fills_booked"] == 1 and out["canceled"] == 1 and out["still_resting"] == 0
+    assert o["status"] == "canceled" and o["filled"] == 1.0
+    assert o["raw"]["tape_through"] == 1.0 and o["raw"]["tape_filled"] == 1.0
+    assert r.store.all_bets("paper")[0]["arm"] == "baseball/touch/maker"
