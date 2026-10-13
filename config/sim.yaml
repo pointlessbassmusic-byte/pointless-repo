@@ -57,7 +57,8 @@ touch:                           # touch-maker arm (bot/touch.py; Result 15 / ra
   stake_usd: 1.0                 # minimum size by design: this arm measures, it does not earn yet
   max_stake_per_market: 4.0      # cost basis cap per market across both sides
   min_minutes_to_start: 10
-  max_hours_to_start: 8
+  max_hours_to_start: 12         # sim runs one cycle at 12:00Z and MLB starts ~20:00Z+;
+                                 # 8 h would skip the whole slate (measured 2026-10-13)
 
 positions:                       # open-position management (edge-driven, never loss-chasing)
   manage: true
