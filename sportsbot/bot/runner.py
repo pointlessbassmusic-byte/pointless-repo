@@ -16,7 +16,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Optional, Any
 
 import yaml
 
@@ -941,6 +941,30 @@ class Runner:
         except Exception:  # telemetry must never take the trading loop down
             log.exception("equity snapshot failed")
         return summary
+
+    def drain_resting(self, poll_seconds: float = 5.0,
+                      max_wait: Optional[float] = None) -> dict:
+        """Let the orders a cycle left resting live out their TTL, then
+        settle their fate: reconcile (paper tape fills, live fills) every
+        `poll_seconds` until the oldest order is past the TTL, expire the
+        rest, and return what happened. For a one-shot cycle this is what
+        turns a posted touch order into evidence (a fill or a shadowed
+        cancel) instead of a row left `open` when the process exits.
+        Bounded by `max_wait` (default TTL + 10 s)."""
+        ex = self.executor
+        ttl = float(ex.order_ttl)
+        deadline = time.time() + (ttl + 10.0 if max_wait is None else float(max_wait))
+        fills_before = len(self.store.all_bets(self.mode))
+        while ex._open and time.time() < deadline:
+            oldest = min(t.placed_at for t in ex._open.values())
+            if (datetime.now(timezone.utc) - oldest).total_seconds() >= ttl:
+                break
+            time.sleep(max(0.0, min(poll_seconds, deadline - time.time())))
+            ex.reconcile_open_orders()
+        ex.reconcile_open_orders()
+        canceled = ex.expire_stale_orders()
+        return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
+                "canceled": canceled, "still_resting": len(ex._open)}
 
     def run_forever(self) -> None:
         interval = float(self.cfg.get("scan", {}).get("interval_seconds", 300))
