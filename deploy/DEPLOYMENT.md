@@ -35,6 +35,10 @@ Then:
 
 ## Operations
 
+Run every `sportsbot` command below from `/opt/sportsbot` (`cd /opt/sportsbot`
+first): the CLI resolves `config/default.yaml` against the working
+directory, and the service user cannot read `/root`.
+
 | task | command |
 |---|---|
 | status / PnL / calibration | `sudo -u sportsbot /opt/sportsbot/.venv/bin/sportsbot status` |
