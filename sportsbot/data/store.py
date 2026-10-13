@@ -299,6 +299,18 @@ class Store:
             )
             self.conn.commit()
 
+    def all_orders(self) -> list[dict]:
+        """Every order row, `raw` parsed, oldest first."""
+        rows = []
+        for r in self.conn.execute("SELECT * FROM orders ORDER BY ts, client_id").fetchall():
+            d = dict(r)
+            try:
+                d["raw"] = json.loads(d.get("raw") or "{}")
+            except ValueError:
+                d["raw"] = {}
+            rows.append(d)
+        return rows
+
     def snapshot_quote(self, market_id: str, bid: Optional[float], ask: Optional[float]) -> None:
         with self._lock:
             self.conn.execute(

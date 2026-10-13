@@ -147,7 +147,9 @@ def test_runner_touch_pass_posts_through_risk_and_tallies(tmp_path):
     scfg = StrategyConfig()
     scfg.sport_budget = {"baseball": 20.0}
     scfg.style_override = {"baseball": "both"}
-    sm = SimpleNamespace(market=_market(), prediction=SimpleNamespace(prob_yes=0.5))
+    # the runner evaluates against the real clock: give the game a real future start
+    soon = datetime.now(timezone.utc) + timedelta(hours=3)
+    sm = SimpleNamespace(market=_market(start_time=soon), prediction=SimpleNamespace(prob_yes=0.5))
     q = MarketQuote(market_id="m1", bid=0.44, ask=0.47,
                     bids=[BookLevel(price=0.44, size=200.0)], asks=[BookLevel(price=0.47, size=200.0)])
     summary = {"orders": 0}
@@ -162,12 +164,12 @@ def test_runner_touch_pass_posts_through_risk_and_tallies(tmp_path):
     assert r._touch_pass(sm, q, EMPTY, scfg, summary) is False
     assert summary["touch"]["skipped"] == {"both": 1}
     # a sport the arm does not run for is untouched
-    other = SimpleNamespace(market=_market(market_id="m2", sport=Sport.TENNIS),
+    other = SimpleNamespace(market=_market(market_id="m2", sport=Sport.TENNIS, start_time=soon),
                             prediction=SimpleNamespace(prob_yes=0.5))
     assert r._touch_pass(other, q, EMPTY, scfg, summary) is False
     # unfunded sport: no order
     scfg.style_override = {"baseball": "none"}
-    assert r._touch_pass(SimpleNamespace(market=_market(market_id="m3"),
+    assert r._touch_pass(SimpleNamespace(market=_market(market_id="m3", start_time=soon),
                                          prediction=SimpleNamespace(prob_yes=0.5)),
                          q, EMPTY, scfg, summary) is False
 
