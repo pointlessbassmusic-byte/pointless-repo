@@ -110,14 +110,25 @@ def fetch_trades(condition_id: str, http=None, pause: float = 0.2,
     http = http or httpx.Client(timeout=40)
     rows: list[dict] = []
     for page in range(max_pages):
-        try:
-            r = http.get(f"{DATA_API}/trades", params={
-                "market": condition_id, "limit": PAGE, "offset": page * PAGE,
-                "takerOnly": "true" if taker_only else "false"})
-            r.raise_for_status()
-            batch = r.json()
-        except Exception as exc:  # noqa: BLE001 — one market's tape is not fatal
-            log.warning("trades failed for %s page %d: %s", condition_id, page, exc)
+        batch = None
+        for attempt in range(4):
+            try:
+                r = http.get(f"{DATA_API}/trades", params={
+                    "market": condition_id, "limit": PAGE, "offset": page * PAGE,
+                    "takerOnly": "true" if taker_only else "false"})
+                if r.status_code == 429 and attempt < 3:
+                    # A truncated tape is a biased tape (fills missing from
+                    # the fill rule); wait it out rather than give up.
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                r.raise_for_status()
+                batch = r.json()
+                break
+            except Exception as exc:  # noqa: BLE001 — one market's tape is not fatal
+                log.warning("trades failed for %s page %d: %s", condition_id, page, exc)
+                return []
+        if batch is None:
+            log.warning("trades for %s page %d still rate-limited after retries", condition_id, page)
             return []
         if not isinstance(batch, list):
             break

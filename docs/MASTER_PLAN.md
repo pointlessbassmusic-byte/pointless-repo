@@ -296,7 +296,10 @@ Pipeline per cycle:
       Dota 2 small-positive on both; CS2 repeats the LoL divergence (CLV
       positive, realised −0.11 [−0.22, −0.00]); UFC nothing on 14 markets;
       cricket nothing on 41 (both yardsticks span zero; 0.001 ticks);
-      UCL unmeasurable from Gamma's event dates. NCAAF needs a Kalshi start
+      Champions League (no matchday in the 30-day window; run on 60 d, 26
+      test outcome markets) +0.0065–0.0119 CLV, returns near zero ±0.3–0.5
+      — soccer is a point of CLV on 47 outcome markets, return not yet
+      readable. NCAAF needs a Kalshi start
       time (`americanfootball_ncaaf` harness key) before the live test can
       carry it.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
