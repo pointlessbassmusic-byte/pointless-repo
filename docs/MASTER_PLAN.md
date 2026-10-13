@@ -242,6 +242,15 @@ Pipeline per cycle:
       installs the committed `config/seeds/baseball.json` (refreshed by the
       daily check-in with `--seed-out`) when the API errors, and the sim's
       MLB context call was already guarded.
+- [x] `config/maker_test.yaml` + runbook (2026-10-13): the pre-registered live
+      fill-share test as one complete config (Kalshi, touch arm only at $1 a
+      side, 120 s TTL, tennis/NBA off, risk scaled to $100: $10 day stop,
+      $25 kill) shipped in paper mode. `docs/MAKER_TEST.md` "Starting it"
+      lists the operator's five steps — Kalshi keys, funded balance, the
+      three `learn: true` lines and a `learning.budget_usd` in
+      `config/allocation.yaml`, `SPORTSBOT_LIVE=1` in a unit override — none
+      of which the repository performs. `sportsbot doctor -c
+      config/maker_test.yaml` is the preflight.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
