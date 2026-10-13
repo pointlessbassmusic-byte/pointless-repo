@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -361,6 +362,26 @@ class PolymarketClient(ExchangeClient):
     TAPE_PAGE = 500
     TAPE_MAX_PAGES = 4
 
+    TAPE_RETRY_SLEEPS = (1.0, 2.0)
+
+    def _get_tape_page(self, market_id: str, page: int):
+        """One data-api tape page, retried on 429. The paper venue's rule is
+        "no tape, no fill": a rate-limited page read would silently drop a
+        fill that happened, so a 429 is waited out (1 s, then 2 s) before
+        the read is given up and the caller's exception path runs."""
+        params = {"market": market_id, "takerOnly": "true",
+                  "limit": self.TAPE_PAGE, "offset": page * self.TAPE_PAGE}
+        for attempt, sleep_s in enumerate(self.TAPE_RETRY_SLEEPS + (None,)):
+            try:
+                return self._get(f"{DATA_API_BASE}/trades", params=params)
+            except httpx.HTTPStatusError as exc:
+                if exc.response is None or exc.response.status_code != 429 or sleep_s is None:
+                    raise
+                log.info("tape page %d for %s rate-limited; retry %d in %.0fs",
+                         page, market_id[:10], attempt + 1, sleep_s)
+                time.sleep(sleep_s)
+        return []
+
     def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
         """Taker prints on `market` since `since`, newest first, YES frame.
 
@@ -375,9 +396,7 @@ class PolymarketClient(ExchangeClient):
         out: list[TapePrint] = []
         seen: set = set()
         for page in range(self.TAPE_MAX_PAGES):
-            rows = self._get(f"{DATA_API_BASE}/trades", params={
-                "market": market.market_id, "takerOnly": "true",
-                "limit": self.TAPE_PAGE, "offset": page * self.TAPE_PAGE})
+            rows = self._get_tape_page(market.market_id, page)
             if not rows:
                 break
             oldest = None
