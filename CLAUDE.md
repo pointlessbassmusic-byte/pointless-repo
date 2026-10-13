@@ -60,7 +60,12 @@ mode; Kalshi client implements the same interface for the US-legal path.
   wired into trading without backtest/CLV evidence): `nws.py` (NWS point
   forecasts -> weather-arm baseline, lead-aware sigma, no-backfill rule),
   `chatter.py` (Bluesky public search chatter counts + correlation report;
-  Reddit deliberately not used — it refuses datacenter clients),
+  Reddit's public `.json` endpoints are not used — they refuse datacenter
+  clients), `reddit.py` (team-news post titles via Reddit's OFFICIAL OAuth
+  API, app-only/read-only, `sportsbot reddit-watch`; feeds only the
+  pre-registered news-VETO test on touch-maker fills,
+  `docs/NEWS_VETO_PREREG_2026-10-13.md` — a veto can only remove trades,
+  and even a PASS goes to a paper shadow first),
   `sharp.py` (sharp-line CLV harness: budgeted The Odds API snapshots,
   Shin de-vig, grades every decision/bet against the Pinnacle close with a
   pre-registered pass criterion — see `docs/SHARP_CLV.md`; its only

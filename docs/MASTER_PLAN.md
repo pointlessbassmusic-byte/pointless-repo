@@ -368,3 +368,8 @@ out-of-sample with real fees and fills. The remaining evidence is live fills.
       week, then prod; Polymarket US 1-contract checks, then its pilot
 - [ ] Read the v3 paper logs (CLV of de-vigged sharp fair value vs the Polymarket mid)
 - [ ] Forward test verdict at n = 150 (≈ 5 weeks of recording)
+- [x] Reddit team-news recorder (`signals/reddit.py`, official OAuth API, data
+      only) + pre-registered news-veto test on the maker test's fills; read out
+      with the maker test (`sportsbot news-veto-report`). Operator: create a
+      Reddit "script" app, keys in `.env`, `systemctl enable --now sportsbot-reddit`
+- [x] `doctor`: Kalshi key must be RSA; live configs prove a signed read

@@ -48,9 +48,7 @@ def _ci(vals, clusters):
     return cluster_bootstrap_mean(list(vals), list(clusters), n_boot=1000, seed=11)
 
 
-def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> dict:
-    orders = [o for o in store.all_orders() if _signal_of((o.get("raw") or {}).get("arm")) == signal]
-    bets = [b for b in store.all_bets(mode) if _signal_of(b.get("arm")) == signal]
+def _closes(bets: list[dict]) -> dict[str, dict]:
     closes: dict[str, dict] = {}
     for b in bets:
         if b.get("closing_price") is not None or b.get("sharp_closing_price") is not None:
@@ -59,6 +57,54 @@ def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> di
                 closes[b["market_id"]]["venue"] = float(b["closing_price"])
             if b.get("sharp_closing_price") is not None:
                 closes[b["market_id"]]["sharp"] = float(b["sharp_closing_price"])
+    return closes
+
+
+def _ts(iso: Optional[str]) -> Optional[float]:
+    try:
+        return datetime.fromisoformat(iso).timestamp() if iso else None
+    except ValueError:
+        return None
+
+
+def _fill_rows(orders: list[dict], closes: dict[str, dict]) -> list[dict]:
+    """One row per filled order: price, CLV at each close, wait, fill time."""
+    rows = []
+    for o in orders:
+        if not (o["filled"] or 0) > 0:
+            continue
+        raw = o.get("raw") or {}
+        c = closes.get(o["market_id"], {})
+        venue = _side_close(c.get("venue"), o["side"])
+        sharp = _side_close(c.get("sharp"), o["side"])
+        wait = raw.get("rested_seconds")
+        if wait is None and raw.get("first_fill_at") and raw.get("placed_at"):
+            try:
+                wait = (datetime.fromisoformat(raw["first_fill_at"])
+                        - datetime.fromisoformat(raw["placed_at"])).total_seconds()
+            except ValueError:
+                wait = None
+        rows.append({"market": o["market_id"], "price": float(o["price"]), "side": o["side"],
+                     "venue_clv": None if venue is None else venue - float(o["price"]),
+                     "sharp_clv": None if sharp is None else sharp - float(o["price"]),
+                     "wait": None if wait is None else float(wait),
+                     "filled_ts": _ts(raw.get("first_fill_at")) or _ts(raw.get("placed_at"))})
+    return rows
+
+
+def fill_rows(store, signal: str = "touch", mode: Optional[str] = None) -> list[dict]:
+    """Filled orders of one signal with their CLV, as the maker report
+    grades them (other read-outs, e.g. the news-veto test, reuse this so
+    the two can never disagree on what a fill's CLV was)."""
+    orders = [o for o in store.all_orders() if _signal_of((o.get("raw") or {}).get("arm")) == signal]
+    bets = [b for b in store.all_bets(mode) if _signal_of(b.get("arm")) == signal]
+    return _fill_rows(orders, _closes(bets))
+
+
+def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> dict:
+    orders = [o for o in store.all_orders() if _signal_of((o.get("raw") or {}).get("arm")) == signal]
+    bets = [b for b in store.all_bets(mode) if _signal_of(b.get("arm")) == signal]
+    closes = _closes(bets)
 
     rep: dict = {"signal": signal, "orders": len(orders), "fills": 0}
     if not orders:
@@ -90,25 +136,7 @@ def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> di
         rep["by_status"][o["status"]] = rep["by_status"].get(o["status"], 0) + 1
 
     # CLV per filled order, by close, with wait buckets
-    rows = []
-    for o in orders:
-        if not (o["filled"] or 0) > 0:
-            continue
-        raw = o.get("raw") or {}
-        c = closes.get(o["market_id"], {})
-        venue = _side_close(c.get("venue"), o["side"])
-        sharp = _side_close(c.get("sharp"), o["side"])
-        wait = raw.get("rested_seconds")
-        if wait is None and raw.get("first_fill_at") and raw.get("placed_at"):
-            try:
-                wait = (datetime.fromisoformat(raw["first_fill_at"])
-                        - datetime.fromisoformat(raw["placed_at"])).total_seconds()
-            except ValueError:
-                wait = None
-        rows.append({"market": o["market_id"], "price": float(o["price"]),
-                     "venue_clv": None if venue is None else venue - float(o["price"]),
-                     "sharp_clv": None if sharp is None else sharp - float(o["price"]),
-                     "wait": None if wait is None else float(wait)})
+    rows = _fill_rows(orders, closes)
     rep["fills"] = len(rows)
     graded = [r for r in rows if r["venue_clv"] is not None]
     rep["graded_venue"] = len(graded)

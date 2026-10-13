@@ -944,6 +944,44 @@ def dashboard(config: str = CONFIG_OPT,
         raise typer.Exit(proc.returncode)
 
 
+@app.command("reddit-watch")
+def reddit_watch(db: str = typer.Option("data/reddit.sqlite"),
+                 subreddits: str = typer.Option(",".join(("baseball", "hockey", "nfl", "fantasybaseball",
+                                                          "fantasyhockey", "fantasyfootball"))),
+                 interval: float = typer.Option(120.0, help="seconds between polls"),
+                 once: bool = typer.Option(False, help="one poll, then exit")):
+    """Record team-news post titles from Reddit's official API (DATA ONLY;
+    needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in .env). Feeds the
+    pre-registered news-veto test; never touches trading."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from sportsbot.signals.reddit import NewsRecorder, RedditClient
+
+    rec = NewsRecorder(db, RedditClient(), [s.strip() for s in subreddits.split(",") if s.strip()],
+                       interval=interval)
+    if once:
+        console.print(f"{rec.poll_once()} new posts recorded in {db}")
+        return
+    rec.run_forever()
+
+
+@app.command("news-veto-report")
+def news_veto_report(config: str = CONFIG_OPT,
+                     reddit_db: str = typer.Option("data/reddit.sqlite"),
+                     mode: str = typer.Option("live", help="live | paper: which book's touch fills")):
+    """Pre-registered news-veto test (docs/NEWS_VETO_PREREG_2026-10-13.md):
+    do touch-maker fills shortly after team news lose more at the close?
+    Offline; read-only."""
+    cfg = _setup(config)
+    from sportsbot.data.store import Store
+    from sportsbot.signals.reddit import format_news_veto, news_veto_test
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    console.print(format_news_veto(news_veto_test(store, reddit_db, mode=mode)))
+
+
 @app.command("signals-scan")
 def signals_scan(
     config: str = CONFIG_OPT,
