@@ -247,6 +247,11 @@ def check_secrets(cfg: dict) -> list[Check]:
                                  "key file is group/world readable — chmod 600"))
             else:
                 out.append(Check("secrets.kalshi_key_file", PASS, "present"))
+                out.append(_check_kalshi_key_type(key_path, missing_level))
+        if mode == "live" and (os.environ.get("KALSHI_ENV") or "demo").lower() != "prod":
+            out.append(Check("secrets.KALSHI_ENV", WARN,
+                             "KALSHI_ENV is not 'prod' — live orders go to the DEMO "
+                             "exchange (set KALSHI_ENV=prod for real money)"))
     elif exchange == "polymarket" and mode == "live":
         out.append(_ck("secrets.POLYMARKET_PRIVATE_KEY",
                        bool(os.environ.get("POLYMARKET_PRIVATE_KEY")),
@@ -259,6 +264,28 @@ def check_secrets(cfg: dict) -> list[Check]:
         out.append(Check("secrets", PASS,
                          "paper mode on public data: no keys required"))
     return out
+
+
+def _check_kalshi_key_type(key_path: str, bad_level: str) -> Check:
+    """Kalshi signs with RSA-PSS, so the file must hold an RSA private key.
+    Other venues' and tools' keys (Ed25519, ~120 bytes) load fine and then
+    fail on the first signed request, which in a live run is the first
+    order. Only the key's TYPE is reported, never its contents."""
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        with open(key_path, "rb") as fh:
+            key = serialization.load_pem_private_key(fh.read(), password=None)
+    except Exception as exc:
+        return Check("secrets.kalshi_key_type", bad_level,
+                     f"key file does not load as an unencrypted PEM private key "
+                     f"({type(exc).__name__})")
+    if isinstance(key, rsa.RSAPrivateKey):
+        return Check("secrets.kalshi_key_type", PASS, f"RSA {key.key_size}-bit")
+    return Check("secrets.kalshi_key_type", bad_level,
+                 f"{type(key).__name__.replace('PrivateKey', '')} key — Kalshi needs the "
+                 "RSA key from its API-keys page (this one cannot sign Kalshi requests)")
 
 
 # ---------------------------------------------------------------- network
@@ -308,6 +335,8 @@ def check_network(cfg: dict) -> list[Check]:
                                  "not OK (geoblock/auth/maintenance?)"))
         except Exception as exc:
             out.append(Check(name, FAIL, f"unreachable: {exc}"))
+    if exchange == "kalshi" and cfg.get("mode", "paper") == "live":
+        out.append(_check_kalshi_auth())
     if skew is not None:
         level = (FAIL if skew > CLOCK_FAIL_S
                  else WARN if skew > CLOCK_WARN_S else PASS)
@@ -316,6 +345,28 @@ def check_network(cfg: dict) -> list[Check]:
                          + ("" if level == PASS else
                             " — fix NTP/chrony before signing orders")))
     return out
+
+
+def _check_kalshi_auth() -> Check:
+    """One signed read (the balance) against the exchange the orders will
+    go to. Key presence is not key validity: a wrong key type, a revoked key
+    or a key ID that does not match the file all fail here, before the first
+    order instead of on it."""
+    try:
+        from sportsbot.exchanges.kalshi import API_ROOT, KalshiClient
+
+        data = KalshiClient()._request("GET", f"{API_ROOT}/portfolio/balance", auth=True)
+    except Exception as exc:
+        return Check("net.kalshi_auth", FAIL,
+                     f"signed request failed ({type(exc).__name__}: {str(exc)[:120]})")
+    for field, scale in (("balance_fp", 1.0), ("balance", 0.01)):
+        if isinstance(data, dict) and data.get(field) not in (None, ""):
+            try:
+                return Check("net.kalshi_auth", PASS,
+                             f"authenticated; balance ${float(data[field]) * scale:.2f}")
+            except (TypeError, ValueError):
+                break
+    return Check("net.kalshi_auth", PASS, "authenticated")
 
 
 # ---------------------------------------------------------------- driver
