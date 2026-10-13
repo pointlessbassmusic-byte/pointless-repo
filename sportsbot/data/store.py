@@ -102,6 +102,32 @@ CREATE TABLE IF NOT EXISTS equity_snapshots (
     realized_pnl REAL,
     open_positions INTEGER
 );
+CREATE TABLE IF NOT EXISTS market_meta (
+    market_id TEXT PRIMARY KEY,
+    exchange TEXT,
+    sport TEXT,
+    home TEXT,
+    away TEXT,
+    start_time TEXT,
+    updated_ts TEXT NOT NULL,
+    fee_rate REAL
+);
+CREATE TABLE IF NOT EXISTS sharp_quotes (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    sport_key TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    commence_time TEXT NOT NULL,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    bookmaker TEXT NOT NULL,
+    home_implied REAL NOT NULL,
+    away_implied REAL NOT NULL,
+    home_fair REAL NOT NULL,
+    away_fair REAL NOT NULL,
+    overround REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sharp_event ON sharp_quotes(event_id, bookmaker, ts);
 CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(account, ts);
 CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity_snapshots(account, ts);
 CREATE INDEX IF NOT EXISTS idx_bets_market ON bets(market_id);
@@ -139,6 +165,14 @@ class Store:
         cols = [r[1] for r in self.conn.execute("PRAGMA table_info(bets)")]
         if "status" not in cols:  # migrate pre-position-management DBs
             self.conn.execute("ALTER TABLE bets ADD COLUMN status TEXT")
+        if "sharp_closing_price" not in cols:  # sharp-line CLV harness
+            self.conn.execute(
+                "ALTER TABLE bets ADD COLUMN sharp_closing_price REAL")
+        if "arm" not in cols:  # strategy arm (sport/signal/style) the fill belongs to
+            self.conn.execute("ALTER TABLE bets ADD COLUMN arm TEXT")
+        mcols = [r[1] for r in self.conn.execute("PRAGMA table_info(market_meta)")]
+        if "fee_rate" not in mcols:
+            self.conn.execute("ALTER TABLE market_meta ADD COLUMN fee_rate REAL")
         self.conn.commit()
 
     def close(self) -> None:
@@ -159,13 +193,13 @@ class Store:
 
     def record_bet(self, market_id: str, sport: str, side: str, model_prob: float,
                    entry_price: float, stake: float, size: float, edge: float,
-                   exchange: str, mode: str) -> int:
+                   exchange: str, mode: str, arm: str | None = None) -> int:
         with self._lock:
             cur = self.conn.execute(
                 "INSERT INTO bets (ts, market_id, sport, side, model_prob, entry_price,"
-                " stake, size, edge, exchange, mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " stake, size, edge, exchange, mode, arm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (_now(), market_id, sport, side, model_prob, entry_price,
-                 stake, size, edge, exchange, mode),
+                 stake, size, edge, exchange, mode, arm),
             )
             self.conn.commit()
             return int(cur.lastrowid)
@@ -319,6 +353,18 @@ class Store:
             )
             self.conn.commit()
 
+    def all_orders(self) -> list[dict]:
+        """Every order row, `raw` parsed, oldest first."""
+        rows = []
+        for r in self.conn.execute("SELECT * FROM orders ORDER BY ts, client_id").fetchall():
+            d = dict(r)
+            try:
+                d["raw"] = json.loads(d.get("raw") or "{}")
+            except ValueError:
+                d["raw"] = {}
+            rows.append(d)
+        return rows
+
     def snapshot_quote(self, market_id: str, bid: Optional[float], ask: Optional[float]) -> None:
         with self._lock:
             self.conn.execute(
@@ -326,6 +372,94 @@ class Store:
                 (_now(), market_id, bid, ask),
             )
             self.conn.commit()
+
+    # --- sharp-line CLV harness --------------------------------------------
+    def record_market(self, market_id: str, exchange: str | None,
+                      sport: str | None, home: str | None, away: str | None,
+                      start_time: Optional[datetime],
+                      fee_rate: Optional[float] = None) -> None:
+        """Remember who a market is between (and when), so a decision row
+        can be matched to a sportsbook event long after the venue has
+        delisted the market. Upsert: the latest sighting wins."""
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO market_meta (market_id, exchange, sport, home, away,"
+                " start_time, updated_ts, fee_rate) VALUES (?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(market_id) DO UPDATE SET exchange=excluded.exchange,"
+                " sport=excluded.sport, home=excluded.home, away=excluded.away,"
+                " start_time=COALESCE(excluded.start_time, market_meta.start_time),"
+                " updated_ts=excluded.updated_ts,"
+                " fee_rate=COALESCE(excluded.fee_rate, market_meta.fee_rate)",
+                (market_id, exchange, sport, home, away,
+                 start_time.isoformat() if start_time else None, _now(), fee_rate))
+            self.conn.commit()
+
+    def market_meta(self, market_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT * FROM market_meta WHERE market_id=?", (market_id,)).fetchone()
+        return dict(row) if row else None
+
+    def record_sharp_quotes(self, rows: list[dict], ts: str | None = None) -> int:
+        """Append one snapshot of sportsbook lines. Each row: sport_key,
+        event_id, commence_time, home_team, away_team, bookmaker,
+        home_implied, away_implied, home_fair, away_fair, overround."""
+        ts = ts or _now()
+        with self._lock:
+            self.conn.executemany(
+                "INSERT INTO sharp_quotes (ts, sport_key, event_id, commence_time,"
+                " home_team, away_team, bookmaker, home_implied, away_implied,"
+                " home_fair, away_fair, overround) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                [(ts, r["sport_key"], r["event_id"], r["commence_time"],
+                  r["home_team"], r["away_team"], r["bookmaker"],
+                  r["home_implied"], r["away_implied"], r["home_fair"],
+                  r["away_fair"], r["overround"]) for r in rows])
+            self.conn.commit()
+        return len(rows)
+
+    def sharp_events(self, bookmaker: str) -> list[dict]:
+        """One row per event seen from `bookmaker`: id, names, commence time,
+        and the count of quotes behind it."""
+        rows = self.conn.execute(
+            "SELECT event_id, sport_key, home_team, away_team, commence_time,"
+            " COUNT(*) AS n_quotes, MIN(ts) AS first_ts, MAX(ts) AS last_ts"
+            " FROM sharp_quotes WHERE bookmaker=? GROUP BY event_id",
+            (bookmaker,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def sharp_quotes_for(self, event_id: str, bookmaker: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM sharp_quotes WHERE event_id=? AND bookmaker=?"
+            " ORDER BY ts", (event_id, bookmaker)).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_sharp_close(self, bet_id: int, price: Optional[float]) -> None:
+        with self._lock:
+            self.conn.execute("UPDATE bets SET sharp_closing_price=? WHERE id=?",
+                              (price, bet_id))
+            self.conn.commit()
+
+    def all_bets(self, mode: str | None = None) -> list[dict]:
+        sql = "SELECT * FROM bets"
+        args: list = []
+        if mode is not None:
+            sql += " WHERE COALESCE(mode, 'paper') = ?"
+            args.append(mode)
+        sql += " ORDER BY id"
+        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
+
+    def decisions_since(self, account: str, since_ts: str | None = None,
+                        actions: tuple[str, ...] = ("bet", "skip")) -> list[dict]:
+        """Every graded-able decision (oldest first). Aggregated scan-drop rows
+        name a group, not a market, and carry no prices; they are skipped by
+        their missing `market_prob`."""
+        sql = ("SELECT * FROM decisions WHERE account=? AND market_prob IS NOT NULL"
+               f" AND action IN ({','.join('?' * len(actions))})")
+        args: list = [account, *actions]
+        if since_ts:
+            sql += " AND ts >= ?"
+            args.append(since_ts)
+        sql += " ORDER BY id"
+        return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 
     def set_kv(self, key: str, value: Any) -> None:
         with self._lock:
@@ -339,6 +473,17 @@ class Store:
     def get_kv(self, key: str, default: Any = None) -> Any:
         row = self.conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
         return json.loads(row["value"]) if row else default
+
+    def kv_prefix(self, prefix: str) -> dict[str, Any]:
+        """Every kv row whose key starts with `prefix`, parsed, keyed by key."""
+        out: dict[str, Any] = {}
+        for r in self.conn.execute("SELECT key, value FROM kv WHERE key LIKE ? ORDER BY key",
+                                   (prefix + "%",)).fetchall():
+            try:
+                out[r["key"]] = json.loads(r["value"])
+            except (TypeError, ValueError):
+                continue
+        return out
 
     # --- reads -----------------------------------------------------------
     def open_bets(self, mode: str | None = None) -> list[dict]:

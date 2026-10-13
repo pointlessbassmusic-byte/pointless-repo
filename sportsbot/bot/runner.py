@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import signal
 import time
-from typing import Any
+from datetime import datetime, timezone
+from typing import Optional, Any
 
 import yaml
 
@@ -30,14 +33,32 @@ from sportsbot.bot.positions import (
 )
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
-from sportsbot.bot.ledger import snapshot_equity
+from sportsbot.bot.ledger import account_equity, snapshot_equity
+from sportsbot.bot import alerts
+from sportsbot.bot.touch import TouchConfig, evaluate_touch
+from sportsbot.bot.portfolio import (
+    allocate_arms,
+    effective_bankroll,
+    load_allocation,
+    running_arms_for,
+    summarise_for_dashboard,
+)
 from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
 from sportsbot.core.staking import StakingConfig
 from sportsbot.core.types import Side, Sport
 from sportsbot.data.store import Store
 from sportsbot.engine.baseball import BaseballModel
+from sportsbot.engine.sharpline import SharpLineModel
 from sportsbot.engine.tabletennis import TableTennisModel
 from sportsbot.engine.tennis import TennisModel
+from sportsbot.signals.sharp import (
+    ODDS_API_KEY_ENV,
+    Grader,
+    OddsApiClient,
+    SharpCollector,
+    SharpConfig,
+    with_sharp_closes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +67,22 @@ log = logging.getLogger(__name__)
 _DROP_EXAMPLES = 3
 
 SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
-              "table_tennis": Sport.TABLE_TENNIS}
+              "table_tennis": Sport.TABLE_TENNIS, "basketball": Sport.BASKETBALL,
+              "football": Sport.FOOTBALL, "hockey": Sport.HOCKEY}
+# Sports with no rating engine in this repo: only the sharp line can price them.
+SHARP_ONLY_SPORTS = ("basketball", "football", "hockey")
+
+
+class _Unpriced:
+    """A market the touch arm quotes without a prediction (no model, no
+    sharp line on record): what `_touch_pass` and the decision feed need
+    of a ScannedMarket, with `prediction` None."""
+
+    __slots__ = ("market", "prediction")
+
+    def __init__(self, market):
+        self.market = market
+        self.prediction = None
 
 
 def load_config(path: str = "config/default.yaml",
@@ -70,17 +106,36 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
-def load_models(cfg: dict, ratings_dir: str) -> dict[Sport, Any]:
+def load_models(cfg: dict, ratings_dir: str, store=None) -> dict[Sport, Any]:
+    """One model per enabled sport. `sports.<sport>.signal: sharp` swaps the
+    rating model for the sharp-line model (needs `store`, which holds the
+    collected lines); the default `model` keeps the Elo-family engines."""
     sports_cfg = cfg.get("sports", {})
     models: dict[Sport, Any] = {}
-    if sports_cfg.get("tennis", {}).get("enabled", True):
+
+    def wants_sharp(key: str) -> bool:
+        sc = sports_cfg.get(key, {}) or {}
+        return str(sc.get("signal", "model")).lower() == "sharp"
+
+    sharp_cfg = SharpConfig.from_cfg(cfg)
+    for key, sport in SPORT_KEYS.items():
+        enabled = sports_cfg.get(key, {}).get(
+            "enabled", key not in SHARP_ONLY_SPORTS)   # team sports are opt-in
+        if enabled and key in SHARP_ONLY_SPORTS and not wants_sharp(key):
+            raise ValueError(f"sports.{key} has no rating model here; set "
+                             f"sports.{key}.signal: sharp or enabled: false")
+        if enabled and wants_sharp(key):
+            if store is None:
+                raise ValueError(f"sports.{key}.signal=sharp needs the store")
+            models[sport] = SharpLineModel(store, sport, sharp_cfg)
+    if sports_cfg.get("tennis", {}).get("enabled", True) and Sport.TENNIS not in models:
         m = TennisModel(
             surface_weight=float(sports_cfg["tennis"].get("surface_weight", 0.5)),
             min_matches=int(sports_cfg["tennis"].get("min_matches", 10)),
         )
         _try_load(m, os.path.join(ratings_dir, "tennis.json"))
         models[Sport.TENNIS] = m
-    if sports_cfg.get("baseball", {}).get("enabled", True):
+    if sports_cfg.get("baseball", {}).get("enabled", True) and Sport.BASEBALL not in models:
         b = BaseballModel(
             home_advantage=float(sports_cfg["baseball"].get("home_advantage_elo", 24.0)),
             rest_per_day=float(sports_cfg["baseball"].get("rest_advantage_elo", 2.3)),
@@ -89,7 +144,7 @@ def load_models(cfg: dict, ratings_dir: str) -> dict[Sport, Any]:
         )
         _try_load(b, os.path.join(ratings_dir, "baseball.json"))
         models[Sport.BASEBALL] = b
-    if sports_cfg.get("table_tennis", {}).get("enabled", True):
+    if sports_cfg.get("table_tennis", {}).get("enabled", True) and Sport.TABLE_TENNIS not in models:
         t = TableTennisModel(
             min_matches=int(sports_cfg["table_tennis"].get("min_matches", 8)),
             prob_shrink=float(sports_cfg["table_tennis"].get("prob_shrink", 0.5)),
@@ -111,6 +166,49 @@ def _try_load(model: Any, path: str) -> None:
                     "`sportsbot fit` first)", path, model.name)
 
 
+def staking_from_cfg(cfg: dict) -> StakingConfig:
+    """The ONE place config becomes sizing limits. The runner and the
+    market backtest both build from here, so a backtest decision is the
+    live decision under the same config, not a hand copy of it."""
+    bank = cfg.get("bankroll", {})
+    return StakingConfig(
+        bankroll=float(bank.get("amount", 1000.0)),
+        kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
+        min_edge=float(bank.get("min_edge", 0.03)),
+        min_stake=float(bank.get("min_stake", 5.0)),
+        max_stake_per_market=float(bank.get("max_stake_per_market", 50.0)),
+        max_fraction_per_market=float(bank.get("max_fraction_per_market", 0.05)),
+        max_fraction_per_sport=float(bank.get("max_fraction_per_sport", 0.20)),
+        max_total_exposure=float(bank.get("max_total_exposure", 0.50)),
+        max_open_positions=int(bank.get("max_open_positions", 20)),
+    )
+
+
+def strategy_from_cfg(cfg: dict) -> StrategyConfig:
+    """Config -> the strategy filters (see `staking_from_cfg`)."""
+    ex = cfg.get("execution", {})
+    sports_cfg = cfg.get("sports", {})
+    return StrategyConfig(
+        model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
+        max_spread=float(ex.get("max_spread", 0.03)),
+        slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
+        max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
+        post_inside_spread=bool(ex.get("post_inside_spread", True)),
+        min_entry_price=float(ex.get("min_entry_price", 0.15)),
+        max_entry_price=float(ex.get("max_entry_price", 0.85)),
+        min_edge_override={
+            k: float(v["min_edge_override"])
+            for k, v in sports_cfg.items()
+            if isinstance(v, dict) and "min_edge_override" in v
+        },
+        max_stake_override={
+            k: float(v["max_stake_override"])
+            for k, v in sports_cfg.items()
+            if isinstance(v, dict) and "max_stake_override" in v
+        },
+    )
+
+
 def build_exchange(cfg: dict):
     """Return (execution_exchange, data_exchange, fee_fn)."""
     from sportsbot.exchanges.paper import PaperExchange
@@ -118,7 +216,11 @@ def build_exchange(cfg: dict):
     venue = cfg.get("exchange", "polymarket")
     mode = cfg.get("mode", "paper")
     if venue == "kalshi":
-        from sportsbot.exchanges.kalshi import KalshiClient, kalshi_taker_fee
+        from sportsbot.exchanges.kalshi import (
+            KalshiClient,
+            kalshi_maker_fee_per_share,
+            kalshi_taker_fee,
+        )
 
         # Market DATA always comes from prod. KalshiClient() defaults to the
         # demo exchange when KALSHI_ENV is unset, and demo's books are a
@@ -134,6 +236,12 @@ def build_exchange(cfg: dict):
             a flat rate is wrong for one of them whichever it picks."""
             return kalshi_taker_fee(price, shares,
                                     data_client.fee_multiplier(market_id))
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """What a RESTING order pays when the tape fills it (per
+            contract, series multiplier applied)."""
+            return kalshi_maker_fee_per_share(
+                market_id or "", data_client.fee_multiplier(market_id)) * shares
     elif venue == "polymarket_us":
         from sportsbot.exchanges.polymarket_us import (
             PolymarketUSClient,
@@ -147,20 +255,65 @@ def build_exchange(cfg: dict):
                                          include_live=bool(pmus.get("include_live", False)))
         exec_client = data_client
         fee_fn = polymarket_us_taker_fee
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """Polymarket US pays makers a rebate (theta -0.0125); counted as
+            zero, never as edge (conservative)."""
+            return 0.0
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
         data_client = PolymarketClient()
         exec_client = data_client
-        fee_fn = taker_fee   # already matches the fee_fn contract
+
+        def fee_fn(price, shares, market_id=None):
+            """Per-market rate from Gamma's feeSchedule (discovery fills it);
+            the documented 0.05 for anything not yet discovered."""
+            return taker_fee(price, shares, market_id,
+                             fee_rate=data_client.fee_rate_for(market_id))
+
+        def maker_fee_fn(price, shares, market_id=None):
+            """Polymarket makers pay nothing; the 15% rebate they earn is
+            ignored here (conservative)."""
+            return 0.0
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
         return exec_client, data_client, fee_fn
     paper = PaperExchange(
         data_client=data_client,
         starting_balance=float(cfg.get("bankroll", {}).get("amount", 1000.0)),
         fee_fn=fee_fn,
+        maker_fee_fn=maker_fee_fn,
     )
     return paper, data_client, fee_fn
+
+
+_EDGE_RE = re.compile(r"edge ([+-]?\d+\.\d+) vs the (\d+\.\d+) bar")
+
+
+def _tally_edge(seen: dict, market, intent, why: str, staking_cfg, strategy_cfg) -> None:
+    """One evaluated market's distance to the bar: the intent's edge when it
+    bet, the near-miss edge the strategy printed when it passed, and the
+    spread blocks separately (they never reached the edge test)."""
+    sport = market.sport.value if market.sport else "unknown"
+    bar = float(strategy_cfg.min_edge_override.get(sport, staking_cfg.min_edge))
+    d = seen.setdefault(sport, {"best": None, "priced": 0, "spread_blocked": 0,
+                                "within_1pt": 0, "bets": 0, "bar": bar})
+    d["priced"] += 1
+    edge = None
+    if intent is not None:
+        edge = float(intent.edge)
+        d["bets"] += 1
+    else:
+        m = _EDGE_RE.search(why or "")
+        if m:
+            edge = float(m.group(1))
+        elif "spread" in (why or ""):
+            d["spread_blocked"] += 1
+    if edge is not None:
+        if d["best"] is None or edge > d["best"]:
+            d["best"] = round(edge, 4)
+        if edge >= bar - 0.01:
+            d["within_1pt"] += 1
 
 
 class Runner:
@@ -169,8 +322,9 @@ class Runner:
         storage = cfg.get("storage", {})
         self.store = Store(storage.get("sqlite_path", "data/sportsbot.sqlite"))
         self.ratings_dir = storage.get("ratings_dir", "data/ratings")
-        self.models = load_models(cfg, self.ratings_dir)
+        self.models = load_models(cfg, self.ratings_dir, store=self.store)
         self.exchange, self.data_client, self.fee_fn = build_exchange(cfg)
+        self.touch = TouchConfig.from_cfg(cfg)
         self.mode = cfg.get("mode", "paper")
         if self.mode == "live" and os.environ.get("SPORTSBOT_LIVE") != "1":
             log.warning("config mode=live but SPORTSBOT_LIVE!=1 — forcing paper mode")
@@ -181,45 +335,15 @@ class Runner:
         # forced to paper above, so its rows land in the sim book, which is
         # where they belong.
         self.account = "real" if self.mode == "live" else "sim"
-        bank = cfg.get("bankroll", {})
         # The equity curve must be anchored to the SAME starting balance the
         # dashboard renders against, or the stored curve and the Equity tile
         # disagree by whatever the two settings differ by.
         from sportsbot.dashboard import starting_balance
 
         self.starting_balance = starting_balance(cfg, self.account)
-        self.staking = StakingConfig(
-            bankroll=float(bank.get("amount", 1000.0)),
-            kelly_multiplier=float(bank.get("kelly_multiplier", 0.25)),
-            min_edge=float(bank.get("min_edge", 0.03)),
-            min_stake=float(bank.get("min_stake", 5.0)),
-            max_stake_per_market=float(bank.get("max_stake_per_market", 50.0)),
-            max_fraction_per_market=float(bank.get("max_fraction_per_market", 0.05)),
-            max_fraction_per_sport=float(bank.get("max_fraction_per_sport", 0.20)),
-            max_total_exposure=float(bank.get("max_total_exposure", 0.50)),
-            max_open_positions=int(bank.get("max_open_positions", 20)),
-        )
+        self.staking = staking_from_cfg(cfg)
+        self.strategy = strategy_from_cfg(cfg)
         ex = cfg.get("execution", {})
-        sports_cfg = cfg.get("sports", {})
-        self.strategy = StrategyConfig(
-            model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
-            max_spread=float(ex.get("max_spread", 0.03)),
-            slippage_buffer=float(ex.get("slippage_buffer", 0.005)),
-            max_depth_fraction=float(ex.get("max_depth_fraction", 0.25)),
-            post_inside_spread=bool(ex.get("post_inside_spread", True)),
-            min_entry_price=float(ex.get("min_entry_price", 0.15)),
-            max_entry_price=float(ex.get("max_entry_price", 0.85)),
-            min_edge_override={
-                k: float(v["min_edge_override"])
-                for k, v in sports_cfg.items()
-                if isinstance(v, dict) and "min_edge_override" in v
-            },
-            max_stake_override={
-                k: float(v["max_stake_override"])
-                for k, v in sports_cfg.items()
-                if isinstance(v, dict) and "max_stake_override" in v
-            },
-        )
         risk_cfg = cfg.get("risk", {})
         self.risk = RiskManager(
             RiskConfig(
@@ -232,6 +356,10 @@ class Runner:
                 calibration_min_bets=int(risk_cfg.get("calibration_min_bets", 50)),
                 calibration_max_brier=float(risk_cfg.get("calibration_max_brier", 0.26)),
                 bankroll=self.staking.bankroll,
+                daily_loss_fraction=(float(risk_cfg["daily_loss_fraction"])
+                                     if risk_cfg.get("daily_loss_fraction") is not None else None),
+                max_drawdown_fraction=(float(risk_cfg["max_drawdown_fraction"])
+                                       if risk_cfg.get("max_drawdown_fraction") is not None else None),
             ),
             self.store,
             mode=self.mode,
@@ -246,7 +374,25 @@ class Runner:
         )
         self.adaptive = cfg.get("adaptive", {})
         self.venue = cfg.get("exchange", "polymarket")
+        # Portfolio allocation: the operator's file decides what may be
+        # overridden by hand; evidence and the learning budget decide the
+        # rest, every cycle, tighten-only against the risk caps.
+        self.alloc_cfg = load_allocation(
+            str(cfg.get("allocation", {}).get("path", "config/allocation.yaml")))
+        self.running_arms = running_arms_for(cfg)
         self.scanner = Scanner(self.models)
+        # Sharp-line CLV harness (data only; see signals/sharp.py). Without
+        # an API key it still records market metadata so decisions can be
+        # graded later, once lines are being collected.
+        self.sharp_cfg = SharpConfig.from_cfg(cfg)
+        api_key = os.environ.get(ODDS_API_KEY_ENV, "").strip()
+        sharp_client = None
+        if self.sharp_cfg.enabled and api_key:
+            sharp_client = OddsApiClient(api_key)
+        elif self.sharp_cfg.enabled:
+            log.warning("sharp: %s not set — recording market metadata only; "
+                        "no sportsbook lines will be collected", ODDS_API_KEY_ENV)
+        self.sharp = SharpCollector(self.store, self.sharp_cfg, sharp_client)
         self.executor = Executor(
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
@@ -298,6 +444,57 @@ class Runner:
         # is accepted and ignored rather than making callers special-case it.
         return lambda price, shares, market_id=None: (
             kalshi_fee_per_share(price, mult) * shares)
+
+    # ------------------------------------------------------------------
+    def _priceable_sports(self) -> set[str]:
+        """Config keys of the sports whose loaded model has something to
+        price with: rated entities, or sharp lines on record."""
+        out = set()
+        for key, sport in SPORT_KEYS.items():
+            model = self.models.get(sport)
+            if model is None:
+                continue
+            if isinstance(model, SharpLineModel):
+                model.refresh()
+            try:
+                if self.scanner._rated_entities(model):
+                    out.add(key)
+            except Exception:
+                log.exception("rated-entity check failed for %s", key)
+        return out
+
+    def _sharp_fee_for(self, exchange: str, market_id: str):
+        fn = self.decision_fee_fn(market_id)
+        return lambda price: fn(price, 1.0)
+
+    def _sharp_tick(self, scanned: list) -> dict | None:
+        """Record who each scanned market is between, then take a budgeted
+        sportsbook snapshot if one is due. Telemetry: never raises."""
+        if not self.sharp_cfg.enabled:
+            return None
+        try:
+            self.sharp.record_markets([sm.market for sm in scanned])
+            sports = {sm.market.sport for sm in scanned if sm.market.sport}
+            if not sports:
+                return None
+            summary = self.sharp.snapshot(sports)
+            if summary.get("calls"):
+                log.info("sharp snapshot: %s", summary)
+            return summary
+        except Exception:
+            log.exception("sharp tick failed")
+            return None
+
+    def _sharp_backfill(self) -> int:
+        """Write the sharp close onto bets that do not have one yet."""
+        if not self.sharp_cfg.enabled:
+            return 0
+        try:
+            grader = Grader(self.store, self.sharp_cfg, self._sharp_fee_for)
+            return len(grader.grade_bets(self.mode, write=True, only_missing=True))
+        except Exception:
+            log.exception("sharp backfill failed")
+            return 0
 
     # ------------------------------------------------------------------
     def _mlb_context(self) -> dict[str, dict]:
@@ -398,7 +595,57 @@ class Runner:
         """
         staking, strategy = self.staking, self.strategy
         ad = self.adaptive
+
+        # Bankroll: config amount, or the account's live equity when the
+        # allocation file says `bankroll_mode: equity` (profits roll in and
+        # losses roll out). The risk limits that scale with it follow.
+        bankroll = self.staking.bankroll
+        if self.alloc_cfg.bankroll_mode == "equity":
+            try:
+                eq = account_equity(self.store, self.account, self.starting_balance)
+                bankroll = effective_bankroll(self.alloc_cfg, self.staking.bankroll,
+                                              eq["equity"])
+            except Exception:
+                log.exception("equity read failed; sizing on the config bankroll")
+        if bankroll != staking.bankroll:
+            staking = StakingConfig(**{**staking.__dict__, "bankroll": bankroll})
+        self.risk.set_bankroll(bankroll)
+
+        # Portfolio: dollars per arm -> dollars and style per sport.
+        try:
+            fees = self.store.get_kv("fees_verified")
+            port = allocate_arms(
+                bankroll, self.cfg, self.alloc_cfg,
+                self.store.settled_bets(limit=1_000_000, mode=self.mode),
+                self.running_arms,
+                fees_verified=isinstance(fees, dict) and bool(fees.get("verified")),
+                mode=self.mode, priceable_sports=self._priceable_sports())
+            self.store.set_kv("portfolio:last", {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "account": self.account, "bankroll": port["bankroll"],
+                "total_cap": port["total_cap"], "allocated": port["allocated"],
+                "sport_budget": port["sport_budget"],
+                "style_by_sport": port["style_by_sport"],
+                "learning": port["learning"], "bankroll_mode": port["bankroll_mode"],
+                "rows": summarise_for_dashboard(port)})
+            strategy = StrategyConfig(**{**strategy.__dict__,
+                                         "sport_budget": port["sport_budget"],
+                                         "style_override": port["style_by_sport"]})
+        except Exception:
+            # Fail closed: with no allocation nothing is funded.
+            log.exception("portfolio allocation failed; no sport is funded this cycle")
+            strategy = StrategyConfig(**{**strategy.__dict__, "sport_budget": {},
+                                         "style_override": {
+                                             s: "none" for s in SPORT_KEYS}})
+
+        # This book's bets only: a live book's drawdown and CLV must never
+        # be read off the paper sim's history, or vice versa.
         settled = self.store.settled_bets(limit=1_000_000, mode=self.mode)
+        if self.sharp_cfg.enabled and self.sharp_cfg.enforce_adaptive:
+            # Benchmark the rolling CLV against Pinnacle where a sharp close
+            # exists. `adaptive_overrides` is tighten-only, so this can only
+            # make a sport stricter, never looser.
+            settled = with_sharp_closes(settled)
 
         if bool(ad.get("drawdown_stake_scaling", True)) and settled:
             cum = peak = 0.0
@@ -433,71 +680,7 @@ class Runner:
                                              "min_edge_override": edge_over,
                                              "max_stake_override": stake_over})
 
-        budgets = self._sleeve_budgets(settled)
-        if budgets is not None:
-            strategy = StrategyConfig(**{**strategy.__dict__,
-                                         "sport_budget_override": budgets})
         return staking, strategy
-
-    def _sleeve_budgets(self, settled: list[dict]) -> dict[str, float] | None:
-        """Per-sport dollar budgets from `bot/allocation.py`, sized off THIS
-        book's equity, and logged whenever a sleeve's budget or reason moves.
-
-        The bankroll the allocator divides is min(configured amount, current
-        equity): losses shrink every sleeve at once, gains never size the
-        book past what the operator funded. Any failure here returns None and
-        the base per-sport cap applies — the allocator can tighten the risk
-        layer, never replace it. Returns None when `allocation.enabled` is
-        false.
-        """
-        alloc_cfg = self.cfg.get("allocation", {}) or {}
-        if not bool(alloc_cfg.get("enabled", True)):
-            return None
-        try:
-            from sportsbot.bot.allocation import allocate, allocation_bankroll
-            from sportsbot.bot.ledger import account_equity
-            from sportsbot.bot.positions import category_report
-            from sportsbot.dashboard import rated_counts, ratings_provenance
-
-            sports_cfg = self.cfg.get("sports", {})
-            report = category_report(
-                settled, self.adaptive, self.staking.min_edge,
-                self.staking.max_stake_per_market,
-                self.strategy.min_edge_override, self.strategy.max_stake_override,
-                self.staking.kelly_multiplier, self.risk.cfg.max_drawdown)
-            eq = account_equity(self.store, self.account, self.starting_balance)
-            bankroll = allocation_bankroll(self.cfg, float(eq["equity"]))
-            # Ratings only change on `sportsbot fit`; re-reading every
-            # ratings file each cycle is wasted I/O, so cache for 10 min.
-            now = time.time()
-            if self._ratings_cache is None or now - self._ratings_cache[0] > 600:
-                self._ratings_cache = (now,
-                                       {k: v > 0 for k, v in rated_counts(self.cfg).items()},
-                                       ratings_provenance(self.cfg))
-            _, ratings, provisional = self._ratings_cache
-            alloc = allocate(bankroll, self.cfg, report.get("by_sport", {}),
-                             ratings, provisional=provisional)
-            budgets: dict[str, float] = {}
-            last = self.store.last_allocation(self.account)
-            for sport, sl in alloc["sleeves"].items():
-                if sport not in sports_cfg:
-                    continue
-                budgets[sport] = float(sl["budget"])
-                prev = last.get(sport)
-                moved = (prev is None
-                         or abs(float(prev["budget"] or 0.0) - sl["budget"]) > 0.01
-                         or prev["bound_by"] != sl["bound_by"])
-                if moved:
-                    self.store.record_allocation(
-                        self.account, sport, sl["budget"], sl["weight"],
-                        sl["bound_by"], sl.get("mean_clv"), int(sl.get("n", 0)),
-                        bool(sl.get("manual")))
-                    log.info("allocation[%s] %s -> $%.2f (%s)", self.account,
-                             sport, sl["budget"], sl["bound_by"])
-            return budgets
-        except Exception:
-            log.exception("allocation failed; base per-sport caps apply")
-            return None
 
     def _manage_positions(self, quoted: dict, strategy: StrategyConfig) -> int:
         """Exit pass over open positions with a fresh quote this cycle.
@@ -574,6 +757,107 @@ class Runner:
         except Exception:
             log.exception("exit decision record failed")
 
+    def _alert_new_fills(self, bets_before: int) -> int:
+        """One alert per cycle naming the fills booked since `bets_before`
+        (arm, side, price, size); nothing when there were none."""
+        try:
+            rows = self.store.all_bets(self.mode)
+            new = rows[bets_before:]
+            if not new:
+                return 0
+            parts = [f"{r.get('arm') or '?'} {r['side']} {float(r['size']):.2f} @ {float(r['entry_price']):.3f}"
+                     for r in new[:8]]
+            more = f" (+{len(new) - 8} more)" if len(new) > 8 else ""
+            alerts.notify("fill", f"[{self.mode}] {len(new)} fill(s): " + "; ".join(parts) + more,
+                          dedupe_seconds=0.0)
+            return len(new)
+        except Exception:
+            log.exception("fill alert failed")
+            return 0
+
+    def _record_edge_bar(self, edge_seen: dict) -> None:
+        """Fold this cycle's best edge per sport into today's row
+        (`edgebar:<account>:<date>`), so the board can show how far the
+        slate sat from the entry bar day by day -- the arbitrage desk's
+        "distance to breakeven", which a flat equity line cannot show.
+        Survives decision-feed pruning. Telemetry: never raises."""
+        if not edge_seen:
+            return
+        try:
+            key = f"edgebar:{self.account}:{datetime.now(timezone.utc).date().isoformat()}"
+            row = self.store.get_kv(key) or {}
+            for sport, d in edge_seen.items():
+                cur = row.get(sport) or {"best": None, "priced": 0, "spread_blocked": 0,
+                                         "within_1pt": 0, "bets": 0, "cycles": 0, "bar": d["bar"]}
+                if d["best"] is not None and (cur["best"] is None or d["best"] > cur["best"]):
+                    cur["best"] = d["best"]
+                for k in ("priced", "spread_blocked", "within_1pt", "bets"):
+                    cur[k] = cur.get(k, 0) + d[k]
+                cur["cycles"] = cur.get("cycles", 0) + 1
+                cur["bar"] = d["bar"]
+                row[sport] = cur
+            self.store.set_kv(key, row)
+        except Exception:
+            log.exception("edge-bar record failed")
+
+    def _touch_only_markets(self, drops) -> list:
+        """Markets the scanner dropped for want of a sharp line whose sport
+        the touch arm quotes anyway: it rests at the venue's own price and
+        needs no model. Every other drop category stays dropped."""
+        if not getattr(self.touch, "enabled", False):
+            return []
+        out = []
+        for d in drops:
+            if d.category != "no sharp line":
+                continue
+            key = d.market.sport.value if d.market.sport else None
+            if key and self.touch.runs(key):
+                out.append(d.market)
+        return out
+
+    def _touch_pass(self, sm, quote, exposure: dict, strategy_cfg, summary: dict) -> bool:
+        """The touch-maker arm's turn on one quoted market (bot/touch.py).
+        Posts at most one resting order per market per cycle, through the
+        same risk check and executor as every other intent; routine skips
+        are tallied in `summary["touch"]`, not written to the decision
+        feed. Returns True when an order was placed."""
+        sport_key = sm.market.sport.value if sm.market.sport else "unknown"
+        if not self.touch.runs(sport_key):
+            return False
+        tally = summary.setdefault("touch", {"posted": 0, "vetoed": 0, "skipped": {}})
+        try:
+            intent, why = evaluate_touch(
+                sm.market, quote, self.touch, exposure,
+                self.executor.resting_sides(sm.market.market_id),
+                self.maker_fee_fn,
+                sport_budget=strategy_cfg.sport_budget.get(sport_key),
+                style=strategy_cfg.style_override.get(sport_key, "both"),
+            )
+        except Exception:
+            log.exception("touch evaluation failed for %s", sm.market.market_id)
+            return False
+        mid = ((quote.bid + quote.ask) / 2.0
+               if quote.bid is not None and quote.ask is not None else None)
+        if intent is None:
+            key = why.split(" ", 2)[0] if why else "skip"
+            tally["skipped"][key] = tally["skipped"].get(key, 0) + 1
+            return False
+        ok, reason = self.risk.check_intent(intent, quote)
+        if not ok:
+            tally["vetoed"] += 1
+            self._record_decision(sm, "skip", mid, intent=intent,
+                                  reason=f"touch risk veto: {reason}")
+            return False
+        order = self.executor.submit(intent, quote=quote)
+        if order.status.value == "rejected":
+            self._record_decision(sm, "skip", mid, intent=intent,
+                                  reason="touch order rejected by venue")
+            return False
+        tally["posted"] += 1
+        summary["orders"] = summary.get("orders", 0) + 1
+        self._record_decision(sm, "bet", mid, intent=intent, reason=why)
+        return True
+
     def _record_decision(self, sm, action: str, mid: float | None,
                          intent=None, reason: str | None = None) -> None:
         """Persist one line of the decision feed. Never raises — the feed is
@@ -586,7 +870,7 @@ class Runner:
                 title=sm.market.slug or sm.market.market_id,
                 action=action,
                 side=intent.side.value if intent is not None else None,
-                model_prob=sm.prediction.prob_yes,
+                model_prob=sm.prediction.prob_yes if sm.prediction is not None else None,
                 market_prob=mid,
                 price=intent.price if intent is not None else None,
                 edge=intent.edge if intent is not None else None,
@@ -596,6 +880,24 @@ class Runner:
             )
         except Exception:
             log.exception("decision record failed")
+
+    def _record_discovery_failure(self, sport_key: str, exc: BaseException) -> None:
+        """A discovery error is a failure, not a warning: a cycle that saw 0
+        markets because the venue call raised must say so in the feed, or
+        "the bot placed no bets" reads as "nothing was worth betting". The
+        reason carries the exception type so a 422 from a renamed query
+        parameter (which once silently emptied the slate) is visible."""
+        try:
+            self.store.record_decision(
+                account=self.account,
+                market_id=f"({sport_key} discovery)",
+                sport=sport_key,
+                title=f"{sport_key} market discovery failed",
+                action="skip",
+                reason=f"discovery error — {type(exc).__name__}: {str(exc)[:160]}",
+            )
+        except Exception:
+            log.exception("discovery-failure record failed")
 
     def _record_scan_drops(self, drops: list) -> None:
         """Put the scanner's funnel loss in the decision feed, AGGREGATED.
@@ -651,13 +953,16 @@ class Runner:
         """One scan cycle. Returns a summary dict."""
         summary = {"markets": 0, "scanned": 0, "dropped": 0, "intents": 0,
                    "orders": 0, "arbs": 0, "settled": 0, "exits": 0,
-                   "blocked": None}
+                   "blocked": None, "touch": {"posted": 0, "vetoed": 0, "skipped": {}}}
+        bets_before = len(self.store.all_bets(self.mode))
         self.executor.reconcile_open_orders()
         summary["settled"] = self._settle_resolved()
+        summary["sharp_closes"] = self._sharp_backfill()
         ok, reason = self.risk.check_global()
         if not ok:
             log.warning("cycle blocked by risk: %s", reason)
             summary["blocked"] = reason
+            alerts.notify("halt", f"[{self.mode}] cycle blocked: {reason}", dedupe_seconds=6 * 3600)
             return summary
         staking_cfg, strategy_cfg = self._cycle_configs()
 
@@ -668,8 +973,9 @@ class Runner:
                 continue
             try:
                 markets.extend(self.data_client.list_sports_markets(sport_key))
-            except Exception:
+            except Exception as exc:
                 log.exception("market discovery failed for %s", sport_key)
+                self._record_discovery_failure(sport_key, exc)
         summary["markets"] = len(markets)
 
         # Attach MLB probable-pitcher context by fuzzy-pairing team names.
@@ -690,13 +996,18 @@ class Runner:
                 if best and similarity(m.home, best[0][0]) > 0.85:
                     extra_context[m.market_id] = best[1]
 
+        for model in self.models.values():
+            if isinstance(model, SharpLineModel):
+                model.refresh()
         scanned, drops = self.scanner.scan_verbose(markets, extra_context)
         summary["scanned"] = len(scanned)
         summary["dropped"] = len(drops)
         self._record_scan_drops(drops)
+        summary["sharp"] = self._sharp_tick(scanned)
 
         exposure = self.store.exposure_by(mode=self.mode)
         quoted: dict[str, tuple] = {}
+        edge_seen: dict[str, dict] = {}
         for sm in scanned:
             try:
                 quote = self.exchange.get_quote(sm.market)
@@ -722,6 +1033,9 @@ class Runner:
                          arb.description, arb.profit_per_pair, arb.max_pairs)
                 self.store.set_kv(f"arb:{sm.market.market_id}", arb.__dict__)
 
+            if self._touch_pass(sm, quote, exposure, strategy_cfg, summary):
+                exposure = self.store.exposure_by()
+
             intent, why = evaluate_market_verbose(
                 sm.market, quote, sm.prediction, staking_cfg,
                 strategy_cfg, mkt_fee_fn, exposure,
@@ -729,6 +1043,7 @@ class Runner:
             )
             mid = ((quote.bid + quote.ask) / 2.0
                    if quote.bid is not None and quote.ask is not None else None)
+            _tally_edge(edge_seen, sm.market, intent, why, staking_cfg, strategy_cfg)
             if intent is None:
                 self._record_decision(sm, "skip", mid, reason=why)
                 continue
@@ -749,7 +1064,26 @@ class Runner:
                 self._record_decision(sm, "skip", mid, intent=intent,
                                       reason="order rejected by venue")
 
+        # The touch arm needs no price: it also quotes the markets the
+        # scanner dropped for want of a sharp line in the sports it runs
+        # (NHL/NFL moneylines without ODDS_API_KEY), so the paper fill
+        # evidence keeps accruing when nothing else can price the slate.
+        for m in self._touch_only_markets(drops):
+            try:
+                quote = self.exchange.get_quote(m)
+            except Exception:
+                log.exception("quote failed for %s", m.market_id)
+                continue
+            quoted[m.market_id] = (m, quote)
+            self.store.snapshot_quote(m.market_id, quote.bid, quote.ask)
+            tally = summary.setdefault("touch", {"posted": 0, "vetoed": 0, "skipped": {}})
+            tally["unpriced"] = tally.get("unpriced", 0) + 1
+            if self._touch_pass(_Unpriced(m), quote, exposure, strategy_cfg, summary):
+                exposure = self.store.exposure_by()
+
         summary["exits"] = self._manage_positions(quoted, strategy_cfg)
+        self._record_edge_bar(edge_seen)
+        self._alert_new_fills(bets_before)
 
         canceled = self.executor.expire_stale_orders()
         if canceled:
@@ -763,17 +1097,63 @@ class Runner:
             log.exception("equity snapshot failed")
         return summary
 
+    def drain_resting(self, poll_seconds: float = 5.0,
+                      max_wait: Optional[float] = None) -> dict:
+        """Let the orders a cycle left resting live out their TTL, then
+        settle their fate: reconcile (paper tape fills, live fills) every
+        `poll_seconds` until the oldest order is past the TTL, expire the
+        rest, and return what happened. For a one-shot cycle this is what
+        turns a posted touch order into evidence (a fill or a shadowed
+        cancel) instead of a row left `open` when the process exits.
+        Bounded by `max_wait` (default TTL + 10 s)."""
+        ex = self.executor
+        ttl = float(ex.order_ttl)
+        deadline = time.time() + (ttl + 10.0 if max_wait is None else float(max_wait))
+        fills_before = len(self.store.all_bets(self.mode))
+        while ex._open and time.time() < deadline:
+            oldest = min(t.placed_at for t in ex._open.values())
+            if (datetime.now(timezone.utc) - oldest).total_seconds() >= ttl:
+                break
+            time.sleep(max(0.0, min(poll_seconds, deadline - time.time())))
+            ex.reconcile_open_orders()
+        ex.reconcile_open_orders()
+        canceled = ex.expire_stale_orders()
+        self._alert_new_fills(fills_before)
+        return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
+                "canceled": canceled, "still_resting": len(ex._open)}
+
+    def request_stop(self, *_args) -> None:
+        """Signal handler / test hook: finish the current cycle, cancel every
+        resting order with its tape shadow, then return from run_forever."""
+        self._stop = True
+
     def run_forever(self) -> None:
         interval = float(self.cfg.get("scan", {}).get("interval_seconds", 300))
         log.info("sportsbot runner starting: mode=%s venue=%s interval=%ss",
                  self.mode, self.exchange.exchange.value, interval)
         # Orders left resting by a previous process: book what filled while
-        # we were away, then cancel the rest. Done HERE, not in __init__,
-        # so a read-only `sportsbot scan` against a live config can never
-        # cancel the running pilot's orders.
-        self.executor.restore_open_orders()
-        self.markouts.start()
-        while True:
+        # we were away and cancel the rest on the venue, then close any row
+        # still shown resting (paper books die with their process). Done HERE,
+        # not in __init__, so a read-only `sportsbot scan` against a live
+        # config can never cancel the running book's orders.
+        try:
+            self.executor.restore_open_orders()
+        except Exception:
+            log.exception("restore of resting orders failed; continuing")
+        try:
+            self.executor.sweep_orphans()
+        except Exception:
+            log.exception("orphan sweep failed; continuing")
+        markouts = getattr(self, "markouts", None)
+        if markouts is not None:
+            markouts.start()
+        self._stop = False
+        try:
+            signal.signal(signal.SIGTERM, self.request_stop)
+            signal.signal(signal.SIGINT, self.request_stop)
+        except ValueError:
+            pass   # not the main thread (tests): the stop flag still works
+        while not self._stop:
             started = time.time()
             try:
                 summary = self.cycle()
@@ -781,4 +1161,10 @@ class Runner:
             except Exception:
                 log.exception("cycle crashed; continuing")
             elapsed = time.time() - started
-            time.sleep(max(5.0, interval - elapsed))
+            deadline = time.time() + max(5.0, interval - elapsed)
+            while not self._stop and time.time() < deadline:
+                time.sleep(min(1.0, max(0.0, deadline - time.time())))
+        n = self.executor.cancel_all_resting("shutdown")
+        if markouts is not None:
+            markouts.stop()
+        log.info("sportsbot runner stopping: %d resting order(s) cancelled with their tape shadow", n)

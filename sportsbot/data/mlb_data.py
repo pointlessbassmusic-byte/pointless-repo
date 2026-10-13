@@ -10,6 +10,7 @@ notice — review before any commercial deployment.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -52,9 +53,24 @@ def normalize_team(name: str) -> str:
     return " ".join(name.strip().lower().split())
 
 
+# The Stats API's CDN answered 406 Not Acceptable to the bare
+# "sportsbot/1.0" agent from a Linode address on 2026-10-13 (the same
+# request from another network returned 200), so the client identifies
+# itself the way a browser does and states what it accepts. Override with
+# SPORTSBOT_HTTP_USER_AGENT if a host needs something else.
+DEFAULT_USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 sportsbot/1.0")
+
+
+def http_headers() -> dict[str, str]:
+    return {"User-Agent": os.environ.get("SPORTSBOT_HTTP_USER_AGENT") or DEFAULT_USER_AGENT,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9"}
+
+
 class MLBStatsClient:
     def __init__(self, timeout: float = 30.0) -> None:
-        self.http = httpx.Client(timeout=timeout, headers={"User-Agent": "sportsbot/1.0"})
+        self.http = httpx.Client(timeout=timeout, headers=http_headers())
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, max=8), reraise=True)
     def _get(self, path: str, params: dict | None = None) -> dict:

@@ -1,0 +1,22 @@
+[Unit]
+Description=sportsbot board on localhost:8001 for Tailscale Serve (whitelisted pages only, no auth of its own)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot board-serve --directory /opt/sportsbot/data --port 8001
+Restart=on-failure
+RestartSec=10
+MemoryMax=150M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/sportsbot/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

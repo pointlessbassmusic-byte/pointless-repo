@@ -13,6 +13,8 @@ with true probability ``q``: staking fraction ``f`` of bankroll maximizes
 
 from __future__ import annotations
 
+from typing import Optional
+
 from dataclasses import dataclass, field
 
 from sportsbot.core.types import Side
@@ -66,6 +68,7 @@ def decide_stake(
     current_sport_exposure: float = 0.0,
     current_total_exposure: float = 0.0,
     open_positions: int = 0,
+    sport_budget: Optional[float] = None,
 ) -> StakeDecision:
     """Size a bet under all configured limits.
 
@@ -98,7 +101,12 @@ def decide_stake(
     # Apply caps, tightest wins.
     cap_market = cfg.max_stake_per_market - current_market_exposure
     cap_market = min(cap_market, cfg.max_fraction_per_market * cfg.bankroll - current_market_exposure)
-    cap_sport = cfg.max_fraction_per_sport * cfg.bankroll - current_sport_exposure
+    # The portfolio allocator's dollar budget for this sport can only
+    # TIGHTEN the configured fraction cap, never widen it.
+    sport_dollars = cfg.max_fraction_per_sport * cfg.bankroll
+    if sport_budget is not None:
+        sport_dollars = min(sport_dollars, max(0.0, sport_budget))
+    cap_sport = sport_dollars - current_sport_exposure
     cap_total = cfg.max_total_exposure * cfg.bankroll - current_total_exposure
 
     for cap, label in ((cap_market, "market cap"), (cap_sport, "sport cap"), (cap_total, "total exposure cap")):

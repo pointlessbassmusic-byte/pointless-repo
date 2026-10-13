@@ -33,6 +33,7 @@ from typing import Any, Optional
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from sportsbot.data.teams import canonical, is_team_sport
 from sportsbot.core.types import (
     BookLevel,
     Exchange,
@@ -44,6 +45,7 @@ from sportsbot.core.types import (
     Position,
     Side,
     Sport,
+    TapePrint,
 )
 from sportsbot.exchanges.base import ExchangeClient
 
@@ -51,9 +53,9 @@ log = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
+DATA_API_BASE = "https://data-api.polymarket.com"   # public taker tape
 
 # Live-verified Gamma tag ids (Sep 2026).
-STALE_EVENT_FLOOR_DAYS = 21   # Gamma startDate = listing time; postseason lists days ahead
 STALE_GAME_HOURS = 8          # a game this long past first pitch is not on the slate
 
 SPORT_TAGS: dict[str, int] = {
@@ -63,6 +65,12 @@ SPORT_TAGS: dict[str, int] = {
     "mlb": 100381,
     "baseball": 100381,   # alias: config sport keys use "baseball"
     "table_tennis": 103767,
+    "nba": 745,
+    "basketball": 745,    # alias: config sport keys
+    "nfl": 450,
+    "football": 450,
+    "nhl": 899,
+    "hockey": 899,
 }
 
 SPORT_FOR_TAG = {
@@ -71,6 +79,12 @@ SPORT_FOR_TAG = {
     "mlb": Sport.BASEBALL,
     "baseball": Sport.BASEBALL,
     "table_tennis": Sport.TABLE_TENNIS,
+    "nba": Sport.BASKETBALL,
+    "basketball": Sport.BASKETBALL,
+    "nfl": Sport.FOOTBALL,
+    "football": Sport.FOOTBALL,
+    "nhl": Sport.HOCKEY,
+    "hockey": Sport.HOCKEY,
 }
 
 
@@ -103,6 +117,30 @@ def _parse_dt(value: Any) -> Optional[datetime]:
 # $0.50 -> $1.25. Gamma's per-market feeSchedule agrees:
 # {"rate": 0.05, "exponent": 1, "takerOnly": true, "rebateRate": 0.15}.
 SPORTS_TAKER_FEE_RATE = 0.05
+SPORTS_MAKER_REBATE = 0.15
+
+
+def fee_schedule_rates(raw) -> tuple[float, float]:
+    """(taker rate, maker rebate share) from a Gamma `feeSchedule`, which
+    arrives as a dict or a JSON string: {"rate": 0.05, "exponent": 1,
+    "takerOnly": true, "rebateRate": 0.15}. Missing or malformed -> the
+    documented sports default and rebate."""
+    sched = raw
+    if isinstance(raw, str):
+        try:
+            sched = json.loads(raw)
+        except ValueError:
+            sched = None
+    if not isinstance(sched, dict):
+        return SPORTS_TAKER_FEE_RATE, SPORTS_MAKER_REBATE
+    try:
+        rate = float(sched.get("rate", SPORTS_TAKER_FEE_RATE))
+        rebate = float(sched.get("rebateRate", SPORTS_MAKER_REBATE))
+    except (TypeError, ValueError):
+        return SPORTS_TAKER_FEE_RATE, SPORTS_MAKER_REBATE
+    if not (0.0 <= rate <= 0.2):
+        return SPORTS_TAKER_FEE_RATE, SPORTS_MAKER_REBATE
+    return rate, rebate
 
 
 def taker_fee(price: float, shares: float, market_id: str | None = None,
@@ -138,6 +176,17 @@ class PolymarketClient(ExchangeClient):
         self.signature_type = int(sig_env) if sig_env else signature_type
         self.http = httpx.Client(timeout=timeout, headers={"User-Agent": "sportsbot/1.0"})
         self._sdk = None  # lazily created SecureClient
+        # conditionId -> taker fee rate from Gamma's per-market feeSchedule,
+        # filled in by discovery. Rates differ by category (checked live
+        # 2026-10-08: MLB and ATP moneylines 0.05 with a 15% rebate, the
+        # MLB champion future 0.03 with 25%), so one flat number is wrong
+        # for part of the slate whichever it picks.
+        self._fee_rates: dict[str, float] = {}
+
+    def fee_rate_for(self, market_id: Optional[str]) -> float:
+        """Taker fee rate for a discovered market; the documented sports
+        default for one discovery has not seen (fail toward over-costing)."""
+        return self._fee_rates.get(str(market_id or ""), SPORTS_TAKER_FEE_RATE)
 
     # ------------------------------------------------------------------
     # Discovery (Gamma, public)
@@ -158,15 +207,17 @@ class PolymarketClient(ExchangeClient):
         out: list[MarketInfo] = []
         offset = 0
         page_size = 100
-        # Some long-stale events stay active=true, so a startDate floor keeps
-        # the page count bounded — but Gamma's event startDate is the LISTING
-        # time, not the game time. Floored at "yesterday" this dropped the
-        # 2026-09-30 wild-card games, listed on Sep 26-28, and the sim scanned
-        # nothing (measured 2026-09-30: four open, accepting, two-sided
-        # moneylines on Gamma, zero from this client). The floor is now three
-        # weeks back and staleness is judged per market on gameStartTime in
-        # `_moneyline_markets_from_event`, which is the field that means it.
-        start_min = (datetime.now(timezone.utc) - timedelta(days=STALE_EVENT_FLOOR_DAYS)).strftime("%Y-%m-%d")
+        # No startDate floor. Gamma's event startDate is the LISTING time, not
+        # the game time, and a floor on it hides whatever the venue listed
+        # early: floored at "yesterday" it dropped the 2026-09-30 wild-card
+        # games (listed Sep 26-28); floored at three weeks it hid this week's
+        # NHL slate (46 open moneylines for Oct 13-18, listed Sep 16-21) and
+        # NFL week 7 (listed Sep 4-7) on 2026-10-13, while the sim reported
+        # 142 far-dated hockey markets and no game inside the touch window.
+        # Staleness is judged per market on gameStartTime in
+        # `_moneyline_markets_from_event`, the field that means it; the page
+        # count is bounded by the volume ordering below (live games come
+        # first: measured offsets 0-4) and the pagination cap.
         # Order by volume, NOT start date. A game day lists dozens of derivative
         # events per game (inning winners, first-five) that share the game's
         # startDate; ordered by startDate they fill the page ahead of the game
@@ -182,7 +233,6 @@ class PolymarketClient(ExchangeClient):
                     "tag_id": tag_id,
                     "active": "true",
                     "closed": "false",
-                    "start_date_min": start_min,
                     "order": "volume24hr",
                     "ascending": "false",
                     "limit": page_size,
@@ -220,13 +270,17 @@ class PolymarketClient(ExchangeClient):
             tokens = _parse_json_field(m.get("clobTokenIds"))
             if len(outcomes) != 2 or len(tokens) != 2:
                 continue
+            fee_rate, rebate_rate = fee_schedule_rates(m.get("feeSchedule"))
             meta = {
                 "event_slug": ev.get("slug"),
                 "game_id": m.get("gameId"),
                 "taker_base_fee": m.get("takerBaseFee"),
                 "fees_enabled": m.get("feesEnabled"),
+                "fee_rate": fee_rate,
+                "rebate_rate": rebate_rate,
                 "outcome_prices": _parse_json_field(m.get("outcomePrices")),
             }
+            self._fee_rates[str(m.get("conditionId", ""))] = fee_rate
             # Polymarket lists the VISITOR first on MLB moneylines: measured
             # against MLB Stats on 981 of 981 resolved games, 2026-07-16 to
             # 2026-09-27 (slug mlb-{away}-{home}-{date}). Without this the
@@ -234,6 +288,17 @@ class PolymarketClient(ExchangeClient):
             # home advantage to the wrong team on every game.
             if sport == Sport.BASEBALL:
                 meta["home_field"] = str(outcomes[1])
+            home_name, away_name = str(outcomes[0]), str(outcomes[1])
+            if is_team_sport(sport):
+                # Polymarket labels NBA/NFL/NHL sides by nickname ("Grizzlies");
+                # the sharp line and Kalshi use other labels. Canonicalise so
+                # the conservative matcher can pair them; an outcome the table
+                # does not know is skipped rather than guessed.
+                meta["outcome_names"] = [home_name, away_name]
+                c_home, c_away = canonical(sport, home_name), canonical(sport, away_name)
+                if not c_home or not c_away or c_home == c_away:
+                    continue
+                home_name, away_name = c_home, c_away
             infos.append(
                 MarketInfo(
                     exchange=Exchange.POLYMARKET,
@@ -243,8 +308,8 @@ class PolymarketClient(ExchangeClient):
                     question=m.get("question", "") or ev.get("title", ""),
                     slug=m.get("slug", "") or ev.get("slug", ""),
                     sport=sport,
-                    home=str(outcomes[0]),
-                    away=str(outcomes[1]),
+                    home=home_name,
+                    away=away_name,
                     start_time=_parse_dt(m.get("gameStartTime") or ev.get("startDate")),
                     close_time=_parse_dt(m.get("endDate") or ev.get("endDate")),
                     active=bool(m.get("active", True)),
@@ -255,6 +320,68 @@ class PolymarketClient(ExchangeClient):
                 )
             )
         return infos
+
+    # ------------------------------------------------------------------
+    # Public taker tape (data-api, no auth)
+    # ------------------------------------------------------------------
+    TAPE_PAGE = 500
+    TAPE_MAX_PAGES = 4
+
+    def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
+        """Taker prints on `market` since `since`, newest first, YES frame.
+
+        data-api returns prints newest first with `asset` = the token the
+        taker traded and `price` in THAT token's frame, so a NO-token print
+        at 0.56 is a YES print at 0.44. Pages are walked only as far back as
+        `since`; a trade that moves between pages while we walk is dropped
+        by the (tx, asset, ts, price, size) key.
+        """
+        since_ts = int(since.timestamp())
+        yes_id, no_id = market.yes_token_id, market.no_token_id
+        out: list[TapePrint] = []
+        seen: set = set()
+        for page in range(self.TAPE_MAX_PAGES):
+            rows = self._get(f"{DATA_API_BASE}/trades", params={
+                "market": market.market_id, "takerOnly": "true",
+                "limit": self.TAPE_PAGE, "offset": page * self.TAPE_PAGE})
+            if not rows:
+                break
+            oldest = None
+            for r in rows:
+                try:
+                    ts = int(r["timestamp"])
+                    price = float(r["price"])
+                    size = float(r["size"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                oldest = ts if oldest is None else min(oldest, ts)
+                if ts < since_ts:
+                    continue
+                asset = str(r.get("asset") or "")
+                if yes_id and asset == yes_id:
+                    p_yes = price
+                elif no_id and asset == no_id:
+                    p_yes = 1.0 - price
+                elif yes_id and not no_id:
+                    p_yes = 1.0 - price          # the only other token is NO
+                elif no_id and not yes_id:
+                    p_yes = price
+                else:
+                    continue
+                key = (r.get("transactionHash"), asset, ts, price, size)
+                if key in seen:
+                    continue
+                seen.add(key)
+                bought_yes = (p_yes == price) == (str(r.get("side", "")).upper() == "BUY")
+                out.append(TapePrint(
+                    ts=datetime.fromtimestamp(ts, tz=timezone.utc),
+                    price_yes=round(p_yes, 6), size=size,
+                    taker_side="yes" if bought_yes else "no",
+                    trade_id=str(r.get("transactionHash") or "")))
+            if len(rows) < self.TAPE_PAGE or (oldest is not None and oldest < since_ts):
+                break
+        out.sort(key=lambda t: t.ts, reverse=True)
+        return out
 
     # ------------------------------------------------------------------
     # Quotes (CLOB read endpoints, public)

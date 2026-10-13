@@ -1,0 +1,178 @@
+"""Wallet-following test: each case pins a way copying 'smart money' can
+look profitable when it is not."""
+
+from datetime import datetime, timezone
+
+import pytest
+
+from sportsbot.backtest import wallet_follow as wf
+from sportsbot.backtest.polymarket_market import PMGame
+
+START = 1_000_000
+
+
+def _game(cid="c1", home_won=True, start=START, volume=1000.0):
+    return PMGame(date=datetime.fromtimestamp(start, timezone.utc), slug=cid,
+                  home="a", away="b", token="T0", start_ts=start,
+                  close_ts=start + 3600 * 4, home_won=home_won, volume=volume,
+                  condition_id=cid, token_no="T1")
+
+
+def _row(ts, wallet, asset, side, price, size=10.0):
+    return {"ts": ts, "wallet": wallet, "asset": asset, "side": side,
+            "price": price, "size": size}
+
+
+def test_orient_maps_both_tokens_into_the_home_frame():
+    g = _game()
+    trades = wf.orient([
+        _row(1, "w", "T0", "BUY", 0.60),    # long home at 0.60
+        _row(2, "w", "T1", "BUY", 0.45),    # long away = short home at 0.55
+        _row(3, "w", "T1", "SELL", 0.45),   # sell away = long home at 0.55
+        _row(4, "w", "T9", "BUY", 0.50),    # foreign token: dropped
+    ], g)
+    assert [(t.direction, round(t.p_home, 2)) for t in trades] == \
+        [(1, 0.60), (-1, 0.55), (1, 0.55)]
+
+
+def test_close_is_last_pre_start_print_and_refused_at_the_rail():
+    g = _game()
+    trades = wf.orient([_row(START - 100, "w", "T0", "BUY", 0.62),
+                        _row(START + 100, "w", "T0", "BUY", 0.95)], g)
+    assert wf.venue_close(trades, START) == pytest.approx(0.62)
+    late = wf.orient([_row(START - 10, "w", "T0", "BUY", 0.99)], g)
+    assert wf.venue_close(late, START) is None          # that is the result, not a line
+    assert wf.venue_close([], START) is None
+
+
+def test_copy_price_waits_for_a_later_pre_start_print_or_skips():
+    g = _game()
+    trades = wf.orient([_row(START - 1000, "lead", "T0", "BUY", 0.50),
+                        _row(START - 990, "x", "T0", "BUY", 0.52),     # 10 s later: too soon
+                        _row(START - 900, "x", "T1", "BUY", 0.45),     # 100 s later: home 0.55
+                        _row(START - 10, "x", "T0", "BUY", 0.58)], g)
+    assert wf.copy_price(trades, 0, delay=30, start_ts=START) == pytest.approx(0.555)
+    # following a short: pay the away side of that same print
+    short = wf.orient([_row(START - 1000, "lead", "T1", "BUY", 0.50),
+                       _row(START - 900, "x", "T0", "BUY", 0.55)], g)
+    assert wf.copy_price(short, 0, delay=30, start_ts=START) == pytest.approx(0.455)
+    # nothing printed before the start: no copy, not an imagined one
+    assert wf.copy_price(trades, 3, delay=30, start_ts=START) is None
+
+
+def test_records_grade_each_side_against_its_own_close():
+    g = _game(home_won=False)
+    trades = wf.orient([_row(START - 500, "w1", "T0", "BUY", 0.50),
+                        _row(START - 400, "w2", "T1", "BUY", 0.45),
+                        _row(START - 100, "w3", "T0", "BUY", 0.40),
+                        _row(START + 5, "w4", "T0", "BUY", 0.10)], g)
+    recs = wf.records_for(g, trades)
+    assert [r.wallet for r in recs] == ["w1", "w2", "w3"]        # in-play row excluded
+    assert recs[0].clv == pytest.approx(0.40 - 0.50)
+    # w2 bought the complement at 0.45: side price 0.45, side close 1 - 0.40
+    assert recs[1].clv == pytest.approx(0.60 - 0.45)
+    assert recs[0].won is False and recs[1].won is True
+    assert recs[1].pnl_per_dollar == pytest.approx(0.55 / 0.45)
+
+
+def test_ranking_uses_train_games_only_and_requires_history():
+    train_recs = [wf.Record("hot", f"m{i}", i, 1, 0.5, 0.6, True) for i in range(25)]
+    train_recs += [wf.Record("thin", f"m{i}", i, 1, 0.5, 0.9, True) for i in range(3)]
+    table = wf.wallet_table(train_recs)
+    assert table["hot"]["n"] == 25 and table["hot"]["mean_clv"] == pytest.approx(0.1)
+    assert wf.select_wallets(table, "mean_clv", top=5, min_trades=20) == ["hot"]
+    assert wf.select_wallets(table, "mean_clv", top=5, min_trades=2) == ["hot"]  # 3 markets < 5
+    assert wf.select_wallets(table, "mean_clv", top=5, min_trades=2,
+                             min_markets=1) == ["thin", "hot"]
+
+
+def test_run_separates_informed_flow_from_copyable_flow():
+    """One wallet is early to every close by 5 points; the tape reprices
+    within 60 s. Its own-price CLV is real; a copier 30 s behind catches
+    nothing after the spread and fee, and the test must say both."""
+    games, tapes = [], {}
+    for i in range(20):
+        start = START + i * 86400
+        g = _game(cid=f"c{i}", home_won=(i % 2 == 0), start=start)
+        rows = [_row(start - 3000, "early", "T0", "BUY", 0.50),
+                _row(start - 2960, f"crowd{i}", "T0", "BUY", 0.55),
+                _row(start - 2900, f"crowd{i}", "T0", "BUY", 0.55),
+                _row(start - 100, f"crowd{i}", "T0", "BUY", 0.55)]
+        games.append(g)
+        tapes[g.condition_id] = wf.orient(rows, g)
+    res = wf.run(games, tapes, train_frac=0.5, top=5, min_trades=5, delay=30.0)
+    d = res["by_mean_clv"]
+    assert d["wallets"] == ["early"]
+    assert d["own_price_clv"]["mean"] == pytest.approx(0.05)
+    # copy at 0.55 + 0.005 spread + fee: strictly negative vs the 0.55 close
+    assert d["copy_net_clv"]["mean"] < 0
+    assert d["copies_skipped_no_later_print"] == 0
+    assert res["population_test"]["n"] == 40
+    text = wf.format_report(res, "baseball")
+    assert "own-price CLV" in text and "copy net CLV" in text
+
+
+def test_run_skips_games_whose_close_sits_at_the_rail():
+    g = _game()
+    tapes = {"c1": wf.orient([_row(START - 50, "w", "T0", "BUY", 0.995)], g)}
+    res = wf.run([g], tapes, train_frac=0.0)
+    assert res["test_trades"] == 0 and res["population_test"] is None
+
+
+def test_maker_fill_crosses_in_both_frames_within_ttl_and_before_start():
+    g = _game()
+    trades = wf.orient([_row(START - 3000, "lead", "T0", "BUY", 0.50),   # YES taker at 0.50
+                        _row(START - 2900, "x", "T0", "BUY", 0.52),      # away from the rest
+                        _row(START - 2000, "x", "T1", "BUY", 0.52),      # home 0.48: through 0.49
+                        _row(START - 10, "x", "T0", "BUY", 0.45)], g)
+    rest = wf.maker_rest_price(trades[0])                                # 0.49
+    assert rest == pytest.approx(0.49)
+    assert wf.maker_fill(trades, 0, START, rest) == START - 2000
+    assert wf.maker_fill(trades, 0, START, rest, ttl=120.0) is None       # cancelled first
+    assert wf.maker_fill(trades, 0, START, rest, ttl=1800.0) == START - 2000
+    # a NO-side taker at 0.52 rests at 0.51 = a YES ask at 0.49: the 0.45
+    # print does not reach it, so no fill before the start
+    short = wf.orient([_row(START - 3000, "lead", "T1", "BUY", 0.52),
+                       _row(START - 2000, "x", "T0", "BUY", 0.45),
+                       _row(START + 5, "x", "T0", "BUY", 0.60)], g)   # in-play: never counts
+    assert wf.maker_rest_price(short[0]) == pytest.approx(0.51)
+    assert wf.maker_fill(short, 0, START, 0.51) is None
+    short2 = wf.orient([_row(START - 3000, "lead", "T1", "BUY", 0.52),
+                        _row(START - 2000, "x", "T0", "BUY", 0.49)], g)
+    assert wf.maker_fill(short2, 0, START, 0.51) == START - 2000
+    assert wf.maker_rest_price(wf.orient([_row(1, "w", "T0", "BUY", 0.015)], g)[0]) == 0.01
+
+
+def test_run_maker_copy_fills_only_when_the_tape_comes_back_through():
+    """The early wallet buys at 0.50; the tape reprices to 0.55, dips to
+    0.48 a thousand seconds later, and closes at 0.55. A maker copy one
+    tick under (0.49) fills on the dip -- so it fills under a 30-minute
+    or open-ended rest and never under the bot's 120 s cancel -- and the
+    fill's CLV is the close minus the rest, nothing more optimistic."""
+    games, tapes = [], {}
+    for i in range(20):
+        start = START + i * 86400
+        g = _game(cid=f"c{i}", home_won=(i % 2 == 0), start=start)
+        rows = [_row(start - 3000, "early", "T0", "BUY", 0.50),
+                _row(start - 2960, f"crowd{i}", "T0", "BUY", 0.55),
+                _row(start - 2000, f"crowd{i}", "T1", "BUY", 0.52),   # home 0.48
+                _row(start - 100, f"crowd{i}", "T0", "BUY", 0.55)]
+        games.append(g)
+        tapes[g.condition_id] = wf.orient(rows, g)
+    res = wf.run(games, tapes, train_frac=0.5, top=5, min_trades=5, delay=30.0)
+    m = res["by_mean_clv"]["maker"]
+    assert m["cancel 120 s"] == {"attempts": 10, "fills": 0, "fill_rate": 0.0,
+                                 "clv": None, "pnl": None, "median_fill_seconds": None}
+    assert m["cancel 30 min"]["fills"] == 10 and m["rest to start"]["fills"] == 10
+    assert m["rest to start"]["clv"]["mean"] == pytest.approx(0.55 - 0.49)
+    assert m["rest to start"]["median_fill_seconds"] == 1000.0
+    # population baseline over every test print: the early rest (0.49) and
+    # the 0.54 rest both fill on the dip; the away-side rest at 0.51 fills
+    # on the 0.55 close print 1900 s later (adverse: side close 0.45); the
+    # last print has nothing after it
+    pm = res["population_maker"]
+    assert pm["sampled_trades"] == 40 and pm["of"] == 40
+    assert pm["cancel 30 min"]["fills"] == 20 and pm["rest to start"]["fills"] == 30
+    assert pm["rest to start"]["clv"]["mean"] == pytest.approx((0.06 + 0.01 - 0.06) / 3)
+    text = wf.format_report(res, "baseball")
+    assert "maker copy, cancel 120 s" in text and "population maker baseline" in text

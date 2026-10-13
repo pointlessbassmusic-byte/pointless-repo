@@ -142,10 +142,198 @@ Pipeline per cycle:
 - [x] Weather-arm triple-null on real settlements (`sportsbot weather-score`):
       coin 0.2500 → climatology 0.1828 → market 0.0751 across 168 settled rows
 - [x] `sportsbot doctor` go-live preflight; exit-rule replay backtest
+- [x] NBA / NFL / NHL under the sharp anchor (`data/teams.py`, both venue
+      clients, Odds API keys in the harness, config + allocation arms): the slate
+      no longer goes dark in November. Sharp signal only (no rating model); Kalshi
+      start times unknown for these series (fail closed on entry there).
+- [x] Capital allocation and learning loop (`sportsbot/bot/portfolio.py`,
+      `config/allocation.yaml`, `docs/ALLOCATION.md`): strategy arms
+      `sport/signal/style` with per-arm evidence and gate; money from manual
+      weights → evidence shares (CLV interval lower bound) → a bounded learning
+      budget with a weekly loss stop; equity-mode bankroll (profits roll in);
+      fractional risk limits; the sharp line as a selectable model
+      (`engine/sharpline.py`); dashboard arms/results panels. Tighten-only
+      throughout; the file cannot turn trading on.
+- [x] Result 14 (`backtest/wallet_follow.py`): copying wallets is dead as a
+      taker; informed MLB flow exists (+1.0 pt) but a copy nets −0.7 pt.
+      Strict maker fill model and backtest policy parity landed with it.
+- [x] Sharp-line CLV harness (`sportsbot/signals/sharp.py`, rank 1 of
+      `reports/Beating prediction market prices.md`): budgeted Pinnacle snapshots
+      via The Odds API, Shin de-vig, every decision and bet graded against the
+      pre-start sharp close net of fees, event-clustered bootstrap CI, and the
+      pre-registered PASS/FAIL criterion (≥1,000 graded decisions, CI excluding
+      zero). Tighten-only enforcement through the adaptive layer. Paper mode;
+      collection starts once `ODDS_API_KEY` is set.
+- [x] Tape-verified paper maker fills (`exchanges/paper.py`, 2026-10-10): a
+      resting paper order now fills only when the venue's PUBLIC taker tape
+      prints through its limit (Polymarket data-api, Kalshi `/markets/trades`,
+      both read without credentials), for the size that printed, paying the
+      maker fee; the executor books those fills as bets on the `.../maker` arm.
+      Before this, paper resting orders never filled, so the paper book could
+      not produce maker evidence and the rank 2 experiment had no path to a
+      gate. Still an upper bound on real fills (front of queue is implied), but
+      the adverse selection a maker eats is real: the fill happens exactly when
+      price moves through the order. Same crossing rule as the strict backtest
+      (`core.books.print_crosses`).
+- [x] Result 15 (`wallet-follow --maker-ticks`, 2026-10-12): resting one
+      tick under MLB taker prints earns +0.6 pt CLV on fills (+1.1–1.8 pt
+      behind the best-CLV wallets), interval above zero — the first measured
+      positive CLV in the project — but every fill is a queue-priority fill
+      at the existing bid and one tick deeper the edge vanishes; tennis shows
+      none of it (2,000 games, intervals span zero). Rank 2's live
+      minimum-size maker order on MLB is now the measurement that matters.
+- [x] Touch-maker arm (`sportsbot/bot/touch.py`, `touch:` config block,
+      `<sport>/touch/maker` arm, 2026-10-12): the executable form of Result 15
+      — rest at the best bid/ask on MLB at $1 a side, one side per cycle,
+      never crossing, through the normal risk check, executor, CLV grading
+      and allocation gate. On in the $100 paper sim, off in the default
+      config; the live minimum-size fill-share test is pre-registered in
+      `docs/MAKER_TEST.md` and waits on the operator.
+- [x] Maker test evidence trail and read-out (2026-10-13): every order
+      carries its arm, the book at posting, placement and first-fill times,
+      and -- once it leaves the book -- `tape_through`, the paper venue's fill
+      rule applied to the public tape over the window it rested in (bounded
+      by TTL and game start). `sportsbot maker-report` turns that into the
+      pre-registered numbers: fill share vs the tape rule (orders and
+      contracts), CLV per fill vs venue and sharp close with clustered
+      intervals, adverse selection by wait, the 200-fill gate line, and a
+      paper self-check (venue fill == shadow).
+- [x] Result 15 addendum (2026-10-13): the same construction on Polymarket
+      hockey (89 games), football (80) and basketball (40). NHL and NFL carry
+      the touch edge — population maker baseline +0.0042 to +0.0063 (hockey,
+      27 test markets) and +0.0053 to +0.0065 (football, 24), every interval
+      above zero, the MLB number on a tenth of the markets; neither has
+      persistent informed wallets. NBA is not measurable yet (11 pre-season
+      markets, intervals span zero, one tape page lost to a 429): re-measure
+      with ≥60 regular-season days. The sim's touch arm now rests on hockey
+      and football too (`touch.sports`); the runner quotes those books for
+      the touch arm even when the scanner dropped them for want of a sharp
+      line (it needs no price), and the allocator no longer parks a touch
+      arm behind the priceable-sport gate. Live-mode funding is unchanged:
+      manual weight, evidence or `learn`, none of which is set.
+- [x] Operator path for real money (2026-10-13): `SPORTSBOT_DISCORD_WEBHOOK`
+      alerts (fills per cycle, risk halts once per six hours, nothing when
+      unset; a failed post never stops a cycle), `sportsbot digest [--post]`
+      (equity/CLV per book, touch posts and fills, distance to the bar),
+      `sportsbot board-serve` + `sportsbot-boardserve.service` (board.html
+      and dashboard.html only, localhost) for `tailscale serve --set-path
+      /sportsbot` on the arbitrage desk's node — one private address for
+      phone and desktop, no new auth surface. `deploy/DEPLOYMENT.md` has the
+      commands; the webhook can be the desk's.
+- [x] Polymarket discovery: listing-date floor removed (2026-10-13). Gamma's
+      event `startDate` is the listing time; the 21-day floor hid every game
+      the venue listed early — this week's NHL slate (46 open moneylines for
+      Oct 13–18, listed Sep 16–21) and NFL week 7 (listed Sep 4–7). The sim's
+      "142 hockey dropped" on Oct 12 were the far-dated games only. Found by
+      the touch arm's read-only dry run (0 NHL games inside its 12 h window
+      at 07:00Z; 193 hockey markets and today's 23:00Z games after the fix).
+      Staleness stays per market on `gameStartTime`; volume ordering keeps
+      live games on the first page (offsets 0–4 measured).
+- [x] First Linode deploy of sportsbot (2026-10-13, operator-run): three
+      setup defects found and fixed the same hour. (1) `setup_server.sh` ran
+      the model fit from `/root`, which the service user cannot read
+      (PR #65). (2) The MLB Stats API answered 406 Not Acceptable to the
+      `sportsbot/1.0` agent from the Linode address while the same request
+      returned 200 elsewhere; the client now sends browser-like headers,
+      overridable with `SPORTSBOT_HTTP_USER_AGENT`. (3) Jeff Sackmann's
+      tennis repositories were removed from GitHub in September 2026 (every
+      year 404 on master and main), so `fit tennis` fell back to the Kalshi
+      bootstrap (1,529 matches, no surfaces); the downloader now falls
+      through to the `Aneeshers/tennis-sackmann-archive` mirror (CC BY-NC-SA
+      4.0, snapshot June 2026). Tennis is not in the sim; MLB is, and until
+      the fit succeeds on the box the sim drops MLB as "model unfit" and the
+      touch arm quotes NHL/NFL only. Follow-up the same hour: the 406 held on
+      every variant (browser headers, IPv4, HTTP/1.1) while `/teams` answered
+      200, so it is a per-address refusal of `/schedule`; `fit baseball` now
+      installs the committed `config/seeds/baseball.json` (refreshed by the
+      daily check-in with `--seed-out`) when the API errors, and the sim's
+      MLB context call was already guarded.
+- [x] `config/maker_test.yaml` + runbook (2026-10-13): the pre-registered live
+      fill-share test as one complete config (Kalshi, touch arm only at $1 a
+      side, 120 s TTL, tennis/NBA off, risk scaled to $100: $10 day stop,
+      $25 kill) shipped in paper mode. `docs/MAKER_TEST.md` "Starting it"
+      lists the operator's five steps — Kalshi keys, funded balance, the
+      three `learn: true` lines and a `learning.budget_usd` in
+      `config/allocation.yaml`, `SPORTSBOT_LIVE=1` in a unit override — none
+      of which the repository performs. `sportsbot doctor -c
+      config/maker_test.yaml` is the preflight.
+- [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
+      on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
+      win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
+      $44k on the World Series champion market; the per-team advance markets
+      are already resolved. Too thin to matter this postseason; revisit next
+      October before building.
 - [ ] Score the first cohort carrying decision-time NWS baselines (84 markets,
       targets Sep 21–22) — does the forecast arm beat climatology? beat the market?
 - [ ] Deploy `main` to the Linode box and let the paper stack accrue toward the
       go-live gate (≥200 settled bets, positive mean CLV, Brier < 0.25, fees verified)
+
+### Possible strategy build-out (candidate queue, 2026-10-10)
+
+Ordered by what the evidence so far supports. Nothing here is funded; each
+item names the measurement that would move it, and the standing rules apply
+(paper first, judge by CLV, tighten-only capital, never martingale).
+
+1. **Rank 2: maker-only quoting, start on MLB** (report rank 2). Result
+   15 gives it the first positive measured number (+0.6 pt CLV per fill at
+   the touch, +1.1–1.8 behind informed flow) with one unmeasurable: the
+   fill share of a new order in the touch queue. The decisive experiment
+   is a minimum-size live maker order that records fill rate and CLV per
+   fill; it is the smallest capital question in the queue. The 2026-10-13
+   addendum extends the measured edge to NHL and NFL (same half-point,
+   27/24 markets), so the test is not bounded by the MLB season; NBA is a
+   December re-measurement. Also
+   measurable in paper: tape-verified fills produce `baseball/model/maker`
+   and `baseball/sharp/maker` evidence that the per-arm gate reads (≥200
+   CLV-graded fills, interval lower bound > 0). Gate on the sharp close once
+   `ODDS_API_KEY` is set; until then the venue close is the yardstick. The
+   recurring venue perks belong here, not in a promo list: Polymarket's 15%
+   maker rebate on sports (ignored in the fill model, so measured CLV is
+   conservative) and Kalshi's liquidity program (OLIP: daily per-market
+   payments for two-sided resting size), whose terms are to be read from the
+   venue at the time, never assumed.
+2. **Informed-flow direction as a second signal** (Results 14–15): the
+   CLV-selected MLB taker wallets carry +1.0 pt; copying them as a taker
+   nets −0.7 pt; resting one tick under them collects +1.1 to +1.8 pt CLV
+   on the fills it gets (Result 15), about double the population maker
+   number. Confirmed as a *where-to-rest* input, data-logged only; the
+   open quantity is the fill share of a new order at the touch, which the
+   tape cannot give and the live minimum-size maker order in item 1 can.
+3. **Perk and promotion harvest** (assessed 2026-10-09; one-time, finite,
+   operator-executed). Terms move, so re-verify every figure on the venue's
+   own page before acting; the numbers below are what was read then.
+   - Sportsbook sign-up bonus bets hedged on Kalshi: the only class with
+     positive expected cash. A bonus bet's stake is not returned, so the
+     hedge converts roughly 65–75% of face value depending on the price band
+     and Kalshi's fee; the hedge leg goes through the normal risk layer like
+     any other order. US-legal books and Kalshi only.
+   - Exchange deposit credits (Kalshi ~$10, Polymarket US ~$20): not
+     withdrawable, must be traded through. Treat as free learning budget for
+     the maker arm, nothing more.
+   - Crypto deposit matches (Kraken-style 2–3% on a large deposit, locked
+     12–18 months): capital trapped below the bot's hurdle; declined.
+   - Hard limits: one offer per verified identity, no multi-accounting, no
+     referral self-dealing, no automation of KYC'd sign-ups. Bouncing between
+     venues to re-earn bonuses is not a loop; it is a short list that empties.
+   - Build only if the operator wants it: a `docs/PERKS_LEDGER.md` with each
+     offer's terms, cap, lock date and realised conversion, so the harvest is
+     accounted like any other arm.
+4. **Score-feed latency measurement** before any in-play code: time-stamp
+   the first venue print after a scoring event against the official feed for
+   a week of MLB/NBA; if the venue moves first, in-play is a maker game at
+   best and the item closes.
+5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
+   October, see the roadmap item above ($101/24h series volume this year).
+6. **Weather arm**: stays excluded (beats climatology, loses to the market,
+   14 complete dates). Re-open only if a decision-time forecast source with a
+   measured lead-time edge over NWS appears. Measurement fix first: the v1
+   cohort scores the *earliest* forecast on record before first sighting
+   (mean age 1.5 d); scoring the *latest* pre-sighting forecast cut the arm's
+   Brier from 0.150 to 0.125 on the 168 rows checked 2026-10-11 without
+   changing the ordering (SIGNALS, 2026-10-11). A v2 cohort file with that
+   rule, run alongside v1, needs the operator's go-ahead; v1 rows are never
+   rewritten.
+
 
 ### 2026-10-08 → 10-12: pre-registered research round + live-pilot plumbing (sportsbot)
 
@@ -163,11 +351,14 @@ out-of-sample with real fees and fills. The remaining evidence is live fills.
       verified live, Ed25519-signed orders built from the API reference, post-only
       makers on both venues (`BetIntent.maker` → `Order.post_only`); five
       1-contract checks still required before the first real order
-- [x] Live-pilot plumbing: per-book isolation (store/risk/runner/CLI), allocation
-      wired into sizing with operator overrides and a learning log, venue-confirmed
-      fill accounting and restart recovery, fill markouts at +5s/+60s/+5m/+30m,
-      board cards (fill quality, learning log, research ledger), `config/pilot.yaml`
-      and `config/pilot_pmus.yaml` as twins, doctor live-book checks
+- [x] Live-pilot plumbing: per-book isolation (store/risk/runner/CLI),
+      venue-confirmed fill accounting and restart recovery, fill markouts at
+      +5s/+60s/+5m/+30m, board cards (fill quality, research ledger),
+      `config/pilot.yaml` and `config/pilot_pmus.yaml` as twins, doctor live-book
+      checks. (Reconciled with main 2026-10-13: main's arm-level portfolio
+      allocator in `bot/portfolio.py` + `config/allocation.yaml` is the one that
+      sizes; this branch's per-sport sleeve wiring and its learning log were
+      retired so only one allocator drives money.)
 - [x] Pre-match quote recorder (`signals/prematch.py`): keyless, both venues, the
       forward dataset for every later test; pre-registered T−30 longshot forward
       test (PM US tennis, NO on mid ≤ 0.15, n ≥ 150)

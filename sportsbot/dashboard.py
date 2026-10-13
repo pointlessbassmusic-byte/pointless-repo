@@ -17,6 +17,13 @@ import html
 from datetime import datetime, timezone
 
 from sportsbot.bot.allocation import allocate, allocation_bankroll
+from sportsbot.bot.portfolio import (
+    RESULTS,
+    allocate_arms,
+    load_allocation,
+    running_arms_for,
+    summarise_for_dashboard,
+)
 from sportsbot.bot.gate import evidence_gate
 from sportsbot.bot.ledger import ACCOUNTS, account_equity
 
@@ -202,29 +209,6 @@ def _allocation(alloc: dict) -> str:
         'apply on top.</div>')
 
 
-def _learning_log(rows: list[dict]) -> str:
-    """Every time the allocator moved a sleeve's budget or its reason."""
-    if not rows:
-        return ('<div class="foot">No allocation changes logged yet. The bot '
-                'logs one row each time a sleeve\'s budget or the reason behind '
-                'it changes.</div>')
-    body = []
-    for r in rows[:20]:
-        clv = "—" if r.get("mean_clv") is None else f'{r["mean_clv"]:+.4f}'
-        body.append(
-            f'<tr><td>{_e(r["ts"][:16].replace("T", " "))}</td>'
-            f'<td><strong>{_e(r["sport"])}</strong></td>'
-            f'<td class="num">{_money(r["budget"])}</td>'
-            f'<td class="num">{(r["weight"] or 0) * 100:.0f}%</td>'
-            f'<td class="num">{_e(clv)}</td>'
-            f'<td><span class="pill">{_e(r["bound_by"] or "")}</span></td></tr>')
-    body = "".join(body)
-    return ('<table class="grid-table"><thead><tr><th>When (UTC)</th><th>Sleeve</th>'
-            '<th class="num">Budget</th><th class="num">Weight</th>'
-            '<th class="num">Mean CLV</th><th>Why</th></tr></thead>'
-            f'<tbody>{body}</tbody></table>')
-
-
 def _ledger(entries: list[dict]) -> str:
     """The research record: every pre-registered test and its verdict."""
     if not entries:
@@ -375,6 +359,165 @@ def _decisions(rows: list[dict], show: int = 12) -> str:
             f'<tbody>{"".join(out)}</tbody></table>{more}')
 
 
+def _arms(port: dict) -> str:
+    """Per-arm evidence, gate and budget — the table the operator reads to
+    see where money may go and why, and where the learning budget stands."""
+    rows = []
+    for r in summarise_for_dashboard(port):
+        if r["budget"] > 0:
+            state, pill = "ok", ("live" if r["gate_ready"] else
+                                 "learning" if r["learn"] and not r["gate_ready"]
+                                 else "paper" if port.get("mode") == "paper" else "manual")
+        elif not r["enabled"]:
+            state, pill = "idle", "off"
+        elif not r["running"]:
+            state, pill = "idle", "not running"
+        else:
+            state, pill = "pending", "unfunded"
+        ci = ("—" if r["mean_clv"] is None else
+              f'{r["mean_clv"]:+.4f}' + ("" if r["clv_lo"] is None else
+                                         f' [{r["clv_lo"]:+.4f}, {r["clv_hi"]:+.4f}]'))
+        manual = ("auto" if r["manual_weight"] is None else f'{r["manual_weight"]:.0%}')
+        sharp = (f'{r["sharp_share"]:.0%} vs Pinnacle' if r["n_clv"] else "")
+        brier = ("—" if r["brier"] is None else f'{r["brier"]:.4f}')
+        rows.append(
+            f'<tr class="{state}"><td><strong>{_e(r["arm"])}</strong>'
+            f'<div class="evidence">{_e(r["source"])}</div></td>'
+            f'<td class="num">{_money(r["budget"])}<div class="sub">{_e(manual)}</div></td>'
+            f'<td class="num">{r["n_clv"]}<div class="sub">{r["n_settled"]} settled</div></td>'
+            f'<td class="num">{_e(ci)}<div class="sub">{_e(sharp)}</div></td>'
+            f'<td class="num">{_e(brier)}</td>'
+            f'<td class="barcell">{_bar(r["gate_progress"])}</td>'
+            f'<td><span class="pill">{_e(pill)}</span></td></tr>')
+    learn = port.get("learning", {})
+    learn_line = ""
+    if learn.get("budget_usd"):
+        learn_line = (f' Learning budget {_money(learn["budget_usd"])} across '
+                      f'{len(learn.get("arms", []))} arm(s); 7-day realised '
+                      f'{learn.get("loss_7d", 0.0):+.2f}; '
+                      f'{"PAUSED" if learn.get("paused") else "active"} '
+                      f'(stop at −{_money(learn.get("weekly_loss_stop_usd", 0.0))}).')
+    return (
+        '<table class="grid-table"><thead><tr><th>Arm &amp; why it has this budget</th>'
+        '<th class="num">Budget<div class="sub">weight</div></th>'
+        '<th class="num">CLV n</th><th class="num">Mean CLV [95% CI]</th>'
+        '<th class="num">Brier</th><th>Gate</th><th></th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table>'
+        f'<div class="foot">Allocated {_money(port["allocated"])} of the '
+        f'{_money(port["total_cap"])} exposure cap on a {_money(port["bankroll"])} '
+        f'bankroll ({_e(port.get("bankroll_mode", "config"))} mode).{_e(learn_line)} '
+        f'Change weights, learning money and the bankroll mode in '
+        f'<code>{_e(port.get("path", "config/allocation.yaml"))}</code>; the bot '
+        f're-reads it every cycle. Budgets move with measured CLV intervals, '
+        f'never with a losing streak.</div>')
+
+
+def edge_bar_rows(store, account: str, days: int = 14) -> list[dict]:
+    """Per-day, per-sport distance to the entry bar, newest last."""
+    rows = []
+    for key, by_sport in sorted(store.kv_prefix(f"edgebar:{account}:").items()):
+        date = key.rsplit(":", 1)[-1]
+        for sport, d in sorted((by_sport or {}).items()):
+            rows.append({"date": date, "sport": sport, **d})
+    dates = sorted({r["date"] for r in rows})[-days:]
+    return [r for r in rows if r["date"] in dates]
+
+
+def _svg_edge_bar(rows: list[dict], width: int = 720, height: int = 180) -> str:
+    """Best net edge seen per day, one line per sport, against the bar."""
+    dates = sorted({r["date"] for r in rows})
+    sports = sorted({r["sport"] for r in rows if r.get("best") is not None})
+    if len(dates) < 2 or not sports:
+        return ""
+    bar = max(float(r["bar"]) for r in rows)
+    vals = [float(r["best"]) for r in rows if r.get("best") is not None] + [bar, 0.0]
+    lo, hi = min(vals), max(vals)
+    span = max(hi - lo, 0.02)
+    lo, hi = lo - span * 0.1, hi + span * 0.1
+    pad_l, pad_r, pad_t, pad_b = 52, 12, 12, 24
+    iw, ih = width - pad_l - pad_r, height - pad_t - pad_b
+
+    def x(i):
+        return pad_l + iw * i / max(1, len(dates) - 1)
+
+    def y(v):
+        return pad_t + ih * (1.0 - (v - lo) / (hi - lo))
+
+    grid = []
+    for frac in (0.0, 0.5, 1.0):
+        v = lo + (hi - lo) * frac
+        grid.append(f'<line class="grid" x1="{pad_l}" y1="{y(v):.1f}" '
+                    f'x2="{width - pad_r}" y2="{y(v):.1f}"/>'
+                    f'<text class="axis" x="{pad_l - 8}" y="{y(v) + 4:.1f}" '
+                    f'text-anchor="end">{v * 100:+.1f} pt</text>')
+    base = (f'<line class="base" x1="{pad_l}" y1="{y(bar):.1f}" x2="{width - pad_r}" '
+            f'y2="{y(bar):.1f}"/><text class="axis" x="{width - pad_r}" y="{y(bar) - 4:.1f}" '
+            f'text-anchor="end">bar {bar * 100:.1f} pt</text>')
+    lines = []
+    for sport in sports:
+        pts = []
+        for i, d in enumerate(dates):
+            hit = [r for r in rows if r["date"] == d and r["sport"] == sport and r.get("best") is not None]
+            if hit:
+                pts.append(f"{x(i):.1f},{y(float(hit[0]['best'])):.1f}")
+        if len(pts) >= 2:
+            lines.append(f'<polyline class="line edge" points="{" ".join(pts)}"/>')
+        elif pts:
+            cx, cy = pts[0].split(",")
+            lines.append(f'<circle class="dot edge" cx="{cx}" cy="{cy}" r="3"/>')
+    labels = (f'<text class="axis" x="{pad_l}" y="{height - 6}">{dates[0]}</text>'
+              f'<text class="axis" x="{width - pad_r}" y="{height - 6}" '
+              f'text-anchor="end">{dates[-1]}</text>')
+    return (f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" '
+            f'aria-label="best edge seen against the entry bar">{"".join(grid)}{base}'
+            f'{"".join(lines)}{labels}</svg>')
+
+
+def _edge_bar(rows: list[dict]) -> str:
+    """Distance to the bar: the arbitrage desk's headline chart, carried
+    over. A flat equity line says nothing; the gap between the best edge
+    the slate offered and the bar says whether the bar or the market is
+    what stands in the way."""
+    if not rows:
+        return ('<div class="empty">Nothing priced yet — this fills in once the bot '
+                'has evaluated a slate.</div>')
+    body = []
+    for r in sorted(rows, key=lambda r: (r["date"], r["sport"]), reverse=True)[:21]:
+        best = r.get("best")
+        gap = (None if best is None else float(best) - float(r["bar"]))
+        body.append(
+            f'<tr><td class="mono">{_e(r["date"])}</td><td>{_e(r["sport"])}</td>'
+            f'<td class="num">{r.get("priced", 0)}</td>'
+            f'<td class="num">{"—" if best is None else f"{float(best) * 100:+.2f}"}</td>'
+            f'<td class="num">{"—" if gap is None else f"{gap * 100:+.2f}"}</td>'
+            f'<td class="num">{r.get("within_1pt", 0)}</td>'
+            f'<td class="num">{r.get("spread_blocked", 0)}</td>'
+            f'<td class="num">{r.get("bets", 0)}</td></tr>')
+    return (_svg_edge_bar(rows)
+            + '<table class="grid-table"><thead><tr><th>Day</th><th>Sport</th>'
+              '<th class="num">Priced</th><th class="num">Best edge (pt)</th>'
+              '<th class="num">To bar (pt)</th><th class="num">Within 1 pt</th>'
+              '<th class="num">Spread-blocked</th><th class="num">Bets</th></tr></thead>'
+              f'<tbody>{"".join(body)}</tbody></table>'
+              '<div class="foot">Best net edge the strategy printed on any priced market '
+              'that day (after fees and slippage) against the entry bar. A gap that '
+              'stays negative while spread-blocked counts are low means the market, not '
+              'the bar, is what stands in the way; many markets within a point of the bar '
+              'mean the bar is binding and the fee floor decides.</div>')
+
+
+def _results() -> str:
+    rows = "".join(
+        f'<tr><td class="num">{_e(n)}</td><td><strong>{_e(t)}</strong></td>'
+        f'<td class="why">{_e(v)}</td></tr>' for n, t, v in RESULTS)
+    return ('<table class="grid-table"><thead><tr><th class="num">#</th>'
+            '<th>Measured</th><th>Verdict</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table>'
+            '<div class="foot">Every line is a measurement on real prices after '
+            'fees (docs/EDGE_VERDICT_2026-09-23.md). Nothing here is re-litigated '
+            'without new data.</div>')
+
+
 def _gate(gate: dict) -> str:
     rows = []
     for c in gate["criteria"]:
@@ -436,6 +579,14 @@ def collect(cfg: dict, store) -> dict:
 
     reports = {acct: report_for(mode) for acct, mode in ACCOUNTS.items()}
     cat = reports["sim"]
+    alloc_cfg = load_allocation(str(cfg.get("allocation", {}).get("path",
+                                                                 "config/allocation.yaml")))
+    try:
+        running = running_arms_for(cfg)
+    except ValueError:
+        running = set()
+    fees = store.get_kv("fees_verified")
+    fees_ok = isinstance(fees, dict) and bool(fees.get("verified"))
     counts = rated_counts(cfg)
     ratings = {k: v > 0 for k, v in counts.items()}
     provisional = ratings_provenance(cfg)
@@ -452,20 +603,30 @@ def collect(cfg: dict, store) -> dict:
             "equity": eq,
             "series": store.equity_series(acct, limit=500),
             "decisions": store.recent_decisions(acct, limit=300),
+            "edge_bar": edge_bar_rows(store, acct),
             "gate": evidence_gate(store, acct),
             "allocation": allocate(allocation_bankroll(cfg, eq["equity"]), cfg,
                                    reports[acct].get("by_sport", {}), ratings,
                                    provisional=provisional),
-            "allocation_log": store.allocation_log(acct, limit=20),
             "markouts": markout_report(store, mode=mode),
+            "portfolio": allocate_arms(
+                max(eq["equity"], 0.0) if alloc_cfg.bankroll_mode == "equity"
+                else float(bank.get("amount", 100.0)),
+                cfg, alloc_cfg,
+                store.settled_bets(limit=1_000_000, mode=ACCOUNTS[acct]),
+                running, fees_verified=fees_ok, mode=ACCOUNTS[acct]),
         }
     out["ledger"] = load_ledger()
     return out
 
 
-def render(data: dict, refresh: int = 60) -> str:
+def render(data: dict, refresh: int = 60, fragment: bool = False) -> str:
+    """The page. `fragment=True` emits only <title>, <style> and the body
+    content (no doctype/html/head/body, no auto-refresh) for hosts that wrap
+    the page in their own document skeleton, such as a published artifact
+    that is re-published by the daily routine rather than refreshed."""
     meta = (f'<meta http-equiv="refresh" content="{refresh}">'
-            if refresh > 0 else "")
+            if refresh > 0 and not fragment else "")
     panels, switches = [], []
     for i, acct in enumerate(ACCOUNTS):
         a = data["accounts"][acct]
@@ -482,21 +643,19 @@ def render(data: dict, refresh: int = 60) -> str:
             f'{_tiles(a["equity"])}'
             f'<div class="card"><h2>Equity</h2>'
             f'{_svg_equity(a["series"], a["equity"]["starting_balance"])}</div>'
-            f'<div class="card"><h2>Where the money is allowed to go</h2>'
+            f'<div class="card"><h2>Strategy arms: evidence, gate, budget</h2>'
+            f'{_arms(a["portfolio"])}</div>'
+            f'<div class="card"><h2>Sport sleeves (legacy view)</h2>'
             f'{_allocation(a["allocation"])}</div>'
             f'<div class="card"><h2>Fill quality (markout)</h2>'
             f'{_markouts(a.get("markouts", {}))}</div>'
-            f'<div class="card"><h2>Learning log</h2>'
-            f'{_learning_log(a.get("allocation_log", []))}</div>'
             f'<div class="card"><h2>Decisions</h2>{_decisions(a["decisions"])}</div>'
-            f'<div class="card"><h2>Go-live gate</h2>{_gate(a["gate"])}</div>'
+            f'<div class="card"><h2>Distance to the bar</h2>{_edge_bar(a.get("edge_bar", []))}</div>'
+            f'<div class="card"><h2>Go-live gate (account)</h2>{_gate(a["gate"])}</div>'
             f'<div class="card"><h2>Research ledger</h2>{_ledger(data.get("ledger", []))}</div>'
+            f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
             f'</section>')
-    return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-{meta}<title>sportsbot</title><style>{_CSS}</style></head>
-<body><div class="wrap">
+    body = f"""<div class="wrap">
 <header><div><h1>sportsbot</h1>
 <div class="sub">paper-first prediction-market trading</div></div>
 <div class="meta"><span class="pill mode">{_e(data["mode"])}</span>
@@ -506,7 +665,14 @@ def render(data: dict, refresh: int = 60) -> str:
 <div class="panels">{"".join(panels)}</div>
 <footer>This page is a view, not a control. Live orders require
 <code>mode: live</code> and <code>SPORTSBOT_LIVE=1</code> set on the host.</footer>
-</div></body></html>"""
+</div>"""
+    if fragment:
+        return f"<title>sportsbot board</title><style>{_CSS}</style>\n{body}"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{meta}<title>sportsbot board</title><style>{_CSS}</style></head>
+<body>{body}</body></html>"""
 
 
 _CSS = """
@@ -567,6 +733,7 @@ padding:18px;margin-bottom:16px}
 .chart .area{opacity:.10}
 .chart .area.up{fill:var(--up)}.chart .area.down{fill:var(--down)}
 .chart .dot.up{fill:var(--up)}.chart .dot.down{fill:var(--down)}
+.chart .line.edge{stroke:var(--accent)}.chart .dot.edge{fill:var(--accent)}
 table.grid-table{width:100%;border-collapse:collapse;font-size:13px}
 .grid-table th{text-align:left;font-size:11px;color:var(--muted);
 text-transform:uppercase;letter-spacing:.05em;font-weight:600;
@@ -614,12 +781,16 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;text-align:center}
 """
 
 
-def build(cfg: dict, store, out_path: str, refresh: int = 60) -> dict:
+def build(cfg: dict, store, out_path: str, refresh: int = 60,
+          fragment_path: str | None = None) -> dict:
     import os
     data = collect(cfg, store)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as fh:
         fh.write(render(data, refresh=refresh))
+    if fragment_path:
+        with open(fragment_path, "w") as fh:
+            fh.write(render(data, fragment=True))
     return {"path": out_path,
             "sim_equity": data["accounts"]["sim"]["equity"]["equity"],
             "real_equity": data["accounts"]["real"]["equity"]["equity"],

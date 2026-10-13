@@ -6,8 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 from sportsbot.bot.allocation import allocate
 from sportsbot.bot.executor import Executor
-from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
-from sportsbot.core.staking import StakingConfig
 from sportsbot.core.types import (
     BetIntent,
     BookLevel,
@@ -16,7 +14,6 @@ from sportsbot.core.types import (
     MarketQuote,
     Order,
     OrderStatus,
-    Prediction,
     Side,
     Sport,
 )
@@ -91,30 +88,6 @@ def test_manual_weight_cannot_override_a_negative_measurement():
     assert s["baseball"]["clv_multiplier"] == 0.6                  # 1 + 8 * -0.05
     assert s["baseball"]["weight"] < 0.5 < s["tennis"]["weight"]  # measurement wins
     assert s["baseball"]["bound_by"] == "CLV-adjusted share"
-
-
-def test_sleeve_budget_tightens_the_sport_cap_but_never_loosens_it():
-    staking = StakingConfig(bankroll=1000.0, kelly_multiplier=1.0, min_edge=0.01,
-                            min_stake=1.0, max_stake_per_market=500.0,
-                            max_fraction_per_market=0.5, max_fraction_per_sport=0.20,
-                            max_total_exposure=1.0, max_open_positions=50)
-    fee = lambda p, s=1.0, m="": 0.0   # noqa: E731
-    exp = {"total": 0.0, "by_sport": {}, "by_market": {}, "by_event": {}, "open_positions": 0}
-    pred = Prediction(market_id="KXT-A", sport=Sport.TENNIS, model="t", prob_yes=0.75,
-                      uncertainty=0.02)
-    base = StrategyConfig(post_inside_spread=False, model_weight=1.0)
-    free, _ = evaluate_market_verbose(_market(), _quote(), pred, staking, base, fee, exp)
-    assert free is not None and free.price * free.size > 50.0
-
-    tight = StrategyConfig(post_inside_spread=False, model_weight=1.0,
-                           sport_budget_override={"tennis": 12.0})
-    intent, _ = evaluate_market_verbose(_market(), _quote(), pred, staking, tight, fee, exp)
-    assert intent is not None and intent.price * intent.size <= 12.0 + 1e-6
-
-    loose = StrategyConfig(post_inside_spread=False, model_weight=1.0,
-                           sport_budget_override={"tennis": 5000.0})
-    same, _ = evaluate_market_verbose(_market(), _quote(), pred, staking, loose, fee, exp)
-    assert abs(same.price * same.size - free.price * free.size) < 1e-6   # cap still 20%
 
 
 # -------------------------------------------------------------- fills
@@ -237,20 +210,20 @@ def test_pilot_config_passes_the_offline_doctor_shape():
 
 
 # ---------------------------------------------------------- dashboard
-def test_board_shows_learning_log_and_research_ledger(tmp_path):
+def test_board_shows_research_ledger_and_fill_quality(tmp_path):
     from sportsbot.dashboard import collect, load_ledger, render
 
     store = Store(str(tmp_path / "s.sqlite"))
-    store.record_allocation("sim", "baseball", 12.5, 0.55, "evidence prior", None, 0, False)
     cfg = {"sports": {"baseball": {"enabled": True}}, "bankroll": {"amount": 100.0},
            "accounts": {"sim": {"starting_balance": 100.0}},
            "storage": {"ratings_dir": str(tmp_path)}}
     data = collect(cfg, store)
-    assert data["accounts"]["sim"]["allocation_log"][0]["sport"] == "baseball"
     assert load_ledger() and all("verdict" in e for e in load_ledger())
     html = render(data)
-    assert "Learning log" in html and "$12.50" in html
     assert "Research ledger" in html and "FAIL" in html
+    assert "Fill quality (markout)" in html
+    # one allocator drives money: the retired sleeve learning log is gone
+    assert "Learning log" not in html
 
 
 # ------------------------------------------------ review regressions

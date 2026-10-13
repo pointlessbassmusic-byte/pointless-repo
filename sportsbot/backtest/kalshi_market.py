@@ -76,11 +76,13 @@ class Result:
     bets: list[Bet] = field(default_factory=list)
     considered: int = 0
     priced: int = 0
+    unfilled: int = 0     # maker orders the strict fill model refused
 
     def summary(self) -> dict:
         n = len(self.bets)
         if not n:
-            return {"bets": 0, "considered": self.considered, "priced": self.priced}
+            return {"bets": 0, "considered": self.considered, "priced": self.priced,
+                    "unfilled": self.unfilled}
         staked = sum(b.stake for b in self.bets)
         pnl = sum(b.pnl for b in self.bets)
         clvs = [b.clv for b in self.bets]
@@ -89,6 +91,7 @@ class Result:
         return {
             "considered": self.considered,
             "priced": self.priced,
+            "unfilled": self.unfilled,
             "bets": n,
             "staked": round(staked, 2),
             "pnl": round(pnl, 2),

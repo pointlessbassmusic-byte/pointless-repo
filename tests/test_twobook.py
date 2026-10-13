@@ -75,3 +75,19 @@ def test_report_reorients_a_flipped_polymarket_book(tmp_path):
     r = tb.report(db, step=20.0, horizons=(2,), thetas=(0.01,))
     b_pm, _ = r["leadlag"][2]["pm_toward_kalshi"]
     assert b_pm > 0.8 and not math.isnan(b_pm)
+
+
+def test_default_sports_are_keys_the_venues_know():
+    """`discover` passed 'mlb' to clients whose sport keys are 'tennis',
+    'baseball' and 'table_tennis', so every default run logged tennis only
+    and MLB silently never entered a two-book sample."""
+    import inspect
+
+    from sportsbot.bot.runner import SPORT_KEYS
+    from sportsbot.cli import twobook_log
+
+    for fn in (tb.TwoBookLogger.discover, tb.TwoBookLogger.run):
+        default = inspect.signature(fn).parameters["sports"].default
+        assert set(default) <= set(SPORT_KEYS), (fn.__name__, default)
+    cli_default = inspect.signature(twobook_log).parameters["sports"].default
+    assert set(cli_default.default.split(",")) <= set(SPORT_KEYS)

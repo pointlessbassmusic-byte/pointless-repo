@@ -305,11 +305,12 @@ def test_polymarket_discovery_orders_by_volume_so_derivatives_cannot_crowd_out_g
     assert calls, "discovery made no request"
     p = calls[0]
     assert p["order"] == "volume24hr" and p["ascending"] == "false"
-    # The floor stays, but far enough back to keep events listed days ahead:
-    # Gamma's startDate is the listing time, not the game time.
-    from datetime import datetime, timedelta, timezone
-    assert datetime.fromisoformat(p["start_date_min"]).date() <= (
-        datetime.now(timezone.utc) - timedelta(days=14)).date()
+    # No listing-date floor: Gamma's startDate is the listing time, not the
+    # game time, and every floor so far has hidden a slate the venue listed
+    # early (2026-09-30 wild cards at "yesterday"; the 2026-10-13 NHL week
+    # and NFL week 7, listed 3-6 weeks ahead, at 21 days). Staleness is
+    # judged per market on gameStartTime instead.
+    assert "start_date_min" not in p
 
 
 def test_polymarket_discovery_keeps_games_listed_days_ahead_and_drops_finished_ones():
@@ -412,3 +413,67 @@ def test_polymarket_mlb_lists_the_visitor_first_so_home_field_is_outcomes_1():
     (ten,) = _moneyline_markets_from_event(
         {**ev, "markets": [{**ev["markets"][0], "outcomes": '["A","B"]'}]}, Sport.TENNIS)
     assert "home_field" not in ten.meta
+
+
+def test_outrights_and_futures_never_enter_the_slate():
+    """A season future ('will-iga-swiatek-win-the-2026-womens-us-open') was
+    once traded as if it were a live match. Discovery keys on Gamma's
+    sportsMarketType == 'moneyline'; an outright carries no such type and
+    no gameStartTime, and must be dropped even when it sits under the
+    sport's tag with two outcomes."""
+    from datetime import datetime, timedelta, timezone
+    from sportsbot.exchanges.polymarket import PolymarketClient
+    parse = PolymarketClient()._moneyline_markets_from_event
+    future = {"slug": "will-iga-swiatek-win-the-2026-womens-us-open", "markets": [
+        {"conditionId": "f1", "slug": "will-iga-swiatek-win-the-2026-womens-us-open",
+         "outcomes": '["Yes","No"]', "clobTokenIds": '["y","n"]',
+         "acceptingOrders": True, "enableOrderBook": True},
+        {"conditionId": "f2", "sportsMarketType": "winner",
+         "slug": "2026-womens-us-open-winner",
+         "outcomes": '["Iga Swiatek","Aryna Sabalenka"]', "clobTokenIds": '["a","b"]',
+         "acceptingOrders": True, "enableOrderBook": True}]}
+    assert parse(future, Sport.TENNIS) == []
+    start = (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S+00")
+    match = {"slug": "wta-swiatek-sabalenka-2026-10-09", "markets": [
+        {"conditionId": "m1", "sportsMarketType": "moneyline", "gameStartTime": start,
+         "outcomes": '["Iga Swiatek","Aryna Sabalenka"]', "clobTokenIds": '["a","b"]',
+         "acceptingOrders": True, "enableOrderBook": True}]}
+    assert len(parse(match, Sport.TENNIS)) == 1
+
+
+def test_discovery_reads_the_per_market_fee_rate_and_the_runner_charges_it(monkeypatch):
+    """Gamma's feeSchedule differs by market (0.05 on game moneylines, 0.03
+    on futures, both with their own rebate). Discovery must carry the rate
+    and the venue fee function must charge THAT market's rate, with the
+    documented 0.05 for anything not discovered."""
+    from datetime import datetime, timedelta, timezone
+    from sportsbot.exchanges.polymarket import (
+        PolymarketClient,
+        fee_schedule_rates,
+        taker_fee,
+    )
+
+    assert fee_schedule_rates({"rate": 0.03, "rebateRate": 0.25}) == (0.03, 0.25)
+    assert fee_schedule_rates('{"rate": 0.05, "rebateRate": 0.15}') == (0.05, 0.15)
+    assert fee_schedule_rates(None) == (0.05, 0.15)
+    assert fee_schedule_rates({"rate": "x"}) == (0.05, 0.15)
+    assert fee_schedule_rates({"rate": 5}) == (0.05, 0.15)          # not a rate
+
+    client = PolymarketClient()
+    start = (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S+00")
+    ev = {"slug": "mlb-x-y", "markets": [{
+        "sportsMarketType": "moneyline", "conditionId": "c-cheap",
+        "feeSchedule": {"exponent": 1, "rate": 0.03, "takerOnly": True, "rebateRate": 0.25},
+        "outcomes": '["A","B"]', "clobTokenIds": '["t0","t1"]', "gameStartTime": start,
+        "acceptingOrders": True, "enableOrderBook": True}]}
+    (m,) = client._moneyline_markets_from_event(ev, Sport.BASEBALL)
+    assert m.meta["fee_rate"] == 0.03 and m.meta["rebate_rate"] == 0.25
+    assert client.fee_rate_for("c-cheap") == 0.03
+    assert client.fee_rate_for("never-seen") == 0.05
+
+    from sportsbot.bot.runner import build_exchange
+    monkeypatch.setattr("sportsbot.exchanges.polymarket.PolymarketClient", lambda: client)
+    _paper, data_client, fee_fn = build_exchange({"exchange": "polymarket", "mode": "paper"})
+    assert data_client is client
+    assert fee_fn(0.5, 100.0, "c-cheap") == pytest.approx(0.75)
+    assert fee_fn(0.5, 100.0, "never-seen") == pytest.approx(taker_fee(0.5, 100.0))

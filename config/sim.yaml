@@ -47,6 +47,20 @@ execution:
   min_entry_price: 0.15     # skip markets with mid outside this band
   max_entry_price: 0.85
 
+touch:                           # touch-maker arm (bot/touch.py; Result 15 / rank 2)
+  enabled: true                  # paper measurement of fills at the touch
+  sports: [baseball, hockey, football]   # the books where Result 15 (+ addendum) found the edge;
+                                 # no model needed, so NHL/NFL quote without a sharp line. NBA: not measurable yet
+  improve: false                 # join the touch (what was measured); true = one tick inside
+  min_spread_ticks: 1            # joining needs no room; improving needs 2+
+  max_spread: 0.10               # wider than this the touch is not a price
+  sides: both                    # both | yes | no (one side per cycle, never self-crossing)
+  stake_usd: 1.0                 # minimum size by design: this arm measures, it does not earn yet
+  max_stake_per_market: 4.0      # cost basis cap per market across both sides
+  min_minutes_to_start: 10
+  max_hours_to_start: 12         # sim runs one cycle at 12:00Z and MLB starts ~20:00Z+;
+                                 # 8 h would skip the whole slate (measured 2026-10-13)
+
 positions:                       # open-position management (edge-driven, never loss-chasing)
   manage: true
   exit_edge: -0.05               # close when hold-EV sits this far below the exit value
@@ -62,10 +76,15 @@ adaptive:                        # profit optimization: tighten-only, anti-marti
   tighten_edge: 0.02             # added to a negative-CLV sport's min edge
   stake_cut: 0.5                 # stake-cap multiplier for a negative-CLV sport
 
+allocation:
+  path: config/allocation.yaml   # manual weights, learning budget, bankroll mode
+
 risk:
   daily_loss_limit: 10.0         # stop for the day past this realized loss
+  daily_loss_fraction: 0.10      # or 10% of the current bankroll, whichever is tighter
   max_daily_new_risk: 0.25       # new stakes per day <= this fraction of bankroll
   max_drawdown: 25.0             # kill switch: stop entirely, require manual reset
+  max_drawdown_fraction: 0.25    # or 25% of the current bankroll, whichever is tighter
   stale_quote_seconds: 120       # skip markets with quotes older than this
   min_minutes_before_start: 10   # don't enter pre-match bets after this cutoff
   max_pre_match_move: 0.08       # refuse entry once the mid has moved this far from
@@ -76,7 +95,7 @@ risk:
 
 scan:
   interval_seconds: 300
-  sports: [baseball]           # tennis and table_tennis: see notes below
+  sports: [baseball, basketball, football, hockey]           # tennis and table_tennis: see notes below
 
 sports:
   tennis:
@@ -93,6 +112,7 @@ sports:
     min_matches: 10             # skip players with fewer rated matches
   baseball:
     enabled: true
+    signal: model               # model | sharp
     home_advantage_elo: 24.0
     rest_advantage_elo: 2.3     # per rest-day differential, capped
     sp_enabled: true            # starting-pitcher adjustment
@@ -108,6 +128,21 @@ sports:
     max_stake_override: 20.0
     min_matches: 8
     prob_shrink: 0.5             # walk-forward tuned; TT model shows no edge yet — see engine docstring
+
+  # Team sports (2026-10-09): no rating model here, so the Pinnacle line is
+  # the only signal and `signal: sharp` is required. They exist so the slate
+  # does not go dark when MLB and tennis end in November: every market is
+  # scanned and graded by the sharp harness; without ODDS_API_KEY the model
+  # has no line and skips each one with that reason.
+  basketball:
+    enabled: true
+    signal: sharp
+  football:
+    enabled: true
+    signal: sharp
+  hockey:
+    enabled: true
+    signal: sharp
 
 storage:
   sqlite_path: data/sportsbot.sqlite

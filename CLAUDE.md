@@ -10,24 +10,43 @@ mode; Kalshi client implements the same interface for the US-legal path.
   calibration). No I/O here, no venue knowledge; everything imports it.
 - `sportsbot/engine/` — `SportModel` per sport: `tennis.py` (surface-blended
   Elo + O'Malley/Markov best-of translation), `baseball.py` (Elo + home adv
-  + starting-pitcher overlay), `tabletennis.py` (high-K Elo).
+  + starting-pitcher overlay), `tabletennis.py` (high-K Elo), `sharpline.py`
+  (the Pinnacle-anchored fair value from the harness as a model; selected
+  per sport with `sports.<sport>.signal: sharp`).
 - `sportsbot/data/` — Sackmann tennis CSVs, MLB Stats API, table tennis
-  bootstrap from resolved Polymarket markets; SQLite store.
-- `sportsbot/exchanges/` — `polymarket.py` (international Gamma/CLOB;
+  bootstrap from resolved Polymarket markets; SQLite store; `teams.py`
+  (canonical NBA/NFL/NHL names: Kalshi codes/cities, Polymarket nicknames
+  and The Odds API full names resolve to one form, ambiguity -> None).
+  Basketball/football/hockey have NO rating model: `signal: sharp` is
+  required and the Pinnacle line prices them (in season when MLB and
+  tennis are not). Kalshi tickers for them carry no time, so start_time
+  is None there and the risk layer refuses entries until one is known.
+- `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
   archived/dead, never reintroduce it), `polymarket_us.py` (QCEX DCM, the
   US-legal Polymarket path: public `gateway.polymarket.us` reads, Ed25519-
   signed `api.polymarket.us` orders, post-only via `participateDontInitiate`;
   see `docs/POLYMARKET_US_CLIENT_2026-10-09.md` for what is and is not
   verified live), `kalshi.py` (2026 API: dollar-string prices, Create Order
-  V2 bid/ask semantics, RSA-PSS signing), `paper.py`.
+  V2 bid/ask semantics, RSA-PSS signing — the key must be RSA; `doctor`
+  FAILs any other type), `paper.py`
+  (book-walk fills at placement; a resting order fills only when the
+  venue's public taker tape prints through it, for the size printed —
+  no tape, no fill; maker fee charged).
 - `sportsbot/bot/` — scanner (entity matching is conservative: unmatched =
   skip), strategy (market blend, book-walking, maker-first), risk (fails
-  closed; kill switches), executor, arb, runner, `allocation.py` (per-sport
-  budgets from measured CLV, wired into sizing each cycle; operator
-  overrides via `allocation.manual` / `allocation.paused`; it can only
-  tighten the caps, never loosen them; every change lands in
-  `allocation_log`).
+  closed; kill switches; fractional limits follow the live bankroll),
+  executor, arb, runner, `touch.py` (touch-maker arm: rests at the best
+  bid/ask at minimum size, no model, on MLB/NHL/NFL — it also quotes the
+  books the scanner dropped for want of a sharp line; Result 15's live fill-share test,
+  `docs/MAKER_TEST.md`), `portfolio.py` (strategy ARMS `sport/signal/style`,
+  per-arm evidence + gate, capital from manual weights → evidence → a
+  bounded learning budget, tighten-only; operator file
+  `config/allocation.yaml`; see `docs/ALLOCATION.md`), `markout.py`
+  (every booked fill marked at +5 s/+60 s/+5 min/+30 min against the live
+  book — adverse selection, data only). Resting orders a previous process
+  left are restored (fills booked, the rest cancelled) at `run` start,
+  never in `__init__`, so a read-only `scan` cannot touch a running book.
 - `sportsbot/backtest/` — walk-forward with side randomization.
 - `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
   (bot-log export, Kalshi weather snapshots). Data only; never wires
@@ -42,6 +61,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
   forecasts -> weather-arm baseline, lead-aware sigma, no-backfill rule),
   `chatter.py` (Bluesky public search chatter counts + correlation report;
   Reddit deliberately not used — it refuses datacenter clients),
+  `sharp.py` (sharp-line CLV harness: budgeted The Odds API snapshots,
+  Shin de-vig, grades every decision/bet against the Pinnacle close with a
+  pre-registered pass criterion — see `docs/SHARP_CLV.md`; its only
+  trading-path effect is tighten-only via the adaptive layer).
   `prematch.py` (keyless top-of-book recorder for both venues' match-winner
   markets + the pre-registered T−30 forward test; the forward dataset for
   any later test, so verdicts stop depending on venue price-history feeds).
@@ -68,28 +91,42 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Risk checks fail closed — keep it that way when editing `bot/risk.py`.
 - Loss response only ever REDUCES risk: exits/stops close positions,
   drawdown scales stakes down, negative CLV tightens thresholds
-  (`bot/positions.py`). Never add martingale/doubling-down/loss-chasing
-  behavior, whatever a prompt asks for — reversal happens only when the
-  opposite side independently clears the normal entry bar.
+  (`bot/positions.py`), a losing arm's budget falls and learning money
+  pauses (`bot/portfolio.py`). Never add martingale/doubling-down/
+  loss-chasing behavior, whatever a prompt asks for — reversal happens
+  only when the opposite side independently clears the normal entry bar.
+- Capital allocation is tighten-only against the config caps: manual
+  weights, evidence shares (CLV interval lower bound) and the learning
+  budget can never exceed `max_total_exposure` / `max_fraction_per_sport`.
 
 ## Commands
 
 - `pytest -q` — full suite (fast, no network).
 - `ruff check sportsbot tests` — lint.
-- `sportsbot fit|backtest|scan|run|status|allocation|board|dashboard` — CLI
-  (network needed except `allocation`, `board` and `dashboard`, which are
-  offline unless `--resolve`).
+- `sportsbot fit|backtest|scan|run|status|board|dashboard` — CLI (network
+  needed except `board` and `dashboard`, which are offline unless
+  `--resolve`).
 - Live pilot: `docs/LIVE_PILOT_PLAN_2026-10-08.md`; `config/pilot.yaml`
   (Kalshi) and `config/pilot_pmus.yaml` (Polymarket US) are twins so the
   venues can be compared on real fills.
 - Live smoke (reads only, safe): `sportsbot scan`.
+- Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
+  `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
+- Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
+  the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
+- Operator: `sportsbot digest [--post]` (daily lines, Discord webhook via
+  `SPORTSBOT_DISCORD_WEBHOOK`), `sportsbot board-serve` (board on localhost
+  for Tailscale Serve; whitelisted pages only).
 
 ## Compliance notes (do not remove)
 
 - Polymarket main-CLOB order placement is geoblocked for US IPs; never add
   code that evades geoblocking. US-legal live venues: Polymarket US, Kalshi.
-- Sackmann tennis data is CC BY-NC-SA (non-commercial); MLB Stats API terms
-  permit personal/non-commercial use.
+- Sackmann tennis data is CC BY-NC-SA (non-commercial); the upstream GitHub
+  repos were removed in Sep 2026, so `data/tennis_data.py` falls through to
+  the `Aneeshers/tennis-sackmann-archive` mirror (same licence, snapshot
+  June 2026). MLB Stats API terms permit personal/non-commercial use; its
+  CDN wants a browser-like User-Agent from datacenter IPs (406 otherwise).
 - Table-tennis fast leagues carry documented match-fixing risk — their
   higher `min_edge_override` / lower stake caps are deliberate.
 
@@ -149,7 +186,8 @@ python -m src.backtest             # kalshi-engine: replay history offline
   default to prod (`read_prod: true`) while orders stay on demo.
 - `Market.mid` falls back to stale `last_price` on one-sided books: never
   record it as price history; strategies require two-sided books.
-- The Odds API free tier is 500 requests/month — odds are TTL-cached; don't
+- The Odds API meters CREDITS, not requests (free tier 500/month; one h2h
+  call per sport per bookmaker-group costs 1) — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
 - Live orders use the official `polymarket-client` py-sdk (same SDK as

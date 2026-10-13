@@ -54,6 +54,9 @@ cp "$APP_DIR/deploy/sportsbot-prematch.service" /etc/systemd/system/sportsbot-pr
 cp "$APP_DIR/deploy/sportsbot-lip.service" /etc/systemd/system/sportsbot-lip.service
 # pilot books: installed, never enabled here (docs/LIVE_PILOT_PLAN_2026-10-08.md)
 cp "$APP_DIR"/deploy/sportsbot-pilot*.service /etc/systemd/system/
+cp "$APP_DIR/deploy/sportsbot-boardserve.service" /etc/systemd/system/sportsbot-boardserve.service
+cp "$APP_DIR/deploy/sportsbot-update.service" /etc/systemd/system/sportsbot-update.service
+cp "$APP_DIR/deploy/sportsbot-update.timer" /etc/systemd/system/sportsbot-update.timer
 systemctl daemon-reload
 systemctl enable --now sportsbot-prematch  # keyless pre-match quote recorder; data only
 systemctl enable --now sportsbot-lip       # keyless Kalshi LIP recorder; data only
@@ -61,8 +64,14 @@ systemctl enable sportsbot
 systemctl enable --now weather-snapshot   # read-only data collection; safe to start now
 systemctl enable --now sportsbot-sim      # $100 paper book on live markets; no real money
 systemctl enable --now sportsbot-board    # rebuilds the dashboard HTML every minute
+systemctl enable --now sportsbot-boardserve  # board.html on localhost:8001 for Tailscale Serve
+systemctl enable --now sportsbot-update.timer  # daily pull + refit + restart of the PAPER units only
 
 echo "==> initial model fit (tennis + baseball; table tennis bootstraps from Polymarket)"
+# The CLI resolves config/default.yaml against the working directory, and
+# the service user cannot read /root: run the fits from the app directory
+# (measured 2026-10-13: PermissionError on 'config/default.yaml' from /root).
+cd "$APP_DIR"
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit baseball || true
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit tennis || true
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit table_tennis || true
@@ -70,4 +79,4 @@ sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit table_tennis || true
 echo
 echo "Setup complete. Start with:   systemctl start sportsbot"
 echo "Watch logs with:              journalctl -u sportsbot -f"
-echo "Check status with:            sudo -u sportsbot $APP_DIR/.venv/bin/sportsbot status"
+echo "Check status with:            cd $APP_DIR && sudo -u sportsbot $APP_DIR/.venv/bin/sportsbot status"

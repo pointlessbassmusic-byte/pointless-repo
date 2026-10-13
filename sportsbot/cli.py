@@ -7,6 +7,8 @@
   sportsbot scan                  # one discovery+prediction pass, no orders
   sportsbot run                   # the live/paper loop (what systemd runs)
   sportsbot status                # exposure, PnL, calibration, kill switch
+  sportsbot sharp-snapshot        # one Pinnacle/sportsbook line snapshot
+  sportsbot sharp-report          # CLV of every decision vs the sharp close
   sportsbot doctor                # go-live preflight (config/DB/keys/network)
   sportsbot reset-kill-switch
 """
@@ -55,7 +57,10 @@ def fit(sport: str, config: str = CONFIG_OPT,
         tt_days: int = typer.Option(90, help="table_tennis: days of Polymarket history"),
         source: str = typer.Option(
             "auto", help="tennis: sackmann | kalshi | auto (Sackmann, "
-                         "falling back to a Kalshi bootstrap if unreachable)")):
+                         "falling back to a Kalshi bootstrap if unreachable)"),
+        seed_out: str = typer.Option(
+            "", help="baseball: also write the fitted ratings (with provenance) to this "
+                     "path, e.g. config/seeds/baseball.json, for hosts the Stats API refuses")):
     """Train ratings for one sport and save them to the ratings dir."""
     cfg = _setup(config)
     ratings_dir = cfg.get("storage", {}).get("ratings_dir", "data/ratings")
@@ -99,18 +104,59 @@ def fit(sport: str, config: str = CONFIG_OPT,
         })
         console.print(f"[green]saved {len(model.overall.ratings)} player ratings -> {path}")
     elif sport == "baseball":
+        import json
+        import shutil
+        from datetime import datetime, timezone
+
+        import httpx
+
         from sportsbot.data.mlb_data import MLBStatsClient
         from sportsbot.engine.baseball import BaseballModel
 
+        path = os.path.join(ratings_dir, "baseball.json")
+        seed = os.path.join(cfg.get("storage", {}).get("seeds_dir", "config/seeds"), "baseball.json")
         console.print(f"downloading {seasons} MLB seasons from statsapi.mlb.com…")
-        games = MLBStatsClient().history(seasons=seasons)
+        try:
+            games = MLBStatsClient().history(seasons=seasons)
+        except httpx.HTTPError as exc:
+            # The Stats API refuses /schedule from some hosts (406 from a
+            # Linode address, 2026-10-13, while /teams answers 200 and the
+            # same request succeeds elsewhere). A committed seed, refitted
+            # by the daily check-in where the API is reachable, keeps those
+            # hosts pricing MLB instead of dropping it as "model unfit".
+            if not os.path.exists(seed):
+                raise
+            try:
+                with open(seed) as fh:
+                    meta = (json.load(fh) or {}).get("seed_meta", {}) or {}
+            except Exception:
+                meta = {}
+            console.print(
+                f"[yellow]MLB Stats API refused this host ({type(exc).__name__}: "
+                f"{str(exc)[:120]}). Installing the committed seed ratings from {seed} "
+                f"(fitted {meta.get('fitted_at', 'unknown date')} on "
+                f"{meta.get('n_games', '?')} games) instead; the daily check-in "
+                "refreshes that seed where the API answers.[/yellow]")
+            shutil.copyfile(seed, path)
+            console.print(f"[green]installed seed ratings -> {path}")
+            return
         console.print(f"training on {len(games)} games")
         model = BaseballModel(
             home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)))
         model.fit(games)
-        path = os.path.join(ratings_dir, "baseball.json")
         model.save(path)
         console.print(f"[green]saved {len(model.elo.ratings)} team ratings -> {path}")
+        if seed_out:
+            model.save(seed_out)
+            with open(seed_out) as fh:
+                payload = json.load(fh)
+            payload["seed_meta"] = {
+                "fitted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "n_games": len(games), "seasons": seasons,
+                "source": "statsapi.mlb.com via sportsbot fit baseball --seed-out"}
+            with open(seed_out, "w") as fh:
+                json.dump(payload, fh)
+            console.print(f"[green]seed written -> {seed_out}")
     elif sport == "table_tennis":
         from sportsbot.data.tabletennis_data import load_csv, results_from_polymarket
         from sportsbot.engine.tabletennis import TableTennisModel
@@ -251,45 +297,52 @@ def _effective_mode(cfg: dict) -> str:
 @app.command()
 def allocation(config: str = CONFIG_OPT,
                account: str = typer.Option("", help="sim | real (default: the book this config trades)")):
-    """Where the allocator lets money go right now, and why — plus the log
-    of every change. Manual control: `allocation.manual` / `allocation.paused`
-    in config/local.yaml (see bot/allocation.py)."""
+    """Which strategy arms may risk money right now, how much, and why
+    (bot/portfolio.py). The operator's levers live in the file named by
+    `allocation.path` (config/allocation.yaml by default). Offline."""
     cfg = _setup(config)
-    from sportsbot.bot.allocation import allocate, allocation_bankroll, manual_settings
     from sportsbot.bot.ledger import account_equity
-    from sportsbot.dashboard import rated_counts, ratings_provenance, starting_balance
+    from sportsbot.bot.portfolio import (
+        allocate_arms,
+        effective_bankroll,
+        load_allocation,
+        running_arms_for,
+        summarise_for_dashboard,
+    )
+    from sportsbot.dashboard import starting_balance
     from sportsbot.data.store import Store
 
     acct = account or ("real" if _effective_mode(cfg) == "live" else "sim")
     mode = {"sim": "paper", "real": "live"}[acct]
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    path = str(cfg.get("allocation", {}).get("path", "config/allocation.yaml"))
+    alloc_cfg = load_allocation(path)
     eq = account_equity(store, acct, starting_balance(cfg, acct))
-    bankroll = allocation_bankroll(cfg, eq["equity"])
-    rep = _category_report(cfg, store, mode=mode)
-    alloc = allocate(bankroll, cfg, rep["by_sport"],
-                     {k: v > 0 for k, v in rated_counts(cfg).items()},
-                     provisional=ratings_provenance(cfg))
-    manual, paused = manual_settings(cfg)
-    console.print(f"[{acct}] equity ${eq['equity']:.2f}; allocator bankroll ${bankroll:.2f} "
-                  f"(min of configured amount and equity); manual={manual or 'none'} "
-                  f"paused={sorted(paused) or 'none'}")
-    table = Table(title="sleeves")
-    for col in ("sport", "weight", "budget", "mean CLV", "n", "bound by"):
+    bankroll = effective_bankroll(alloc_cfg, float(cfg.get("bankroll", {}).get("amount", 100.0)),
+                                  eq["equity"])
+    try:
+        running = running_arms_for(cfg)
+    except ValueError:
+        running = set()
+    fees = store.get_kv("fees_verified")
+    port = allocate_arms(bankroll, cfg, alloc_cfg,
+                         store.settled_bets(limit=1_000_000, mode=mode),
+                         running,
+                         fees_verified=isinstance(fees, dict) and bool(fees.get("verified")),
+                         mode=mode)
+    console.print(f"[{acct}] {path}: bankroll ${bankroll:.2f} ({alloc_cfg.bankroll_mode}); "
+                  f"allocated ${port['allocated']:.2f} of a ${port['total_cap']:.2f} cap")
+    table = Table(title="arms (funded first)")
+    for col in ("arm", "budget", "source", "running", "learn", "CLV n", "mean CLV"):
         table.add_column(col)
-    for sport, sl in alloc["sleeves"].items():
-        table.add_row(sport, f"{sl['weight']:.0%}", f"${sl['budget']:.2f}",
-                      "—" if sl.get("mean_clv") is None else f"{sl['mean_clv']:+.4f}",
-                      str(sl.get("n", 0)), sl["bound_by"])
+    for r in summarise_for_dashboard(port):
+        if not (r["budget"] > 0 or r["running"]):
+            continue
+        table.add_row(r["arm"], f"${r['budget']:.2f}", str(r["source"]),
+                      "yes" if r["running"] else "no", "yes" if r["learn"] else "no",
+                      str(r["n_clv"]),
+                      "—" if r["mean_clv"] is None else f"{r['mean_clv']:+.4f}")
     console.print(table)
-    log_rows = store.allocation_log(acct, limit=15)
-    if log_rows:
-        t2 = Table(title="learning log (latest changes)")
-        for col in ("when", "sport", "budget", "weight", "reason"):
-            t2.add_column(col)
-        for r in log_rows:
-            t2.add_row(r["ts"][:16], r["sport"], f"${r['budget']:.2f}",
-                       f"{(r['weight'] or 0):.0%}", r["bound_by"] or "")
-        console.print(t2)
 
 
 @app.command()
@@ -351,6 +404,140 @@ def status(config: str = CONFIG_OPT):
         console.print(t3)
     ks = store.get_kv("kill_switch_tripped", False)
     console.print(f"kill switch: {ks or 'clear'}")
+
+
+@app.command("sharp-snapshot")
+def sharp_snapshot(config: str = CONFIG_OPT,
+                   sports: str = typer.Option("baseball,tennis",
+                                              help="comma-separated sports"),
+                   force: bool = typer.Option(False, help="ignore the interval")):
+    """Take one budgeted sportsbook snapshot (The Odds API) and store it.
+
+    Needs ODDS_API_KEY in the environment. Credits, not requests, are
+    metered: one call per sport key per snapshot."""
+    cfg = _setup(config)
+    from sportsbot.core.types import Sport
+    from sportsbot.data.store import Store
+    from sportsbot.signals.sharp import (
+        ODDS_API_KEY_ENV,
+        OddsApiClient,
+        SharpCollector,
+        SharpConfig,
+    )
+
+    key = os.environ.get(ODDS_API_KEY_ENV, "").strip()
+    if not key:
+        console.print(f"[red]{ODDS_API_KEY_ENV} not set[/red] — nothing fetched")
+        raise typer.Exit(code=1)
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    coll = SharpCollector(store, SharpConfig.from_cfg(cfg), OddsApiClient(key))
+    wanted = [Sport(x.strip()) for x in sports.split(",") if x.strip()]
+    console.print(coll.snapshot(wanted, force=force))
+
+
+@app.command("digest")
+def digest(config: str = CONFIG_OPT,
+           post: bool = typer.Option(False, help="also post to SPORTSBOT_DISCORD_WEBHOOK")):
+    """The daily three lines per book (equity, touch arm, distance to the
+    bar); `--post` sends them to the webhook when one is configured."""
+    cfg = _setup(config)
+    from sportsbot.bot import alerts
+    from sportsbot.bot.ledger import ACCOUNTS
+    from sportsbot.dashboard import edge_bar_rows, starting_balance
+    from sportsbot.data.store import Store
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    today_rows = [r for r in edge_bar_rows(store, "sim", days=1)]
+    touch = alerts.touch_today(store)
+    texts = []
+    for acct, mode in ACCOUNTS.items():
+        texts.append(alerts.digest_text(store, acct, mode, starting_balance(cfg, acct),
+                                        touch=touch if acct == "sim" else None,
+                                        edge_rows=today_rows if acct == "sim" else None))
+    text = "\n".join(texts)
+    console.print(text)
+    if post:
+        sent = alerts.notify("digest", text, dedupe_seconds=0.0)
+        console.print("posted" if sent else "not posted (no webhook configured, or it failed)")
+
+
+@app.command("board-serve")
+def board_serve(directory: str = typer.Option("data", help="where board.html is rendered"),
+                port: int = typer.Option(8001, help="localhost port for Tailscale Serve to proxy"),
+                host: str = typer.Option("127.0.0.1", help="bind address; keep it local")):
+    """Serve board.html / dashboard.html (nothing else) on localhost, for
+    `tailscale serve --set-path /sportsbot http://127.0.0.1:PORT`."""
+    from sportsbot.boardserve import serve
+
+    serve(directory=directory, port=port, host=host)
+
+
+@app.command("maker-report")
+def maker_report_cmd(config: str = CONFIG_OPT,
+                     mode: str = typer.Option("paper", help="bets book to grade (paper | live)"),
+                     signal: str = typer.Option("touch", help="arm signal to read out")):
+    """Read out the maker fill-share test (docs/MAKER_TEST.md): fill share
+    against the tape rule, CLV per fill with a clustered interval, and
+    adverse selection by wait. Offline; reads the orders and bets tables."""
+    cfg = _setup(config)
+    from sportsbot.bot.maker_report import format_maker_report, maker_report
+    from sportsbot.data.store import Store
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    console.print(format_maker_report(maker_report(store, signal=signal, mode=mode)))
+
+
+@app.command("sharp-report")
+def sharp_report(config: str = CONFIG_OPT,
+                 account: str = typer.Option("sim", help="decision feed to grade"),
+                 mode: str = typer.Option("paper", help="bets book to grade"),
+                 since: str = typer.Option(None, help="ISO timestamp lower bound"),
+                 no_write: bool = typer.Option(False, help="don't persist sharp closes")):
+    """Grade every decision and bet against the sharp (Pinnacle) close.
+
+    The pass criterion is pre-registered: >= 1,000 graded decisions and a
+    mean net CLV on taken bets whose event-clustered 95% CI excludes zero.
+    """
+    cfg = _setup(config)
+    from sportsbot.data.store import Store
+    from sportsbot.signals.sharp import SharpConfig, format_report, run_report
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    scfg = SharpConfig.from_cfg(cfg)
+    rep = run_report(store, scfg, account=account, mode=mode, since_ts=since,
+                     write=not no_write)
+    console.print(format_report(rep, scfg))
+    credits = store.get_kv("sharp:credits_remaining")
+    last = store.get_kv("sharp:last_snapshot_ts")
+    console.print(f"last snapshot: {last or 'never'}; credits remaining: "
+                  f"{credits if credits is not None else 'unknown'}")
+
+
+@app.command("wallet-follow")
+def wallet_follow(sport: str = typer.Argument("baseball", help="baseball | tennis | hockey | basketball | football"),
+                  days: int = typer.Option(60, help="resolved-market lookback"),
+                  max_games: int = typer.Option(2000, help="highest-volume games kept"),
+                  top: int = typer.Option(20, help="wallets followed"),
+                  min_trades: int = typer.Option(20, help="train trades a wallet needs"),
+                  delay: float = typer.Option(30.0, help="seconds before the copy print"),
+                  train_frac: float = typer.Option(0.7),
+                  fee_rate: float = typer.Option(0.05, help="Polymarket taker rate (Gamma feeSchedule: 0.05 on MLB/ATP moneylines)"),
+                  maker_ticks: int = typer.Option(1, help="maker copy rests this many ticks under the wallet's price")):
+    """Is Polymarket taker flow informed, and can the best wallets be copied
+    after fees? Public trade tape, pre-game only, time-split ranking. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import wallet_follow as wf
+    from sportsbot.backtest.polymarket_market import fetch_resolved
+
+    games = [g for g in fetch_resolved(sport, days=days) if g.condition_id]
+    games.sort(key=lambda g: -g.volume)
+    games = sorted(games[:max_games], key=lambda g: g.start_ts)
+    console.print(f"{len(games)} resolved {sport} games; fetching taker tapes…")
+    tapes = {g.condition_id: wf.orient(wf.fetch_trades(g.condition_id), g)
+             for g in games}
+    res = wf.run(games, tapes, train_frac=train_frac, top=top,
+                 min_trades=min_trades, delay=delay, fee_rate=fee_rate, maker_ticks=maker_ticks)
+    console.print(wf.format_report(res, sport))
 
 
 @app.command("substrate-export")
@@ -421,7 +608,8 @@ def weather_score(config: str = CONFIG_OPT,
 def board(config: str = CONFIG_OPT,
           out: str = typer.Option("data/board.html", help="output HTML file"),
           refresh: int = typer.Option(60, help="page auto-refresh seconds; 0 = off"),
-          loop: int = typer.Option(0, help="rebuild every N seconds; 0 = once")):
+          loop: int = typer.Option(0, help="rebuild every N seconds; 0 = once"),
+          artifact_out: str = typer.Option("", help="also write the publishable fragment (title/style/body only) here")):
     """Trading dashboard: sim vs real book, equity, decisions, allocation, gate.
 
     A view, not a control — it cannot start live trading (that still needs
@@ -434,7 +622,8 @@ def board(config: str = CONFIG_OPT,
     cfg = _setup(config)
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
     while True:
-        console.print(build(cfg, store, out, refresh=refresh))
+        console.print(build(cfg, store, out, refresh=refresh,
+                            fragment_path=artifact_out or None))
         if loop <= 0:
             break
         _time.sleep(max(5, loop))
@@ -444,7 +633,7 @@ def board(config: str = CONFIG_OPT,
 def twobook_log(config: str = CONFIG_OPT,
                 minutes: float = typer.Option(30.0, help="how long to sample"),
                 interval: float = typer.Option(20.0, help="seconds between passes"),
-                sports: str = typer.Option("tennis,mlb"),
+                sports: str = typer.Option("tennis,baseball"),
                 max_pairs: int = typer.Option(40, help="pairs per sport, highest Polymarket volume first"),
                 db: str = typer.Option("data/twobook.sqlite")):
     """Log both order books for matches listed on Kalshi AND Polymarket.
@@ -534,18 +723,21 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
                     exchange: str = typer.Option("kalshi", help="kalshi | polymarket"),
                     lead_hours: float = typer.Option(6.0, help="decision point, hours before the pre-match anchor"),
                     min_edge: float = typer.Option(0.03),
-                    maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee (fills assumed)"),
+                    maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee"),
+                    fill_model: str = typer.Option("", help="polymarket (default optimistic): optimistic (every resting order fills) | strict (a later pre-start taker print must trade through the bid). kalshi (default pessimistic): pessimistic (taker at ask) | optimistic (maker fills assumed)"),
+                    policy: str = typer.Option("", help="polymarket (default backtest): backtest (this harness's own rules) | live (the bot's evaluate_market_verbose). kalshi (default live): live = the bot's own strategy | legacy = pre-2026-10-08 taker rule"),
                     days: int = typer.Option(32, help="polymarket: resolved-market lookback (CLOB keeps ~30 days of prices)"),
-                    max_pages: int = typer.Option(40, help="settled-market pages to pull"),
-                    policy: str = typer.Option("live", help="kalshi: live = the bot's own strategy; legacy = pre-2026-10-08 taker rule"),
-                    fill_model: str = typer.Option("pessimistic", help="kalshi: pessimistic (taker at ask) | optimistic (maker fills assumed)")):
+                    max_pages: int = typer.Option(40, help="settled-market pages to pull")):
     """Walk-forward backtest against REAL exchange prices and outcomes.
 
     Answers the profitability question `backtest` cannot: not "is the model
     calibrated" but "does it beat the price it would have paid". Price
     histories are cached, so repeat runs are offline."""
     if exchange == "polymarket":
-        _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days)
+        fill_model = fill_model or "optimistic"
+        policy = policy or "backtest"
+        _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days,
+                                    fill_model=fill_model, policy=policy)
         return
     if exchange != "kalshi":
         raise typer.BadParameter("exchange must be kalshi | polymarket")
@@ -557,6 +749,8 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
     )
     from sportsbot.exchanges.kalshi import KalshiClient
 
+    fill_model = fill_model or "pessimistic"
+    policy = policy or "live"
     cfg = _setup(config)
     bank = cfg.get("bankroll", {})
     client = KalshiClient(env="prod")
@@ -603,18 +797,36 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
 
 
 def _polymarket_market_backtest(sport: str, cfg: dict, lead_hours: float,
-                                min_edge: float, maker: bool, days: int) -> None:
+                                min_edge: float, maker: bool, days: int,
+                                fill_model: str = "optimistic",
+                                policy: str = "backtest") -> None:
     from sportsbot.backtest import polymarket_market as pm
+    from sportsbot.bot.runner import staking_from_cfg, strategy_from_cfg
+
+    tape_fn = None
+    if fill_model == "strict" and (maker or policy == "live"):
+        from sportsbot.backtest import wallet_follow as wf
+
+        def tape_fn(game):
+            if not game.condition_id:
+                return []
+            return [(t.ts, t.p_home)
+                    for t in wf.orient(wf.fetch_trades(game.condition_id), game)]
 
     bank = cfg.get("bankroll", {})
     common = dict(
         lead_hours=lead_hours, min_edge=min_edge, maker=maker,
+        fill_model=fill_model, tape_fn=tape_fn, policy=policy, sport=sport,
+        staking_cfg=staking_from_cfg(cfg), strategy_cfg=strategy_from_cfg(cfg),
         model_weight=float(cfg.get("blend", {}).get("model_weight", 0.30)),
         slippage=float(cfg.get("execution", {}).get("slippage_buffer", 0.005)),
         kelly=float(bank.get("kelly_multiplier", 0.25)),
         bankroll=float(bank.get("amount", 100.0)),
         max_stake=float(bank.get("max_stake_per_market", 8.0)),
     )
+    if policy == "live":
+        console.print("policy=live: the bot's own strategy under this config "
+                      "decides; --min-edge/--maker are ignored")
     console.print(f"fetching resolved Polymarket {sport} markets ({days} days)…")
     games = pm.fetch_resolved(sport, days=days)
     if sport == "tennis":

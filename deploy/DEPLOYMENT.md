@@ -35,6 +35,10 @@ Then:
 
 ## Operations
 
+Run every `sportsbot` command below from `/opt/sportsbot` (`cd /opt/sportsbot`
+first): the CLI resolves `config/default.yaml` against the working
+directory, and the service user cannot read `/root`.
+
 | task | command |
 |---|---|
 | status / PnL / calibration | `sudo -u sportsbot /opt/sportsbot/.venv/bin/sportsbot status` |
@@ -48,9 +52,12 @@ Then:
 | Kalshi LIP shadow recorder | `sportsbot-lip.service` → `/opt/sportsbot/data/lip.sqlite` (data only: incentive programs, books, trades, results; never trades) |
 | shadow LLM judge | `sportsbot-judge.service` → `/opt/sportsbot/data/judge.sqlite`; needs `pip install -e .[judge]` + `ANTHROPIC_API_KEY` in `.env`; ≤100 calls/day; score with `python -m sportsbot.signals.judge --evaluate` (data only, never trades) |
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
+| live maker fill-share test | `config/maker_test.yaml` + the runbook in `docs/MAKER_TEST.md` (inert until `mode: live`, `SPORTSBOT_LIVE=1`, keys, and a learning budget in `config/allocation.yaml`) |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code | `bash /opt/sportsbot/deploy/update_sportsbot.sh [branch]` — pulls, reinstalls, installs units, restarts the data-only recorders, runs the pilot preflights, copies the v3 logs |
 | pre-match quote recorder | `sportsbot-prematch.service` → `/opt/sportsbot/data/prematch.sqlite` (keyless; both venues; `python -m sportsbot.signals.prematch --report` scores the pre-registered T−30 forward test) |
+| deploy new code (paper units) | automatic: `sportsbot-update.timer` runs `deploy/update.sh` daily at 14:17 UTC (pull `--ff-only`, venv refresh, `fit baseball`, restart sim/board/boardserve/weather); by hand: `bash /opt/sportsbot/deploy/update.sh` |
+| deploy new code (LIVE unit) | never automatic: read the change, then `systemctl restart sportsbot` yourself |
 | weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |
 | weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 
@@ -88,16 +95,25 @@ or just copy it down: `scp root@YOUR_SERVER_IP:/opt/sportsbot/data/dashboard.htm
 ## The $100 sim book and the dashboard
 
 `sportsbot-sim.service` runs `config/sim.yaml` — paper mode against live
-**Kalshi** market data, with every dollar knob scaled to a $100 bankroll (the
-$1,000 defaults would put half the account in one market). Kalshi rather than
-Polymarket because that is where the tradable books are: measured the same
-hour, Kalshi MLB quotes a 0.010 median spread against Polymarket's 0.94, and
-Polymarket's table-tennis books never tighten enough to trade at all
-(`docs/DASHBOARD_2026-09-22.md`). It is also the US-legal venue for real
-money. Kalshi market data is public, so the sim needs no API keys. `sportsbot-board.service`
-rebuilds `data/board.html` every minute: equity, where the money is allowed to
-go and the evidence for it, every decision including the passes and why, and
-the go-live gate.
+**Polymarket** market data (the venue the file names; the 2026-09-22 move to
+Kalshi rested on a discovery bug, corrected in `docs/EDGE_VERDICT_2026-09-23.md`),
+with every dollar knob scaled to a $100 bankroll (the $1,000 defaults would
+put half the account in one market). Market data on both venues is public, so
+the sim needs no API keys; `ODDS_API_KEY` in `.env` additionally turns on the
+sharp-line harness and prices NBA/NFL/NHL. The sim also runs the touch-maker
+arm (`touch:` block, $1 a side on MLB) whose paper fills are tape-verified.
+Real money is a separate question: the US-legal venues are Kalshi and
+Polymarket US (`exchange: kalshi`), never the main CLOB from a US IP.
+`sportsbot-board.service` rebuilds `data/board.html` every minute: equity,
+where the money is allowed to go and the evidence for it, every decision
+including the passes and why, and the go-live gate. `sportsbot maker-report`
+reads out the touch arm (`docs/MAKER_TEST.md`).
+
+Durability: this is the home for the sim's SQLite store. A cloud Claude
+session that runs one cycle a day keeps its `data/` only until its container
+is reclaimed; the server's `data/` persists, and a nightly
+`sqlite3 data/sportsbot.sqlite ".backup backups/sportsbot-$(date +%F).sqlite"`
+in the `sportsbot` user's crontab costs nothing.
 
 View it the same way as the substrate dashboard — through an SSH tunnel, not
 an open web port:
@@ -112,6 +128,60 @@ The page's sim/real switch is a **view** switch. It shows you a different
 book; it cannot start real trading, and it deliberately has no control that
 could. Real orders still require `mode: live` in config AND `SPORTSBOT_LIVE=1`
 in the environment, both set by hand on the host — see the gate below.
+
+## Restarts lose no maker evidence
+
+The runner handles SIGTERM (what `systemctl restart`/`stop` sends): it
+finishes the cycle, cancels every resting order with its tape shadow and
+`canceled_reason: shutdown`, then exits. On the next start it sweeps order
+rows a previous process left resting (a crash, a kill -9): paper rows are
+closed as `orphaned`; in live mode the venue's resting orders are fetched
+and ours are cancelled there first, while any venue order the store does
+not know is logged and left alone. `sportsbot maker-report` prints the
+orphaned count and excludes those rows from the fill share.
+
+## If `fit baseball` says the Stats API refused this host
+
+Measured on the Linode (2026-10-13): `/api/v1/schedule` answers `406 Not
+Acceptable` from that address on every variant tried (plain or browser
+headers, IPv4, HTTP/1.1), while `/api/v1/teams` answers 200 and the same
+schedule request succeeds from other networks. `sportsbot fit baseball`
+then installs the committed seed (`config/seeds/baseball.json`, refreshed by
+the daily check-in where the API answers) and says so in yellow. The sim's
+starting-pitcher and rest context also comes from that endpoint; when it
+fails the cycle logs `MLB context fetch failed` and prices without it. Both
+are degraded modes, not outages: the touch arm and the team sports are
+unaffected.
+
+## One address for phone and desktop (with the arbitrage desk's Tailscale node)
+
+The arbitrage desk on the same server already runs Tailscale Serve
+(`./desk.sh remote` in its repo), which gives one private HTTPS address
+that only devices signed into your tailnet can open. sportsbot's board
+can ride the same node on a path, so one bookmark covers both desks:
+
+```bash
+systemctl status sportsbot-boardserve      # board.html on 127.0.0.1:8001, whitelist only
+sudo tailscale serve --bg --set-path /sportsbot http://127.0.0.1:8001
+tailscale serve status                     # prints the https://<node>.<tailnet>.ts.net address
+# the board is then at https://<node>.<tailnet>.ts.net/sportsbot/
+```
+
+`sportsbot-boardserve.service` serves only `board.html` and
+`dashboard.html` from `data/` (never the SQLite store, never a listing),
+binds to localhost only, and adds no auth of its own: Tailscale is the
+auth. Without the desk's node, `sudo tailscale up` once on the server
+does the same. The SSH tunnel above keeps working either way.
+
+## Alerts on the phone
+
+Put a Discord webhook URL in `.env` as `SPORTSBOT_DISCORD_WEBHOOK` (the
+arbitrage desk can post to the same one). The bot then posts each
+cycle's fills (arm, side, size, price), any risk halt (once per six
+hours while it holds), and `sportsbot digest --post` sends the daily
+three lines per book: equity and CLV, the touch arm's posts and fills,
+and the distance to the bar. Unset, nothing is sent and nothing
+changes. A failed post is logged and never stops a cycle.
 
 ## Going live — the gate, not a suggestion
 
@@ -128,6 +198,13 @@ config AND `SPORTSBOT_LIVE=1` in `.env` (both are required on purpose):
 Start live with ~10% of intended bankroll. The kill switches (drawdown,
 daily loss, calibration decay) will stop the bot; investigate before
 resetting them.
+
+The gate is now applied **per strategy arm** (`sport/signal/style`) by
+`bot/portfolio.py`, and real money reaches an arm three ways only: a
+manual weight in `config/allocation.yaml`, a green per-arm gate (200
+CLV-graded fills, CLV interval above zero, Brier < 0.25, fees verified),
+or a bounded learning budget for arms marked `learn: true`. See
+`docs/ALLOCATION.md` for the $100–250 starting path.
 
 ## Server hardening included in setup
 
