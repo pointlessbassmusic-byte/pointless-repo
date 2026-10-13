@@ -1,0 +1,50 @@
+name: deploy
+
+# Hands-off deploy: once the `tests` workflow is green on the pilot branch
+# (or main), SSH to the server and run deploy/update_sportsbot.sh, which pulls
+# that branch, reinstalls, refreshes units and restarts the DATA-ONLY
+# recorders. It never enables a pilot unit and never touches .env: going live
+# stays a deliberate human step on the server.
+#
+# Repository secrets required (Settings -> Secrets and variables -> Actions):
+#   SERVER_HOST      e.g. 97.107.138.196
+#   SERVER_SSH_KEY   private key whose public half is in /root/.ssh/authorized_keys
+#                    on the server (generate a dedicated one; see the runbook)
+
+on:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
+    branches:
+      - claude/sports-betting-engine-consolidate-m5x0m9
+      - main
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: branch to deploy
+        default: claude/sports-betting-engine-consolidate-m5x0m9
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    concurrency: deploy-server
+    steps:
+      - name: resolve branch
+        id: b
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "branch=${{ github.event.inputs.branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: ssh key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: update server
+        run: |
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes root@"${{ secrets.SERVER_HOST }}" \
+            "bash /opt/sportsbot/deploy/update_sportsbot.sh '${{ steps.b.outputs.branch }}' 2>&1 | tail -80"
