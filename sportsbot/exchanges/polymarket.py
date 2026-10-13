@@ -56,7 +56,6 @@ CLOB_BASE = "https://clob.polymarket.com"
 DATA_API_BASE = "https://data-api.polymarket.com"   # public taker tape
 
 # Live-verified Gamma tag ids (Sep 2026).
-STALE_EVENT_FLOOR_DAYS = 21   # Gamma startDate = listing time; postseason lists days ahead
 STALE_GAME_HOURS = 8          # a game this long past first pitch is not on the slate
 
 SPORT_TAGS: dict[str, int] = {
@@ -208,15 +207,17 @@ class PolymarketClient(ExchangeClient):
         out: list[MarketInfo] = []
         offset = 0
         page_size = 100
-        # Some long-stale events stay active=true, so a startDate floor keeps
-        # the page count bounded — but Gamma's event startDate is the LISTING
-        # time, not the game time. Floored at "yesterday" this dropped the
-        # 2026-09-30 wild-card games, listed on Sep 26-28, and the sim scanned
-        # nothing (measured 2026-09-30: four open, accepting, two-sided
-        # moneylines on Gamma, zero from this client). The floor is now three
-        # weeks back and staleness is judged per market on gameStartTime in
-        # `_moneyline_markets_from_event`, which is the field that means it.
-        start_min = (datetime.now(timezone.utc) - timedelta(days=STALE_EVENT_FLOOR_DAYS)).strftime("%Y-%m-%d")
+        # No startDate floor. Gamma's event startDate is the LISTING time, not
+        # the game time, and a floor on it hides whatever the venue listed
+        # early: floored at "yesterday" it dropped the 2026-09-30 wild-card
+        # games (listed Sep 26-28); floored at three weeks it hid this week's
+        # NHL slate (46 open moneylines for Oct 13-18, listed Sep 16-21) and
+        # NFL week 7 (listed Sep 4-7) on 2026-10-13, while the sim reported
+        # 142 far-dated hockey markets and no game inside the touch window.
+        # Staleness is judged per market on gameStartTime in
+        # `_moneyline_markets_from_event`, the field that means it; the page
+        # count is bounded by the volume ordering below (live games come
+        # first: measured offsets 0-4) and the pagination cap.
         # Order by volume, NOT start date. A game day lists dozens of derivative
         # events per game (inning winners, first-five) that share the game's
         # startDate; ordered by startDate they fill the page ahead of the game
@@ -232,7 +233,6 @@ class PolymarketClient(ExchangeClient):
                     "tag_id": tag_id,
                     "active": "true",
                     "closed": "false",
-                    "start_date_min": start_min,
                     "order": "volume24hr",
                     "ascending": "false",
                     "limit": page_size,
