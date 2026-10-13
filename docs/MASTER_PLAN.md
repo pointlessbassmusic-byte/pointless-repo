@@ -183,6 +183,15 @@ Pipeline per cycle:
       and allocation gate. On in the $100 paper sim, off in the default
       config; the live minimum-size fill-share test is pre-registered in
       `docs/MAKER_TEST.md` and waits on the operator.
+- [x] Maker test evidence trail and read-out (2026-10-13): every order
+      carries its arm, the book at posting, placement and first-fill times,
+      and -- once it leaves the book -- `tape_through`, the paper venue's fill
+      rule applied to the public tape over the window it rested in (bounded
+      by TTL and game start). `sportsbot maker-report` turns that into the
+      pre-registered numbers: fill share vs the tape rule (orders and
+      contracts), CLV per fill vs venue and sharp close with clustered
+      intervals, adverse selection by wait, the 200-fill gate line, and a
+      paper self-check (venue fill == shadow).
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
