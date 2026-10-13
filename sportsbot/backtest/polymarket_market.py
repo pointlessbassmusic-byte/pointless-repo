@@ -43,7 +43,14 @@ CLOB = "https://clob.polymarket.com"
 CACHE_DIR = "data/cache/polymarket_prices"
 # Gamma tag ids, the same ones exchanges/polymarket.py discovers with.
 SPORT_TAGS = {"baseball": 100381, "tennis": 864, "hockey": 899, "basketball": 745,
-              "football": 450}
+              "football": 450,
+              # 2026-10-13 survey of the top 2,000 Polymarket events by 24 h volume:
+              # the venue's largest game books are esports and soccer. Tag ids
+              # read from the events' own tag lists that day. Backtest-only keys;
+              # the live client prices none of these (no model, no sharp key).
+              "lol": 65, "cs2": 100780, "dota2": 102366, "valorant": 101672,
+              "ucl": 100977, "epl": 306, "laliga": 780, "efl": 102643,
+              "ufc": 279, "cfb": 100351, "cricket": 517, "euroleague": 102669}
 
 
 @dataclass

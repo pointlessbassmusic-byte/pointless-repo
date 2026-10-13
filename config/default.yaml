@@ -130,6 +130,23 @@ sports:
   hockey:
     enabled: true
     signal: sharp
+  # Touch-only sports (no model, no sharp key; `signal: touch` is the only
+  # valid signal). Off here; the paper sim quotes them for fill evidence.
+  soccer:
+    enabled: false
+    signal: touch
+  esports:
+    enabled: false
+    signal: touch
+  mma:
+    enabled: false
+    signal: touch
+  college_football:
+    enabled: false
+    signal: touch
+  cricket:
+    enabled: false
+    signal: touch
 
 storage:
   sqlite_path: data/sportsbot.sqlite

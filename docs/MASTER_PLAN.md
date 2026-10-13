@@ -270,6 +270,26 @@ Pipeline per cycle:
       `config/allocation.yaml`, `SPORTSBOT_LIVE=1` in a unit override — none
       of which the repository performs. `sportsbot doctor -c
       config/maker_test.yaml` is the preflight.
+- [x] Polymarket survey and "touch all game books" (2026-10-13). Top 2,000
+      events by 24 h volume: the venue's largest game books are esports (LoL
+      Worlds $6.8M on 5 matches, Dota 2 $533k, CS2 $371k) and soccer (UCL
+      $1.1M on 18 matches with one-tick books and $16k median at the touch;
+      EPL, La Liga, EFL, AFC CL), then NFL $347k, NHL $198k, cricket, CFB
+      $80k, UFC $80k, NBA $38k (preseason), MLB $21k (LCS); tennis $1.5M on
+      127 events; table tennis $45 across 769 events (96 of the last 100
+      resolved with zero volume). Added `Sport` members SOCCER / ESPORTS /
+      MMA / COLLEGE_FOOTBALL / CRICKET, multi-league tag keys in the
+      Polymarket client (three-way Yes/No books shaped per outcome), and
+      `signal: touch`: no model is loaded, the scanner drops the sport as
+      "no model", and the touch-only pass quotes it inside its window (the
+      window is checked before any quote is fetched). The paper sim now rests
+      $1 at the touch of every game book the venue quotes with size — the
+      measured edge is still MLB/NHL/NFL only; everything else is fill-share
+      measurement. First esports measurement (LoL, 150 matches, 30 days):
+      maker baseline CLV +0.0065 [+0.0018, +0.0130] at 120 s but realised
+      return −0.090 [−0.171, −0.001] per dollar — the pre-game close is a
+      poor value proxy in fast-resolving series; not a candidate. CS2, UCL,
+      UFC, CFB, EPL, Dota 2 and cricket are running; addendum to follow.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against

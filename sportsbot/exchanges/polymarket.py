@@ -58,7 +58,7 @@ DATA_API_BASE = "https://data-api.polymarket.com"   # public taker tape
 # Live-verified Gamma tag ids (Sep 2026).
 STALE_GAME_HOURS = 8          # a game this long past first pitch is not on the slate
 
-SPORT_TAGS: dict[str, int] = {
+SPORT_TAGS: dict[str, int | list[int]] = {
     "sports": 1,
     "tennis": 864,
     "atp": 101232,
@@ -71,6 +71,14 @@ SPORT_TAGS: dict[str, int] = {
     "football": 450,
     "nhl": 899,
     "hockey": 899,
+    # Touch-only sports (2026-10-13 survey; tag ids read from the events' own
+    # tag lists). A key may carry several leagues; discovery walks each tag
+    # and de-duplicates by conditionId.
+    "soccer": [100977, 306, 780, 102643, 104937],   # UCL, EPL, La Liga, EFL Championship, AFC CL Elite
+    "esports": [65, 100780, 102366, 101672],         # League of Legends, CS2, Dota 2, Valorant
+    "mma": [279],                                     # UFC
+    "college_football": [100351],                     # CFB (All)
+    "cricket": [517],
 }
 
 SPORT_FOR_TAG = {
@@ -85,6 +93,11 @@ SPORT_FOR_TAG = {
     "football": Sport.FOOTBALL,
     "nhl": Sport.HOCKEY,
     "hockey": Sport.HOCKEY,
+    "soccer": Sport.SOCCER,
+    "esports": Sport.ESPORTS,
+    "mma": Sport.MMA,
+    "college_football": Sport.COLLEGE_FOOTBALL,
+    "cricket": Sport.CRICKET,
 }
 
 
@@ -199,11 +212,23 @@ class PolymarketClient(ExchangeClient):
 
     def list_sports_markets(self, sport_tag: str) -> list[MarketInfo]:
         """Active moneyline markets for a sport tag ('tennis'|'mlb'|'table_tennis')."""
-        tag_id = SPORT_TAGS.get(sport_tag)
-        if tag_id is None:
+        tag_ids = SPORT_TAGS.get(sport_tag)
+        if tag_ids is None:
             raise ValueError(f"unknown sport tag {sport_tag!r}; known: {sorted(SPORT_TAGS)}")
         sport = SPORT_FOR_TAG.get(sport_tag)
+        if isinstance(tag_ids, int):
+            return self._markets_for_tag(tag_ids, sport, sport_tag)
+        out: list[MarketInfo] = []
+        seen: set[str] = set()
+        for tag_id in tag_ids:
+            for m in self._markets_for_tag(tag_id, sport, sport_tag):
+                if m.market_id in seen:
+                    continue
+                seen.add(m.market_id)
+                out.append(m)
+        return out
 
+    def _markets_for_tag(self, tag_id: int, sport: Optional[Sport], sport_tag: str) -> list[MarketInfo]:
         out: list[MarketInfo] = []
         offset = 0
         page_size = 100
@@ -289,6 +314,15 @@ class PolymarketClient(ExchangeClient):
             if sport == Sport.BASEBALL:
                 meta["home_field"] = str(outcomes[1])
             home_name, away_name = str(outcomes[0]), str(outcomes[1])
+            if [o.strip().lower() for o in map(str, outcomes)] == ["yes", "no"]:
+                # Three-way books (soccer, cricket) list one Yes/No market per
+                # outcome: "Will X win?", "...end in a draw?". The side names
+                # are the outcome being bought, not two teams; the touch arm
+                # needs none, the feed needs a title.
+                title = str(m.get("groupItemTitle") or m.get("question") or "").strip()
+                home_name, away_name = (title or "Yes"), f"not {title}" if title else "No"
+                meta["three_way"] = True
+                meta["outcome_title"] = title
             if is_team_sport(sport):
                 # Polymarket labels NBA/NFL/NHL sides by nickname ("Grizzlies");
                 # the sharp line and Kalshi use other labels. Canonicalise so

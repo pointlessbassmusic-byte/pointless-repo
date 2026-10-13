@@ -24,6 +24,14 @@ class Sport(str, enum.Enum):
     BASKETBALL = "basketball"
     FOOTBALL = "football"
     HOCKEY = "hockey"
+    # Touch-only sports added 2026-10-13 after the Polymarket survey (the
+    # venue's largest game books are soccer and esports): no model, no sharp
+    # key; only the touch-maker arm quotes them, in paper, for fill evidence.
+    SOCCER = "soccer"
+    ESPORTS = "esports"
+    MMA = "mma"
+    COLLEGE_FOOTBALL = "college_football"
+    CRICKET = "cricket"
 
 
 class Exchange(str, enum.Enum):

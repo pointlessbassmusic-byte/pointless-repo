@@ -40,5 +40,13 @@ arms:
   hockey/sharp/taker:     {weight: null, learn: false}
   hockey/touch/maker:     {weight: null, learn: false}   # Result 15 addendum: NHL carries the touch edge (+0.4–0.6 pt)
   football/touch/maker:   {weight: null, learn: false}   # Result 15 addendum: NFL carries the touch edge (+0.5–0.7 pt)
+  # Paper-only touch arms (2026-10-13 "touch all game books"): fill-share evidence, no measured edge yet
+  basketball/touch/maker:  {weight: null, learn: false}
+  tennis/touch/maker:      {weight: null, learn: false}   # Result 15: no touch CLV in tennis; fill share only
+  soccer/touch/maker:      {weight: null, learn: false}
+  esports/touch/maker:     {weight: null, learn: false}   # LoL: CLV +0.6 pt but realised return negative at 120 s
+  mma/touch/maker:         {weight: null, learn: false}
+  college_football/touch/maker: {weight: null, learn: false}
+  cricket/touch/maker:     {weight: null, learn: false}
   table_tennis/model/maker: {weight: 0.0, learn: false, enabled: false}   # no sharp line, integrity record: off
   table_tennis/model/taker: {weight: 0.0, learn: false, enabled: false}

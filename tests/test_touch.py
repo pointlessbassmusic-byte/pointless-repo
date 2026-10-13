@@ -182,16 +182,23 @@ def test_shipped_configs_carry_the_touch_arm_off_by_default_and_on_in_the_sim():
     d = yaml.safe_load(open("config/default.yaml"))
     s = yaml.safe_load(open("config/sim.yaml"))
     assert d["touch"]["enabled"] is False and s["touch"]["enabled"] is True
-    # Result 15 + its addendum: MLB, NHL and NFL carry the touch edge; NBA
-    # is not measurable yet and tennis has none, so neither is quoted.
-    assert s["touch"]["sports"] == ["baseball", "hockey", "football"]
-    assert d["touch"]["sports"] == s["touch"]["sports"]
+    # Default (the measured set): MLB, NHL and NFL carry the touch edge. The
+    # paper sim quotes every game book the venue carries with size, for
+    # fill-share evidence per sport ("touch all game books", 2026-10-13).
+    assert d["touch"]["sports"] == ["baseball", "hockey", "football"]
+    assert set(s["touch"]["sports"]) == {"baseball", "hockey", "football", "basketball", "tennis",
+                                         "soccer", "esports", "mma", "college_football", "cricket"}
+    assert "table_tennis" not in s["touch"]["sports"] and "table_tennis" not in s["scan"]["sports"]
+    assert set(s["touch"]["sports"]) <= set(s["scan"]["sports"])
+    for sport in ("tennis", "soccer", "esports", "mma", "college_football", "cricket"):
+        assert s["sports"][sport]["enabled"] is True and s["sports"][sport]["signal"] == "touch"
     assert s["touch"]["stake_usd"] == 1.0 and s["touch"]["improve"] is False
-    for sport in ("baseball", "hockey", "football"):
+    for sport in s["touch"]["sports"]:
         assert f"{sport}/touch/maker" in running_arms_for(s)
+    for sport in ("baseball", "hockey", "football", "soccer"):
         assert f"{sport}/touch/maker" not in running_arms_for(d)
     alloc = load_allocation("config/allocation.yaml")
-    for sport in ("baseball", "hockey", "football"):
+    for sport in s["touch"]["sports"]:
         st = alloc.setting(f"{sport}/touch/maker")
         assert st.learn is False and st.weight is None     # nothing funded by this file
 
@@ -334,3 +341,53 @@ def test_shipped_maker_test_config_is_inert_and_touch_only():
     arms = running_arms_for(c)
     assert {"baseball/touch/maker", "hockey/touch/maker", "football/touch/maker"} <= arms
     assert not any(a.startswith("tennis/") for a in arms)
+
+
+def test_touch_only_pass_takes_no_model_drops_and_skips_out_of_window_games_before_quoting(tmp_path):
+    """Touch-only sports (soccer, esports, ...) have no model at all, so the
+    scanner drops them as "no model"; the arm quotes those too. Games outside
+    the window are tallied before any quote is fetched."""
+    from sportsbot.bot.runner import Runner
+    from sportsbot.bot.scanner import ScanDrop
+
+    r = Runner.__new__(Runner)
+    r.touch = _cfg(sports=["soccer", "esports", "hockey"], max_hours_to_start=12.0)
+    now = datetime.now(timezone.utc)
+    soon = now + timedelta(hours=3)
+    far = now + timedelta(hours=40)
+    drops = [ScanDrop(_market(market_id="ucl1", sport=Sport.SOCCER, start_time=soon), "no model loaded", "no model"),
+             ScanDrop(_market(market_id="ucl2", sport=Sport.SOCCER, start_time=far), "no model loaded", "no model"),
+             ScanDrop(_market(market_id="lol1", sport=Sport.ESPORTS, start_time=now + timedelta(minutes=2)), "x", "no model"),
+             ScanDrop(_market(market_id="nhl1", sport=Sport.HOCKEY, start_time=soon), "no sharp lines", "no sharp line"),
+             ScanDrop(_market(market_id="mma1", sport=Sport.MMA, start_time=soon), "no model loaded", "no model"),   # not in touch.sports
+             ScanDrop(_market(market_id="mlb1", start_time=soon), "unmatched entity", "unmatched")]
+    tally = {"posted": 0, "vetoed": 0, "skipped": {}}
+    got = [m.market_id for m in r._touch_only_markets(drops, now=now, tally=tally)]
+    assert got == ["ucl1", "nhl1"]
+    assert tally["skipped"] == {"start": 1, "too": 1}        # 40 h away; 2 min to start
+
+
+def test_load_models_signal_touch_loads_nothing_and_touch_only_sports_require_it(tmp_path):
+    from sportsbot.bot.runner import load_models
+
+    store = Store(str(tmp_path / "t.sqlite"))
+    cfg = {"sports": {"tennis": {"enabled": True, "signal": "touch"},
+                      "baseball": {"enabled": False},
+                      "table_tennis": {"enabled": False},
+                      "hockey": {"enabled": True, "signal": "touch"},
+                      "soccer": {"enabled": True, "signal": "touch"},
+                      "esports": {"enabled": True, "signal": "touch"}},
+           "sharp": {"enabled": False}}
+    models = load_models(cfg, str(tmp_path), store=store)
+    assert models == {}                                        # nothing priced: touch-only slate
+    bad = {"sports": {"soccer": {"enabled": True, "signal": "model"}}, "sharp": {"enabled": False}}
+    with pytest.raises(ValueError, match="signal: touch"):
+        load_models(bad, str(tmp_path), store=store)
+    off = {"sports": {"soccer": {"enabled": False}, "tennis": {"enabled": False},
+                      "baseball": {"enabled": False}, "table_tennis": {"enabled": False}},
+           "sharp": {"enabled": False}}
+    assert load_models(off, str(tmp_path), store=store) == {}
+    # touch-only sports are opt-in: absent from the config means off
+    assert load_models({"sports": {"tennis": {"enabled": False}, "baseball": {"enabled": False},
+                                   "table_tennis": {"enabled": False}}, "sharp": {"enabled": False}},
+                       str(tmp_path), store=store) == {}

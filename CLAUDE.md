@@ -32,8 +32,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
   skip), strategy (market blend, book-walking, maker-first), risk (fails
   closed; kill switches; fractional limits follow the live bankroll),
   executor, arb, runner, `touch.py` (touch-maker arm: rests at the best
-  bid/ask at minimum size, no model, on MLB/NHL/NFL — it also quotes the
-  books the scanner dropped for want of a sharp line; Result 15's live fill-share test,
+  bid/ask at minimum size, no model; measured edge on MLB/NHL/NFL, and in
+  the paper sim it quotes every game book the venue carries with size —
+  including `signal: touch` sports with no model at all (soccer, esports,
+  mma, college_football, cricket, tennis-in-sim); Result 15's live fill-share test,
   `docs/MAKER_TEST.md`), `portfolio.py` (strategy ARMS `sport/signal/style`,
   per-arm evidence + gate, capital from manual weights → evidence → a
   bounded learning budget, tighten-only; operator file
