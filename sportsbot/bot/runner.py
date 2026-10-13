@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import signal
 import time
 from datetime import datetime, timezone
 from typing import Optional, Any
@@ -377,6 +378,10 @@ class Runner:
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
         )
+        try:
+            self.executor.sweep_orphans()
+        except Exception:
+            log.exception("orphan sweep failed; continuing")
 
     # ------------------------------------------------------------------
     def maker_fee_fn(self, price: float, market_id: str = "") -> float:
@@ -1091,11 +1096,22 @@ class Runner:
         return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
                 "canceled": canceled, "still_resting": len(ex._open)}
 
+    def request_stop(self, *_args) -> None:
+        """Signal handler / test hook: finish the current cycle, cancel every
+        resting order with its tape shadow, then return from run_forever."""
+        self._stop = True
+
     def run_forever(self) -> None:
         interval = float(self.cfg.get("scan", {}).get("interval_seconds", 300))
         log.info("sportsbot runner starting: mode=%s venue=%s interval=%ss",
                  self.mode, self.exchange.exchange.value, interval)
-        while True:
+        self._stop = False
+        try:
+            signal.signal(signal.SIGTERM, self.request_stop)
+            signal.signal(signal.SIGINT, self.request_stop)
+        except ValueError:
+            pass   # not the main thread (tests): the stop flag still works
+        while not self._stop:
             started = time.time()
             try:
                 summary = self.cycle()
@@ -1103,4 +1119,8 @@ class Runner:
             except Exception:
                 log.exception("cycle crashed; continuing")
             elapsed = time.time() - started
-            time.sleep(max(5.0, interval - elapsed))
+            deadline = time.time() + max(5.0, interval - elapsed)
+            while not self._stop and time.time() < deadline:
+                time.sleep(min(1.0, max(0.0, deadline - time.time())))
+        n = self.executor.cancel_all_resting("shutdown")
+        log.info("sportsbot runner stopping: %d resting order(s) cancelled with their tape shadow", n)

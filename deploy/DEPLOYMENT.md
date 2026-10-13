@@ -52,7 +52,8 @@ directory, and the service user cannot read `/root`.
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
 | live maker fill-share test | `config/maker_test.yaml` + the runbook in `docs/MAKER_TEST.md` (inert until `mode: live`, `SPORTSBOT_LIVE=1`, keys, and a learning budget in `config/allocation.yaml`) |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
-| deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
+| deploy new code (paper units) | automatic: `sportsbot-update.timer` runs `deploy/update.sh` daily at 14:17 UTC (pull `--ff-only`, venv refresh, `fit baseball`, restart sim/board/boardserve/weather); by hand: `bash /opt/sportsbot/deploy/update.sh` |
+| deploy new code (LIVE unit) | never automatic: read the change, then `systemctl restart sportsbot` yourself |
 | weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |
 | weather snapshots (substrate m2) | runs as `weather-snapshot.service` (read-only, every 30 min); logs via `journalctl -u weather-snapshot` |
 
@@ -123,6 +124,17 @@ The page's sim/real switch is a **view** switch. It shows you a different
 book; it cannot start real trading, and it deliberately has no control that
 could. Real orders still require `mode: live` in config AND `SPORTSBOT_LIVE=1`
 in the environment, both set by hand on the host — see the gate below.
+
+## Restarts lose no maker evidence
+
+The runner handles SIGTERM (what `systemctl restart`/`stop` sends): it
+finishes the cycle, cancels every resting order with its tape shadow and
+`canceled_reason: shutdown`, then exits. On the next start it sweeps order
+rows a previous process left resting (a crash, a kill -9): paper rows are
+closed as `orphaned`; in live mode the venue's resting orders are fetched
+and ours are cancelled there first, while any venue order the store does
+not know is logged and left alone. `sportsbot maker-report` prints the
+orphaned count and excludes those rows from the fill share.
 
 ## If `fit baseball` says the Stats API refused this host
 
