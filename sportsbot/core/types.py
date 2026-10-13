@@ -37,6 +37,7 @@ class Sport(str, enum.Enum):
 class Exchange(str, enum.Enum):
     POLYMARKET = "polymarket"
     KALSHI = "kalshi"
+    POLYMARKET_US = "polymarket_us"   # the CFTC-regulated US exchange (exchanges/polymarket_us.py)
     PAPER = "paper"
 
 
@@ -166,6 +167,10 @@ class Order(BaseModel):
     size: float = 0.0
     filled: float = 0.0
     status: OrderStatus = OrderStatus.PENDING
+    # Maker-only: the venue must reject rather than let the order cross.
+    # Set by the executor for `.../maker` arms; sent by venues that support
+    # it (Polymarket US `participateDontInitiate`), ignored by the others.
+    post_only: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     raw: dict[str, Any] = Field(default_factory=dict)
