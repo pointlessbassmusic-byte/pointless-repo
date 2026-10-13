@@ -411,7 +411,7 @@ RESULTS: tuple[tuple[str, str, str], ...] = (
     ("12", "crypto Up/Down", "DMI/ADX below a coin; spot fair value loses; complete sets are market making"),
     ("13", "other venues / arbitrage / HFT", "every class closed, fee-eaten, or a name-matching artefact"),
     ("14", "copying wallets", "informed MLB takers exist (+1.0 pt) but a copy nets −0.7 pt; tennis has none"),
-    ("15", "maker at the touch (MLB, NHL, NFL, CFB)", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; NHL, NFL and college football the same (+0.4–0.8 pt, realised return agrees); EPL +1.0–1.4 pt on 21 outcome markets (sample); LoL/CS2 CLV positive but realised return NEGATIVE (fast series, close is no proxy) — not candidates; UFC, tennis none; NBA not measurable yet"),
+    ("15", "maker at the touch (MLB, NHL, NFL, CFB)", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; NHL, NFL and college football the same (+0.4–0.8 pt, realised return agrees); soccer (EPL, UCL) +0.7–1.4 pt CLV on 47 outcome markets, return not yet readable; LoL/CS2 CLV positive but realised return NEGATIVE (fast series, close is no proxy) — not candidates; UFC, tennis none; NBA not measurable yet"),
 )
 
 
