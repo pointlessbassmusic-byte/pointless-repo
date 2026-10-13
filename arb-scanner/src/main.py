@@ -20,6 +20,12 @@ import yaml
 
 from .arb import ArbDetector
 from .feeds import KalshiFeed, PolymarketFeed
+from .cb_watch import fetch as cb_fetch
+from .cb_watch import open_poly_tokens as cb_open_tokens
+from .cb_watch import poly_results as cb_poly_results
+from .cb_watch import run_cycle as cb_cycle
+from .fed_watch import KALSHI_SERIES, POLY_TAG, FedWatcher
+from .fed_watch import run_cycle as fed_cycle
 from .matcher import find_pairs
 
 log = logging.getLogger("arb-scanner")
@@ -91,6 +97,31 @@ def run_cycle(cfg: dict, poly: PolymarketFeed, kalshi: KalshiFeed,
     conn.commit()
     if not opps:
         log.info("no opportunities above %.1f%% net edge", detector.min_net_edge * 100)
+
+    fcfg = cfg.get("fed_watch", {})
+    if fcfg.get("enabled", True):
+        # separate, smaller reads: the global feeds are capped by volume and
+        # liquidity and need not contain every Fed bucket
+        try:
+            fed_markets = (kalshi.series_markets(KALSHI_SERIES)
+                           + poly.tagged_markets(POLY_TAG))
+            new, done = fed_cycle(conn, FedWatcher(fcfg), fed_markets,
+                                  kalshi.series_results(KALSHI_SERIES))
+            log.info("fed watch: %d bucket markets, %d new fire(s), %d settled",
+                     len(fed_markets), new, done)
+        except Exception:  # noqa: BLE001 — never let the watcher sink the arb scan
+            log.exception("fed watch failed this cycle")
+
+    ccfg = cfg.get("cb_watch", {})
+    if ccfg.get("enabled", True):
+        try:
+            cb_markets, cb_settled = cb_fetch(kalshi, poly)
+            cb_settled.update(cb_poly_results(poly.http, cb_open_tokens(conn)))
+            new, done = cb_cycle(conn, FedWatcher(ccfg), cb_markets, cb_settled)
+            log.info("cb watch: %d G10 bucket markets, %d new fire(s), %d settled",
+                     len(cb_markets), new, done)
+        except Exception:  # noqa: BLE001 — never let the watcher sink the arb scan
+            log.exception("cb watch failed this cycle")
 
 
 def main() -> None:

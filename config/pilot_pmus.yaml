@@ -3,10 +3,10 @@
 # two venues can be compared on real fills, markout and CLV with identical
 # limits. Run with `sportsbot run -c config/pilot_pmus.yaml`.
 #
-# Before the first order: the 1-contract checks in
-# docs/POLYMARKET_US_CLIENT_2026-10-09.md (short-side price terms, position
-# sign, signing of query paths) — the trading half of the client was built
-# from the API reference, not against a funded account.
+# Before the first order: the first-order check in docs/MAKER_TEST.md step 4
+# (a NO order shows the logged price in the app; a post-only maker order was
+# not executed on arrival). The venue lists no table-tennis moneylines, so
+# that sport scans empty here.
 #
 # Two switches, both deliberate, both on the host: `mode: live` below AND
 # `SPORTSBOT_LIVE=1` in the environment. Keys live in .env only:
@@ -14,13 +14,6 @@
 
 mode: live
 exchange: polymarket_us
-
-polymarket_us:
-  include_live: false          # pre-match only: no in-play order placement
-  leagues:                     # gateway league slugs priced per sport
-    tennis: [atp, wta]
-    baseball: [mlb]
-    table_tennis: [setkameua, setkamecz, setkamemd, czechligapro, wtt]
 
 accounts:
   sim:

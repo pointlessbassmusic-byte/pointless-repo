@@ -35,7 +35,7 @@ from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.scanner import Scanner
 from sportsbot.bot.ledger import account_equity, snapshot_equity
 from sportsbot.bot import alerts
-from sportsbot.bot.touch import TouchConfig, evaluate_touch
+from sportsbot.bot.touch import TouchConfig, evaluate_touch, in_window
 from sportsbot.bot.portfolio import (
     allocate_arms,
     effective_bankroll,
@@ -68,9 +68,15 @@ _DROP_EXAMPLES = 3
 
 SPORT_KEYS = {"tennis": Sport.TENNIS, "baseball": Sport.BASEBALL,
               "table_tennis": Sport.TABLE_TENNIS, "basketball": Sport.BASKETBALL,
-              "football": Sport.FOOTBALL, "hockey": Sport.HOCKEY}
+              "football": Sport.FOOTBALL, "hockey": Sport.HOCKEY,
+              "soccer": Sport.SOCCER, "esports": Sport.ESPORTS, "mma": Sport.MMA,
+              "college_football": Sport.COLLEGE_FOOTBALL, "cricket": Sport.CRICKET}
 # Sports with no rating engine in this repo: only the sharp line can price them.
 SHARP_ONLY_SPORTS = ("basketball", "football", "hockey")
+# Sports with neither a rating engine nor a sharp-harness key: only the
+# touch-maker arm can quote them (`signal: touch`), in paper, for fill
+# evidence. Added 2026-10-13 after the Polymarket survey.
+TOUCH_ONLY_SPORTS = ("soccer", "esports", "mma", "college_football", "cricket")
 
 
 class _Unpriced:
@@ -113,29 +119,43 @@ def load_models(cfg: dict, ratings_dir: str, store=None) -> dict[Sport, Any]:
     sports_cfg = cfg.get("sports", {})
     models: dict[Sport, Any] = {}
 
-    def wants_sharp(key: str) -> bool:
+    def signal_of(key: str) -> str:
         sc = sports_cfg.get(key, {}) or {}
-        return str(sc.get("signal", "model")).lower() == "sharp"
+        return str(sc.get("signal", "model")).lower()
+
+    def wants_sharp(key: str) -> bool:
+        return signal_of(key) == "sharp"
+
+    def wants_touch(key: str) -> bool:
+        # `signal: touch`: no model is loaded for the sport, so the scanner
+        # drops its markets as "no model" and only the touch-maker arm quotes
+        # them (runner._touch_only_markets). Discovery still runs for it.
+        return signal_of(key) == "touch"
 
     sharp_cfg = SharpConfig.from_cfg(cfg)
     for key, sport in SPORT_KEYS.items():
         enabled = sports_cfg.get(key, {}).get(
-            "enabled", key not in SHARP_ONLY_SPORTS)   # team sports are opt-in
-        if enabled and key in SHARP_ONLY_SPORTS and not wants_sharp(key):
+            "enabled", key not in SHARP_ONLY_SPORTS and key not in TOUCH_ONLY_SPORTS)
+        if enabled and key in TOUCH_ONLY_SPORTS and not wants_touch(key):
+            raise ValueError(f"sports.{key} has no rating model and no sharp key here; "
+                             f"set sports.{key}.signal: touch or enabled: false")
+        if enabled and key in SHARP_ONLY_SPORTS and not (wants_sharp(key) or wants_touch(key)):
             raise ValueError(f"sports.{key} has no rating model here; set "
-                             f"sports.{key}.signal: sharp or enabled: false")
+                             f"sports.{key}.signal: sharp (or touch) or enabled: false")
         if enabled and wants_sharp(key):
             if store is None:
                 raise ValueError(f"sports.{key}.signal=sharp needs the store")
             models[sport] = SharpLineModel(store, sport, sharp_cfg)
-    if sports_cfg.get("tennis", {}).get("enabled", True) and Sport.TENNIS not in models:
+    if (sports_cfg.get("tennis", {}).get("enabled", True) and not wants_touch("tennis")
+            and Sport.TENNIS not in models):
         m = TennisModel(
             surface_weight=float(sports_cfg["tennis"].get("surface_weight", 0.5)),
             min_matches=int(sports_cfg["tennis"].get("min_matches", 10)),
         )
         _try_load(m, os.path.join(ratings_dir, "tennis.json"))
         models[Sport.TENNIS] = m
-    if sports_cfg.get("baseball", {}).get("enabled", True) and Sport.BASEBALL not in models:
+    if (sports_cfg.get("baseball", {}).get("enabled", True) and not wants_touch("baseball")
+            and Sport.BASEBALL not in models):
         b = BaseballModel(
             home_advantage=float(sports_cfg["baseball"].get("home_advantage_elo", 24.0)),
             rest_per_day=float(sports_cfg["baseball"].get("rest_advantage_elo", 2.3)),
@@ -144,7 +164,8 @@ def load_models(cfg: dict, ratings_dir: str, store=None) -> dict[Sport, Any]:
         )
         _try_load(b, os.path.join(ratings_dir, "baseball.json"))
         models[Sport.BASEBALL] = b
-    if sports_cfg.get("table_tennis", {}).get("enabled", True) and Sport.TABLE_TENNIS not in models:
+    if (sports_cfg.get("table_tennis", {}).get("enabled", True) and not wants_touch("table_tennis")
+            and Sport.TABLE_TENNIS not in models):
         t = TableTennisModel(
             min_matches=int(sports_cfg["table_tennis"].get("min_matches", 8)),
             prob_shrink=float(sports_cfg["table_tennis"].get("prob_shrink", 0.5)),
@@ -243,22 +264,23 @@ def build_exchange(cfg: dict):
             return kalshi_maker_fee_per_share(
                 market_id or "", data_client.fee_multiplier(market_id)) * shares
     elif venue == "polymarket_us":
-        from sportsbot.exchanges.polymarket_us import (
-            PolymarketUSClient,
-            polymarket_us_taker_fee,
-        )
+        from sportsbot.exchanges.polymarket_us import PolymarketUSClient, taker_fee_us
 
-        pmus = cfg.get("polymarket_us", {}) or {}
-        # Public market data needs no key; orders need the Ed25519 pair
-        # from .env (POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY).
-        data_client = PolymarketUSClient(leagues=pmus.get("leagues"),
-                                         include_live=bool(pmus.get("include_live", False)))
+        # One client for data and orders: the public gateway needs no keys;
+        # orders need POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY and the
+        # live gate below. The venue publishes no keyless trade tape, so in
+        # paper mode resting orders here never fill (no tape, no fill).
+        data_client = PolymarketUSClient()
         exec_client = data_client
-        fee_fn = polymarket_us_taker_fee
+
+        def fee_fn(price, shares, market_id=None):
+            """Taker 0.0695 x C x p x (1 - p) on every sport the client
+            discovers (table tennis' 0.10 is never listed here)."""
+            return taker_fee_us(price, shares)
 
         def maker_fee_fn(price, shares, market_id=None):
-            """Polymarket US pays makers a rebate (theta -0.0125); counted as
-            zero, never as edge (conservative)."""
+            """Makers pay nothing on Polymarket US; the rebate (0.0125 coefficient
+            until 2026-10-19, volume tiers after) is ignored (conservative)."""
             return 0.0
     else:
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
@@ -800,19 +822,31 @@ class Runner:
         except Exception:
             log.exception("edge-bar record failed")
 
-    def _touch_only_markets(self, drops) -> list:
-        """Markets the scanner dropped for want of a sharp line whose sport
-        the touch arm quotes anyway: it rests at the venue's own price and
-        needs no model. Every other drop category stays dropped."""
+    TOUCH_DROP_CATEGORIES = ("no sharp line", "no model")
+
+    def _touch_only_markets(self, drops, now=None, tally: Optional[dict] = None) -> list:
+        """Markets the scanner dropped for want of a sharp line or a model,
+        whose sport the touch arm quotes anyway: it rests at the venue's own
+        price and needs neither. Games outside the arm's start window are
+        counted in `tally["skipped"]` here, before any quote is fetched, so a
+        slate of hundreds of far-dated books costs no venue calls. Every
+        other drop category stays dropped."""
         if not getattr(self.touch, "enabled", False):
             return []
         out = []
         for d in drops:
-            if d.category != "no sharp line":
+            if d.category not in self.TOUCH_DROP_CATEGORIES:
                 continue
             key = d.market.sport.value if d.market.sport else None
-            if key and self.touch.runs(key):
-                out.append(d.market)
+            if not key or not self.touch.runs(key):
+                continue
+            ok, why = in_window(d.market, self.touch, now)
+            if not ok:
+                if tally is not None:
+                    k = why.split(" ", 2)[0]
+                    tally.setdefault("skipped", {})[k] = tally["skipped"].get(k, 0) + 1
+                continue
+            out.append(d.market)
         return out
 
     def _touch_pass(self, sm, quote, exposure: dict, strategy_cfg, summary: dict) -> bool:
@@ -832,6 +866,7 @@ class Runner:
                 self.maker_fee_fn,
                 sport_budget=strategy_cfg.sport_budget.get(sport_key),
                 style=strategy_cfg.style_override.get(sport_key, "both"),
+                resting_usd=self.executor.resting_stake_by_sport().get(sport_key, 0.0),
             )
         except Exception:
             log.exception("touch evaluation failed for %s", sm.market.market_id)
@@ -1068,7 +1103,8 @@ class Runner:
         # scanner dropped for want of a sharp line in the sports it runs
         # (NHL/NFL moneylines without ODDS_API_KEY), so the paper fill
         # evidence keeps accruing when nothing else can price the slate.
-        for m in self._touch_only_markets(drops):
+        tally = summary.setdefault("touch", {"posted": 0, "vetoed": 0, "skipped": {}})
+        for m in self._touch_only_markets(drops, tally=tally):
             try:
                 quote = self.exchange.get_quote(m)
             except Exception:
@@ -1076,7 +1112,6 @@ class Runner:
                 continue
             quoted[m.market_id] = (m, quote)
             self.store.snapshot_quote(m.market_id, quote.bid, quote.ask)
-            tally = summary.setdefault("touch", {"posted": 0, "vetoed": 0, "skipped": {}})
             tally["unpriced"] = tally.get("unpriced", 0) + 1
             if self._touch_pass(_Unpriced(m), quote, exposure, strategy_cfg, summary):
                 exposure = self.store.exposure_by()
@@ -1108,16 +1143,33 @@ class Runner:
         Bounded by `max_wait` (default TTL + 10 s)."""
         ex = self.executor
         ttl = float(ex.order_ttl)
-        deadline = time.time() + (ttl + 10.0 if max_wait is None else float(max_wait))
         fills_before = len(self.store.all_bets(self.mode))
+        # Wait for the NEWEST order's TTL, not the oldest's: a touch-all cycle
+        # posts for minutes, and stopping at the first expiry left the late
+        # posts `open` when the process exited (2026-10-13: 20 of 30), to be
+        # swept as orphans without a tape shadow. Orders past their TTL are
+        # expired (and shadowed) as the loop goes, so each one's window ends
+        # at its own TTL.
+        if max_wait is not None:
+            deadline = time.time() + float(max_wait)
+        elif ex._open:
+            newest = max(t.placed_at for t in ex._open.values())
+            remaining = ttl - (datetime.now(timezone.utc) - newest).total_seconds()
+            deadline = time.time() + max(0.0, remaining) + 10.0
+        else:
+            deadline = time.time()
+        canceled = 0
         while ex._open and time.time() < deadline:
-            oldest = min(t.placed_at for t in ex._open.values())
-            if (datetime.now(timezone.utc) - oldest).total_seconds() >= ttl:
+            ex.reconcile_open_orders()
+            canceled += ex.expire_stale_orders()
+            if not ex._open:
                 break
             time.sleep(max(0.0, min(poll_seconds, deadline - time.time())))
-            ex.reconcile_open_orders()
         ex.reconcile_open_orders()
-        canceled = ex.expire_stale_orders()
+        canceled += ex.expire_stale_orders()
+        # Anything still resting (a failed cancel, or max_wait cut the wait
+        # short) is cancelled now with its shadow rather than left open.
+        canceled += ex.cancel_all_resting("drain_end")
         self._alert_new_fills(fills_before)
         return {"fills_booked": len(self.store.all_bets(self.mode)) - fills_before,
                 "canceled": canceled, "still_resting": len(ex._open)}

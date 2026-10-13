@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from sportsbot.bot import alerts
-from sportsbot.boardserve import ALLOWED, make_handler, resolve
+from sportsbot.boardserve import ALLOWED, make_handler, resolve, with_switcher
 from sportsbot.data.store import Store
 
 
@@ -96,6 +96,40 @@ def test_board_server_serves_only_the_whitelist(tmp_path):
         with pytest.raises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/dashboard.html")   # whitelisted, not rendered
         assert e.value.code == 503
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_desk_switcher_is_added_only_under_the_tailscale_prefix(tmp_path):
+    """At /sportsbot the board sits beside the crypto desk at /: the server
+    adds a script-free strip linking the two; served any other way, or
+    written to disk, the page is untouched."""
+    page = b"<!doctype html><html><head><title>t</title></head><body><div class=\"wrap\">x</div></body></html>"
+    out = with_switcher(page, "board.html", "/sportsbot/")
+    assert out.startswith(b"<!doctype html><html><head><title>t</title></head><body><style>.hub{")
+    assert b'<nav class="hub"><a href="/">Crypto desk</a><span class="current">Sports book</span>' in out
+    assert b'<a href="/sportsbot/dashboard.html">Substrate</a></nav><div class="wrap">' in out
+    assert b"<script" not in out
+    sub = with_switcher(page, "dashboard.html", "/sportsbot/dashboard.html")
+    assert b'<a href="/sportsbot/">Sports book</a><span class="current">Substrate</span>' in sub
+    assert with_switcher(page, "board.html", "/") == page           # plain localhost: no desk at /
+    assert with_switcher(page, "board.html", "/board.html") == page
+    # a page without a body tag still gets the strip, in front
+    assert with_switcher(b"<h1>bare</h1>", "board.html", "/sportsbot/").endswith(b"</nav><h1>bare</h1>")
+    # end to end through the socket
+    (tmp_path / "board.html").write_bytes(page)
+    from http.server import ThreadingHTTPServer
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(str(tmp_path)))
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/sportsbot/") as r:
+            served = r.read()
+        assert b'<nav class="hub">' in served and b"<script" not in served
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as r:
+            assert r.read() == page
     finally:
         httpd.shutdown()
         httpd.server_close()

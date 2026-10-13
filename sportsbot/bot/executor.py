@@ -101,6 +101,10 @@ class Executor:
             "start_time": market.start_time.isoformat() if market.start_time else None,
             "book": _book_snapshot(quote),
         }
+        # Post-only if the intent was priced to rest OR the arm is a maker
+        # arm: either reason alone forbids crossing, and the flag can only
+        # make the venue reject an order, never fill a worse one.
+        order.post_only = bool(intent.maker) or str(order.raw["arm"]).endswith("/maker")
         if isinstance(self.exchange, PaperExchange):
             order = self.exchange.place_order(order, quote=quote, market=market,
                                               now=placed_at)
@@ -212,6 +216,18 @@ class Executor:
                      "rested_seconds": order.raw.get(
                          "rested_seconds",
                          round((before - tracked.placed_at).total_seconds(), 1))}
+
+    def resting_stake_by_sport(self) -> dict[str, float]:
+        """Unfilled stake (price x remaining size) of tracked resting orders,
+        per sport key. The touch arm counts it against the sport budget so
+        the orders that could fill never exceed what the book can carry."""
+        out: dict[str, float] = {}
+        for t in self._open.values():
+            sport = t.intent.market.sport
+            key = sport.value if sport else "unknown"
+            remaining = max(0.0, float(t.order.size) - float(t.order.filled or 0.0))
+            out[key] = out.get(key, 0.0) + float(t.order.price) * remaining
+        return out
 
     def resting_sides(self, market_id: str) -> set[Side]:
         """Sides with a tracked resting order on `market_id` (so a quoting

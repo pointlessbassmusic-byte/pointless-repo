@@ -380,6 +380,11 @@ def running_arms_for(cfg: dict) -> set[str]:
         signal = str(sc.get("signal", "model")).lower()
         if signal not in SIGNALS:
             raise ValueError(f"sports.{sport}.signal must be one of {SIGNALS}")
+        if signal == TOUCH_SIGNAL:
+            # `signal: touch` loads no model: only the touch block below can
+            # quote the sport, and it only ever rests. A touch/taker arm here
+            # was a phantom that took a paper budget share (2026-10-13).
+            continue
         out.add(arm_name(sport, signal, "taker"))
         if post:
             out.add(arm_name(sport, signal, "maker"))
@@ -411,7 +416,7 @@ RESULTS: tuple[tuple[str, str, str], ...] = (
     ("12", "crypto Up/Down", "DMI/ADX below a coin; spot fair value loses; complete sets are market making"),
     ("13", "other venues / arbitrage / HFT", "every class closed, fee-eaten, or a name-matching artefact"),
     ("14", "copying wallets", "informed MLB takers exist (+1.0 pt) but a copy nets −0.7 pt; tennis has none"),
-    ("15", "maker at the touch (MLB, NHL, NFL)", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; NHL +0.4–0.6 and NFL +0.5–0.7 the same on 27/24 markets; tennis none; NBA not measurable yet (11 pre-season markets)"),
+    ("15", "maker at the touch (MLB, NHL, NFL, CFB)", "resting 1 tick under MLB taker prints earns +0.6 pt CLV on fills, +1.1–1.8 behind informed flow — every fill at the existing bid (queue decides); 2 ticks deeper it is gone; NHL, NFL and college football the same (+0.4–0.8 pt, realised return agrees); soccer (EPL, UCL) +0.7–1.4 pt CLV on 47 outcome markets, return not yet readable; LoL/CS2 CLV positive but realised return NEGATIVE (fast series, close is no proxy) — not candidates; UFC, tennis none; NBA not measurable yet"),
 )
 
 

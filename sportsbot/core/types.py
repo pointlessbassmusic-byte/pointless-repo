@@ -24,12 +24,20 @@ class Sport(str, enum.Enum):
     BASKETBALL = "basketball"
     FOOTBALL = "football"
     HOCKEY = "hockey"
+    # Touch-only sports added 2026-10-13 after the Polymarket survey (the
+    # venue's largest game books are soccer and esports): no model, no sharp
+    # key; only the touch-maker arm quotes them, in paper, for fill evidence.
+    SOCCER = "soccer"
+    ESPORTS = "esports"
+    MMA = "mma"
+    COLLEGE_FOOTBALL = "college_football"
+    CRICKET = "cricket"
 
 
 class Exchange(str, enum.Enum):
     POLYMARKET = "polymarket"          # international CLOB (geoblocked for US orders)
-    POLYMARKET_US = "polymarket_us"    # QCEX DCM, api.polymarket.us
     KALSHI = "kalshi"
+    POLYMARKET_US = "polymarket_us"   # the CFTC-regulated US exchange (exchanges/polymarket_us.py)
     PAPER = "paper"
 
 
@@ -160,7 +168,10 @@ class Order(BaseModel):
     size: float = 0.0
     filled: float = 0.0
     status: OrderStatus = OrderStatus.PENDING
-    post_only: bool = False        # venue must reject rather than fill as taker
+    # Maker-only: the venue must reject rather than let the order cross.
+    # Set by the executor for `.../maker` arms; sent by venues that support
+    # it (Polymarket US `participateDontInitiate`), ignored by the others.
+    post_only: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     raw: dict[str, Any] = Field(default_factory=dict)

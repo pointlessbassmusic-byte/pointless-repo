@@ -4,11 +4,14 @@ Result 15 (`docs/EDGE_VERDICT_2026-09-23.md`) measured that a bid resting
 one tick under MLB taker prints on Polymarket earns **+0.6 pt of
 closing-line value per fill** (+1.1 to +1.8 pt behind the best-CLV
 wallets), interval above zero, and that every one of those fills was a
-queue-priority fill at the existing bid. Its 2026-10-13 addendum measured
-the same half-point on NHL (27 markets) and NFL (24) moneylines — the
-books in season once the World Series ends — and nothing measurable yet
-on NBA (11 pre-season markets). The tape cannot say what share of those
-fills a *new* order would get. That share is the only number standing
+queue-priority fill at the existing bid. Its 2026-10-13 addenda measured
+the same half-point on NHL (27 markets), NFL (24) and college football
+(45; realised return agrees) — the books in season once the World Series
+ends — a point of CLV on EPL outcome markets (21; sample), nothing
+measurable yet on NBA, nothing on UFC, and on LoL/CS2 a positive CLV
+with a NEGATIVE realised return, which excludes esports from this test
+whatever the paper fill share says. The tape cannot say what share of
+those fills a *new* order would get. That share is the only number standing
 between rank 2 of the research report and a funded arm, and it can only
 be measured with real resting orders. This page fixes the test before it
 runs so the answer cannot be argued with afterwards.
@@ -26,9 +29,41 @@ row on the arm `<sport>/touch/maker`, graded against the venue close by
 the position manager and against the Pinnacle close by the sharp-line
 harness once `ODDS_API_KEY` is set.
 
-Venue: **Kalshi** (US-legal; the maker fee is 0.0025 × 0.5 per
-contract, about 0.12 pt of the measured 0.6) or **Polymarket US** when
-it carries these moneylines. Never the main Polymarket CLOB from a US IP.
+Venue: **Polymarket US** (preferred since 2026-10-13) or **Kalshi**, both
+US-legal. Never the main Polymarket CLOB from a US IP.
+
+Why Polymarket US first, from its own fee schedule and gateway
+(`sportsbot/exchanges/polymarket_us.py`, `exchange: polymarket_us`):
+
+* **Makers pay nothing.** Takers pay 0.0695 × C × p × (1 − p), as on
+  Kalshi; makers earn a 0.0125 × C × p × (1 − p) rebate until 2026-10-19
+  13:00 ET and from then a volume-tiered rebate that is zero below $10M a
+  month. Kalshi's maker fee takes about 0.12 pt of the measured 0.6.
+* **Every game has a start time** (`gameStartTime`), so the NHL/NFL leg
+  needs no `ODDS_API_KEY`; Kalshi's tickers carry none.
+* **Its own books, measured 2026-10-13 (read-only, no keys):**
+
+  | sport | moneylines listed | in a 12 h window | spread | median touch size |
+  |---|---|---|---|---|
+  | NHL | 45 | 12 | 0.010 | 58,770 |
+  | MLB | 5 | 1 | 0.005 | 819,395 |
+  | NBA | 26 | 3 | 0.010 | 2,497 |
+  | Tennis | 110 | 29 | 0.010 | 80 |
+  | College football | 118 | 2 | 0.005 | 167,521 |
+
+  Touch size is the queue a new $1 order joins: on MLB and college
+  football it will rarely fill, on tennis it sits near the front. That
+  is the fill-share question this test exists to answer.
+
+Two caveats specific to it. (1) It publishes no keyless trade tape (trades
+stream only over the authenticated markets websocket), so the paper venue
+cannot fill orders there and the live test's fill-share denominator
+(`tape_through`) needs a websocket tape collector, to be built and tested
+once keys exist; until then the read-out reports live fills and CLV per
+fill without the shadow. (2) Order prices are always in YES terms (buying
+NO at 0.40 is sent as a short at 0.60) and `participateDontInitiate` makes
+every maker order post-only; confirm both on the first order by hand, as
+step 4 below says.
 Kalshi's NHL and NFL tickers carry no start time, and the risk layer
 refuses an entry whose start it does not know; today that time comes
 from the sharp harness's commence field, so on Kalshi the NHL/NFL leg of
@@ -86,15 +121,20 @@ on. `config/maker_test.yaml` is the complete config for the test, shipped
 in paper mode; `sportsbot doctor -c config/maker_test.yaml` is the
 preflight and exits non-zero on any FAIL.
 
-1. **Fund and key Kalshi.** A dedicated account holding only what the
+1. **Fund and key the venue.** A dedicated account holding only what the
    test may lose (the risk block stops the day at a $10 realised loss and
-   kills the bot at $25; tens of dollars is the expected cost). Put
-   `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH` (mode 600, owned by
-   the `sportsbot` user) in `.env`, and `KALSHI_ENV=prod`. The key must be
-   an **RSA** key from Kalshi's API-key page: an Ed25519 key (what some
+   kills the bot at $25; tens of dollars is the expected cost).
+   *Polymarket US:* create a key at polymarket.us/developer and put
+   `POLYMARKET_US_KEY_ID` and `POLYMARKET_US_SECRET_KEY` in `.env`, then set
+   `exchange: polymarket_us` in your copy of the config (step 2). *Kalshi:*
+   put `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH` (mode 600, owned by
+   the `sportsbot` user) in `.env` and `KALSHI_ENV=prod` (unset or `demo`
+   sends orders to the demo exchange; `doctor` warns). The Kalshi key must
+   be an **RSA** key from Kalshi's API-keys page: an Ed25519 key (what some
    other Kalshi tools use, ~120 bytes) cannot sign these requests, and
-   `doctor` FAILs it. `ODDS_API_KEY` is needed for the NHL/NFL leg (start
-   times) and for the sharp close the read-out grades against.
+   `doctor` FAILs it. `ODDS_API_KEY` is needed on Kalshi for NHL/NFL start
+   times; on either venue it also gives the sharp close the read-out
+   grades against.
 2. **Make your own copies; never edit the tracked files on the server.**
    The daily `deploy/update.sh` pulls with `--ff-only` and stops on a
    locally modified tracked file. `*.local.yaml` is git-ignored:
@@ -103,8 +143,8 @@ preflight and exits non-zero on any FAIL.
    sudo -u sportsbot cp config/maker_test.yaml config/maker_test.local.yaml
    sudo -u sportsbot cp config/allocation.yaml config/allocation.local.yaml
    ```
-   In `maker_test.local.yaml` set `mode: live` and
-   `accounts.real.starting_balance` / `bankroll.amount` to the funded
+   In `maker_test.local.yaml` set `mode: live`, the venue (`exchange`),
+   and `accounts.real.starting_balance` / `bankroll.amount` to the funded
    amount (the knobs are scaled for $100). It already writes its own
    `data/maker_test.sqlite` and reads `config/allocation.local.yaml`.
 3. **Give the arm a budget, by hand, in `config/allocation.local.yaml`.**
@@ -138,9 +178,13 @@ preflight and exits non-zero on any FAIL.
    journalctl -u sportsbot-maker -f
    ```
    Without `SPORTSBOT_LIVE=1` the runner logs that it is forcing paper
-   mode and places nothing real, whatever the config says. The daily
-   update never restarts this unit: after reading a change that reached
-   the server, `systemctl restart sportsbot-maker` yourself.
+   mode and places nothing real, whatever the config says. On Polymarket
+   US, before leaving it unattended, watch the first order by hand: check
+   in the app that a NO order shows the price the log printed (the venue
+   books it in YES terms) and that a maker order resting at the touch was
+   not executed against on arrival (post-only). The daily update never
+   restarts this unit: after reading a change that reached the server,
+   `systemctl restart sportsbot-maker` yourself.
 5. **Read it out** with `sportsbot maker-report -c config/maker_test.local.yaml
    --mode live` at 200 fills or 30 days, per the section above. **Stop it**
    with `systemctl disable --now sportsbot-maker`, or `touch

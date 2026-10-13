@@ -1,3 +1,8 @@
+> **Superseded 2026-10-13.** Main's own Polymarket US client (#79) replaced
+> the one this note describes when the branches were reconciled; the venue
+> facts below (fees, signing, post-only) still stand, the code references do
+> not. Current client: `sportsbot/exchanges/polymarket_us.py`.
+
 # Polymarket US client (2026-10-09)
 
 `sportsbot/exchanges/polymarket_us.py` — the US-legal Polymarket path
