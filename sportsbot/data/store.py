@@ -420,6 +420,17 @@ class Store:
         row = self.conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
         return json.loads(row["value"]) if row else default
 
+    def kv_prefix(self, prefix: str) -> dict[str, Any]:
+        """Every kv row whose key starts with `prefix`, parsed, keyed by key."""
+        out: dict[str, Any] = {}
+        for r in self.conn.execute("SELECT key, value FROM kv WHERE key LIKE ? ORDER BY key",
+                                   (prefix + "%",)).fetchall():
+            try:
+                out[r["key"]] = json.loads(r["value"])
+            except (TypeError, ValueError):
+                continue
+        return out
+
     # --- reads -----------------------------------------------------------
     def open_bets(self) -> list[dict]:
         rows = self.conn.execute(
