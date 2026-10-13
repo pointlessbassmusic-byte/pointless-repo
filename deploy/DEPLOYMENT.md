@@ -85,16 +85,25 @@ or just copy it down: `scp root@YOUR_SERVER_IP:/opt/sportsbot/data/dashboard.htm
 ## The $100 sim book and the dashboard
 
 `sportsbot-sim.service` runs `config/sim.yaml` — paper mode against live
-**Kalshi** market data, with every dollar knob scaled to a $100 bankroll (the
-$1,000 defaults would put half the account in one market). Kalshi rather than
-Polymarket because that is where the tradable books are: measured the same
-hour, Kalshi MLB quotes a 0.010 median spread against Polymarket's 0.94, and
-Polymarket's table-tennis books never tighten enough to trade at all
-(`docs/DASHBOARD_2026-09-22.md`). It is also the US-legal venue for real
-money. Kalshi market data is public, so the sim needs no API keys. `sportsbot-board.service`
-rebuilds `data/board.html` every minute: equity, where the money is allowed to
-go and the evidence for it, every decision including the passes and why, and
-the go-live gate.
+**Polymarket** market data (the venue the file names; the 2026-09-22 move to
+Kalshi rested on a discovery bug, corrected in `docs/EDGE_VERDICT_2026-09-23.md`),
+with every dollar knob scaled to a $100 bankroll (the $1,000 defaults would
+put half the account in one market). Market data on both venues is public, so
+the sim needs no API keys; `ODDS_API_KEY` in `.env` additionally turns on the
+sharp-line harness and prices NBA/NFL/NHL. The sim also runs the touch-maker
+arm (`touch:` block, $1 a side on MLB) whose paper fills are tape-verified.
+Real money is a separate question: the US-legal venues are Kalshi and
+Polymarket US (`exchange: kalshi`), never the main CLOB from a US IP.
+`sportsbot-board.service` rebuilds `data/board.html` every minute: equity,
+where the money is allowed to go and the evidence for it, every decision
+including the passes and why, and the go-live gate. `sportsbot maker-report`
+reads out the touch arm (`docs/MAKER_TEST.md`).
+
+Durability: this is the home for the sim's SQLite store. A cloud Claude
+session that runs one cycle a day keeps its `data/` only until its container
+is reclaimed; the server's `data/` persists, and a nightly
+`sqlite3 data/sportsbot.sqlite ".backup backups/sportsbot-$(date +%F).sqlite"`
+in the `sportsbot` user's crontab costs nothing.
 
 View it the same way as the substrate dashboard — through an SSH tunnel, not
 an open web port:
