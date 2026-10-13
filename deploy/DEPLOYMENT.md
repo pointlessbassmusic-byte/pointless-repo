@@ -50,6 +50,7 @@ directory, and the service user cannot read `/root`.
 | trading dashboard (sim/real) | `... sportsbot board` → `/opt/sportsbot/data/board.html`; runs every minute as `sportsbot-board.service` |
 | $100 sim book | runs as `sportsbot-sim.service` (paper mode, live market data); logs via `journalctl -u sportsbot-sim` |
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
+| live maker fill-share test | `config/maker_test.yaml` + the runbook in `docs/MAKER_TEST.md` (inert until `mode: live`, `SPORTSBOT_LIVE=1`, keys, and a learning budget in `config/allocation.yaml`) |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
 | deploy new code | `git -C /opt/sportsbot pull && systemctl restart sportsbot weather-snapshot` |
 | weather arm scores (coin/climo/NWS/market) | `... sportsbot weather-score` — decision-time Brier per arm; offline |

@@ -79,6 +79,56 @@ passes the gate on its own fills. Either failing closes rank 2 as a
 standalone arm; informed-flow direction (queue item 2) is then its only
 remaining form, data-logged.
 
+## Starting it (operator runbook)
+
+Everything below is the operator's: nothing in the repository turns this
+on. `config/maker_test.yaml` is the complete config for the test, shipped
+in paper mode; `sportsbot doctor -c config/maker_test.yaml` is the
+preflight and exits non-zero on any FAIL.
+
+1. **Fund and key Kalshi.** A dedicated account holding only what the
+   test may lose (the risk block stops the day at a $10 realised loss and
+   kills the bot at $25; tens of dollars is the expected cost). Put
+   `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH` (mode 600, readable
+   by the `sportsbot` user) in `.env`; set `KALSHI_ENV=demo` for the first
+   day and `prod` after. `ODDS_API_KEY` is needed for the NHL/NFL leg (start
+   times) and for the sharp close the read-out grades against.
+2. **Tell the config what is funded.** In `config/maker_test.yaml` set
+   `accounts.real.starting_balance` and `bankroll.amount` to the funded
+   amount (the knobs are scaled for $100) and `mode: live`.
+3. **Give the arm a budget, by hand, in `config/allocation.yaml`.** Live
+   money reaches an arm only through a manual weight, a green gate, or a
+   learning budget. For this test the learning budget is the right door,
+   because it is bounded and pauses itself on a bad week:
+   ```yaml
+   learning:
+     budget_usd: 30.0            # $10 a sport: ten concurrent $1 contracts each
+     weekly_loss_stop_usd: 15.0  # pause the learning arms for the week at this 7-day loss
+   arms:
+     baseball/touch/maker: {weight: null, learn: true}
+     hockey/touch/maker:   {weight: null, learn: true}
+     football/touch/maker: {weight: null, learn: true}
+   ```
+   Those are the only lines that change. The per-sport cap
+   (`max_fraction_per_sport`, 20% of the bankroll) still applies, so a
+   $100 bankroll caps each sport at $20 whatever the budget says.
+4. **Run it.** On the server, as a second unit beside the sim:
+   ```bash
+   cd /opt/sportsbot && sudo -u sportsbot .venv/bin/sportsbot doctor -c config/maker_test.yaml
+   sudo systemctl edit sportsbot      # add under [Service]:
+   #   Environment=SPORTSBOT_LIVE=1
+   #   ExecStart=
+   #   ExecStart=/opt/sportsbot/.venv/bin/sportsbot run -c /opt/sportsbot/config/maker_test.yaml
+   sudo systemctl start sportsbot && journalctl -u sportsbot -f
+   ```
+   Without `SPORTSBOT_LIVE=1` the runner logs that it is forcing paper
+   mode and places nothing real, whatever the config says.
+5. **Read it out** with `sportsbot maker-report -c config/maker_test.yaml
+   --mode live` at 200 fills or 30 days, per the section above; the board
+   shows the real book beside the sim's. **Stop it** with
+   `systemctl stop sportsbot`, or `touch data/KILL_SWITCH` for an
+   immediate halt that needs `sportsbot reset-kill-switch` to clear.
+
 ## Cost of the test
 
 At $1 a side and $4 per market the worst case is bounded by the sport
