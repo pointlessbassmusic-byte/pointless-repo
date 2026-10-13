@@ -41,7 +41,9 @@ POST_RESULT_RAIL = 0.03    # closing prints outside (rail, 1-rail) are refused
 GAMMA = "https://gamma-api.polymarket.com"
 CLOB = "https://clob.polymarket.com"
 CACHE_DIR = "data/cache/polymarket_prices"
-SPORT_TAGS = {"baseball": 100381, "tennis": 864}
+# Gamma tag ids, the same ones exchanges/polymarket.py discovers with.
+SPORT_TAGS = {"baseball": 100381, "tennis": 864, "hockey": 899, "basketball": 745,
+              "football": 450}
 
 
 @dataclass

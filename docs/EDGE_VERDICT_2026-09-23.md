@@ -1091,6 +1091,79 @@ Nothing here supports a taker trade, a model, or a larger stake; the
 paper book's tape-verified fills now measure the same quantity live, and
 the gate still needs 200 CLV-graded fills with the interval above zero.
 
+### Result 15, addendum (2026-10-13): NHL and NFL carry the same touch edge; NBA is not measurable yet
+
+_Same construction, same code (`wallet-follow --maker-ticks 1`), on the
+Polymarket moneylines the MLB season leaves behind in November: hockey
+(Gamma tag 899, last 14 days: 89 resolved games, 17,448 pre-game taker
+fills, train 62 / test 27 by start time), football (tag 450, last 45
+days: 80 resolved games, 67,393 fills, train 56 / test 24; which leagues
+the tag mixes was not checked) and basketball (tag 745, last 14 days:
+40 resolved games, 12,382 fills, train 28 / test 12, eleven of them with
+pre-game prints; early October is before the NBA regular season, so these
+are pre-season or other-league books). Population taker CLV at own price
+on the test games: hockey −0.0026 [−0.0039, −0.0013], football −0.0017
+[−0.0035, +0.0003], basketball −0.0090 [−0.0194, +0.0036] — takers lose
+to makers in all three, as in MLB. Intervals are clustered by market and
+the market counts are small (27 / 24 / 11); read the widths._
+
+**Population maker baseline, one tick under every pre-game print:**
+
+| sport | deadline | fill rate | median wait | CLV on fills | markets |
+|---|---|---|---|---|---|
+| hockey | 120 s | 13.3% | 21 s | **+0.0063 [+0.0026, +0.0113]** | 27 |
+| hockey | 30 min | 44.8% | 359 s | **+0.0055 [+0.0040, +0.0071]** | 27 |
+| hockey | to start | 83.3% | 1,461 s | **+0.0042 [+0.0029, +0.0055]** | 27 |
+| football | 120 s | 29.3% | 24 s | **+0.0053 [+0.0041, +0.0063]** | 24 |
+| football | 30 min | 59.6% | 127 s | **+0.0065 [+0.0056, +0.0077]** | 24 |
+| football | to start | 92.2% | 511 s | **+0.0054 [+0.0043, +0.0064]** | 24 |
+| basketball | 120 s | 27.3% | 15 s | −0.0032 [−0.0133, +0.0109] | 11 |
+| basketball | 30 min | 55.6% | 129 s | −0.0243 [−0.0545, +0.0063] | 11 |
+| basketball | to start | 82.2% | 597 s | −0.0149 [−0.0324, +0.0050] | 11 |
+
+For comparison MLB gave +0.0070 / +0.0061 / +0.0054 on 182–191 markets
+and tennis −0.0035 / −0.0005 / +0.0011 on 472–592. Hockey and football
+are the MLB number — about half a point of CLV per fill at the touch,
+interval above zero at every deadline — on a tenth of the markets.
+Basketball's intervals span zero and lean negative; with eleven
+pre-season markets and one tape page lost to a 429 that is "not
+measured", not "none". Realised return per dollar spans zero everywhere
+(hockey +0.06 to +0.09 ± 0.17, football +0.10 to +0.25 ± 0.3); judge by
+CLV.
+
+**Informed direction.** Neither hockey nor football has persistent
+informed wallets on this window: the 20 best-CLV train wallets carry
++0.0010 [−0.0012, +0.0039] (hockey, 967 test trades) and +0.0029
+[−0.0031, +0.0096] (football, 203) at their own price out of sample, so
+resting behind them earns the population number (+0.0072 to +0.0083
+hockey, +0.0059 to +0.0097 football) rather than the doubling MLB
+showed. Basketball's best-CLV wallets do carry +0.0238 [+0.0058,
++0.0466] out of sample and resting behind them +0.0139 to +0.0181 — on
+eleven markets, which is a lead to re-measure in the regular season, not
+a finding.
+
+**What this is.** The touch edge is a property of slow pre-game
+team-sport books, not of MLB: the two sports where the tape shows takers
+paying about half a point to whoever rests at the touch are the two
+whose seasons run through the winter. Tennis (one-tick books, fast,
+individual sport) and the arbitrage desk's 15-minute crypto binaries
+(fast, resolved in minutes) are where resting at the touch loses, which
+is the information-speed reading of all of these together. The caveat is
+unchanged and binding: every fill here is a queue-priority fill at the
+existing bid, and the fill share of a *new* order is the quantity only a
+live minimum-size order can measure.
+
+**What it changes.** The paper sim's touch arm now rests on hockey and
+football moneylines as well as MLB (`touch.sports` in `config/sim.yaml`;
+these sports have no model, so the arm quotes their books even when the
+sharp harness has no line to price them with — it needs none), so the
+paper fill-share evidence keeps accruing after the World Series. The
+pre-registered live test (`docs/MAKER_TEST.md`) can run on NHL and NFL
+on Kalshi with the same $1-a-side terms; NBA waits for a regular-season
+re-measurement with at least 60 days of games. Nothing here changes the
+gate (200 CLV-graded fills, interval lower bound above zero) or supports
+a stake above the minimum.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two

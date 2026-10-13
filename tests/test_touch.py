@@ -182,12 +182,18 @@ def test_shipped_configs_carry_the_touch_arm_off_by_default_and_on_in_the_sim():
     d = yaml.safe_load(open("config/default.yaml"))
     s = yaml.safe_load(open("config/sim.yaml"))
     assert d["touch"]["enabled"] is False and s["touch"]["enabled"] is True
-    assert s["touch"]["sports"] == ["baseball"] and s["touch"]["stake_usd"] == 1.0
-    assert s["touch"]["improve"] is False
-    assert "baseball/touch/maker" in running_arms_for(s)
-    assert "baseball/touch/maker" not in running_arms_for(d)
+    # Result 15 + its addendum: MLB, NHL and NFL carry the touch edge; NBA
+    # is not measurable yet and tennis has none, so neither is quoted.
+    assert s["touch"]["sports"] == ["baseball", "hockey", "football"]
+    assert d["touch"]["sports"] == s["touch"]["sports"]
+    assert s["touch"]["stake_usd"] == 1.0 and s["touch"]["improve"] is False
+    for sport in ("baseball", "hockey", "football"):
+        assert f"{sport}/touch/maker" in running_arms_for(s)
+        assert f"{sport}/touch/maker" not in running_arms_for(d)
     alloc = load_allocation("config/allocation.yaml")
-    assert alloc.setting("baseball/touch/maker").learn is False
+    for sport in ("baseball", "hockey", "football"):
+        st = alloc.setting(f"{sport}/touch/maker")
+        assert st.learn is False and st.weight is None     # nothing funded by this file
 
 
 def test_runner_drain_lets_resting_orders_live_out_the_ttl_then_shadows_them(tmp_path, monkeypatch):
@@ -241,3 +247,65 @@ def test_runner_drain_lets_resting_orders_live_out_the_ttl_then_shadows_them(tmp
     assert o["status"] == "canceled" and o["filled"] == 1.0
     assert o["raw"]["tape_through"] == 1.0 and o["raw"]["tape_filled"] == 1.0
     assert r.store.all_bets("paper")[0]["arm"] == "baseball/touch/maker"
+
+
+def test_touch_arm_quotes_unpriced_markets_in_its_sports_only(tmp_path):
+    """NHL/NFL without a sharp line: the scanner drops them, the touch arm
+    (no model) still rests at their touch; other drop reasons stay dropped
+    and the decision row carries no model probability."""
+    from sportsbot.bot.risk import RiskConfig, RiskManager
+    from sportsbot.bot.runner import Runner, _Unpriced
+    from sportsbot.bot.scanner import ScanDrop
+    from sportsbot.bot.strategy import StrategyConfig
+
+    r = Runner.__new__(Runner)
+    r.store = Store(str(tmp_path / "t.sqlite"))
+    r.account = "sim"
+    r.touch = _cfg(sports=["baseball", "hockey"])
+    r.maker_fee_fn = lambda price, market_id="": 0.0
+    r.executor = Executor(PaperExchange(starting_balance=100.0), r.store, mode="paper")
+    r.risk = RiskManager(RiskConfig(min_minutes_before_start=10), r.store)
+    soon = datetime.now(timezone.utc) + timedelta(hours=3)
+    nhl = _market(market_id="nhl1", sport=Sport.HOCKEY, start_time=soon)
+    nfl = _market(market_id="nfl1", sport=Sport.FOOTBALL, start_time=soon)
+    mlb = _market(market_id="mlb1", start_time=soon)
+    drops = [ScanDrop(nhl, "no sharp lines on record", "no sharp line"),
+             ScanDrop(nfl, "no sharp lines on record", "no sharp line"),      # not in touch.sports
+             ScanDrop(mlb, "unmatched entity", "unmatched"),                   # wrong category
+             ScanDrop(_market(market_id="t1", sport=Sport.TENNIS, start_time=soon), "x", "no model")]
+    assert [m.market_id for m in r._touch_only_markets(drops)] == ["nhl1"]
+    r.touch = _cfg(sports=["baseball", "hockey"], enabled=False)
+    assert r._touch_only_markets(drops) == []
+    r.touch = _cfg(sports=["baseball", "hockey"])
+
+    scfg = StrategyConfig()
+    scfg.sport_budget = {"hockey": 20.0}
+    scfg.style_override = {"hockey": "maker"}
+    q = MarketQuote(market_id="nhl1", bid=0.44, ask=0.47,
+                    bids=[BookLevel(price=0.44, size=200.0)], asks=[BookLevel(price=0.47, size=200.0)])
+    summary = {"orders": 0}
+    assert r._touch_pass(_Unpriced(nhl), q, EMPTY, scfg, summary) is True
+    assert r.executor.resting_sides("nhl1") == {Side.YES}
+    rows = [tuple(x) for x in r.store.conn.execute(
+        "SELECT action, sport, model_prob, reason FROM decisions").fetchall()]
+    assert rows == [("bet", "hockey", None, rows[0][3])] and rows[0][3].startswith("touch join")
+
+
+def test_allocator_does_not_gate_the_touch_arm_on_a_priceable_sport():
+    from sportsbot.bot.portfolio import AllocationConfig, allocate_arms
+
+    cfg = {"bankroll": {"max_total_exposure": 0.5, "max_fraction_per_sport": 0.2},
+           "sports": {}, "execution": {}}
+    running = {"baseball/model/maker", "hockey/sharp/maker", "hockey/touch/maker"}
+    port = allocate_arms(100.0, cfg, AllocationConfig(), [], running, mode="paper",
+                         priceable_sports={"baseball"})
+    assert "nothing can price" in port["arms"]["hockey/sharp/maker"]["source"]
+    assert port["arms"]["hockey/sharp/maker"]["budget"] == 0.0
+    assert port["arms"]["hockey/touch/maker"]["budget"] == 20.0     # equal share, per-sport cap
+    assert port["sport_budget"] == {"baseball": 20.0, "hockey": 20.0}
+    assert port["style_by_sport"]["hockey"] == "maker"
+    # live: still only manual weight / evidence / learn — nothing funded here
+    live = allocate_arms(100.0, cfg, AllocationConfig(), [], running, mode="live",
+                         priceable_sports={"baseball"})
+    assert live["arms"]["hockey/touch/maker"]["budget"] == 0.0
+    assert "gate not met" in live["arms"]["hockey/touch/maker"]["source"]
