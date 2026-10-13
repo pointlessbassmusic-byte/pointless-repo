@@ -341,6 +341,100 @@ def _arms(port: dict) -> str:
         f'never with a losing streak.</div>')
 
 
+def edge_bar_rows(store, account: str, days: int = 14) -> list[dict]:
+    """Per-day, per-sport distance to the entry bar, newest last."""
+    rows = []
+    for key, by_sport in sorted(store.kv_prefix(f"edgebar:{account}:").items()):
+        date = key.rsplit(":", 1)[-1]
+        for sport, d in sorted((by_sport or {}).items()):
+            rows.append({"date": date, "sport": sport, **d})
+    dates = sorted({r["date"] for r in rows})[-days:]
+    return [r for r in rows if r["date"] in dates]
+
+
+def _svg_edge_bar(rows: list[dict], width: int = 720, height: int = 180) -> str:
+    """Best net edge seen per day, one line per sport, against the bar."""
+    dates = sorted({r["date"] for r in rows})
+    sports = sorted({r["sport"] for r in rows if r.get("best") is not None})
+    if len(dates) < 2 or not sports:
+        return ""
+    bar = max(float(r["bar"]) for r in rows)
+    vals = [float(r["best"]) for r in rows if r.get("best") is not None] + [bar, 0.0]
+    lo, hi = min(vals), max(vals)
+    span = max(hi - lo, 0.02)
+    lo, hi = lo - span * 0.1, hi + span * 0.1
+    pad_l, pad_r, pad_t, pad_b = 52, 12, 12, 24
+    iw, ih = width - pad_l - pad_r, height - pad_t - pad_b
+
+    def x(i):
+        return pad_l + iw * i / max(1, len(dates) - 1)
+
+    def y(v):
+        return pad_t + ih * (1.0 - (v - lo) / (hi - lo))
+
+    grid = []
+    for frac in (0.0, 0.5, 1.0):
+        v = lo + (hi - lo) * frac
+        grid.append(f'<line class="grid" x1="{pad_l}" y1="{y(v):.1f}" '
+                    f'x2="{width - pad_r}" y2="{y(v):.1f}"/>'
+                    f'<text class="axis" x="{pad_l - 8}" y="{y(v) + 4:.1f}" '
+                    f'text-anchor="end">{v * 100:+.1f} pt</text>')
+    base = (f'<line class="base" x1="{pad_l}" y1="{y(bar):.1f}" x2="{width - pad_r}" '
+            f'y2="{y(bar):.1f}"/><text class="axis" x="{width - pad_r}" y="{y(bar) - 4:.1f}" '
+            f'text-anchor="end">bar {bar * 100:.1f} pt</text>')
+    lines = []
+    for sport in sports:
+        pts = []
+        for i, d in enumerate(dates):
+            hit = [r for r in rows if r["date"] == d and r["sport"] == sport and r.get("best") is not None]
+            if hit:
+                pts.append(f"{x(i):.1f},{y(float(hit[0]['best'])):.1f}")
+        if len(pts) >= 2:
+            lines.append(f'<polyline class="line edge" points="{" ".join(pts)}"/>')
+        elif pts:
+            cx, cy = pts[0].split(",")
+            lines.append(f'<circle class="dot edge" cx="{cx}" cy="{cy}" r="3"/>')
+    labels = (f'<text class="axis" x="{pad_l}" y="{height - 6}">{dates[0]}</text>'
+              f'<text class="axis" x="{width - pad_r}" y="{height - 6}" '
+              f'text-anchor="end">{dates[-1]}</text>')
+    return (f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" '
+            f'aria-label="best edge seen against the entry bar">{"".join(grid)}{base}'
+            f'{"".join(lines)}{labels}</svg>')
+
+
+def _edge_bar(rows: list[dict]) -> str:
+    """Distance to the bar: the arbitrage desk's headline chart, carried
+    over. A flat equity line says nothing; the gap between the best edge
+    the slate offered and the bar says whether the bar or the market is
+    what stands in the way."""
+    if not rows:
+        return ('<div class="empty">Nothing priced yet — this fills in once the bot '
+                'has evaluated a slate.</div>')
+    body = []
+    for r in sorted(rows, key=lambda r: (r["date"], r["sport"]), reverse=True)[:21]:
+        best = r.get("best")
+        gap = (None if best is None else float(best) - float(r["bar"]))
+        body.append(
+            f'<tr><td class="mono">{_e(r["date"])}</td><td>{_e(r["sport"])}</td>'
+            f'<td class="num">{r.get("priced", 0)}</td>'
+            f'<td class="num">{"—" if best is None else f"{float(best) * 100:+.2f}"}</td>'
+            f'<td class="num">{"—" if gap is None else f"{gap * 100:+.2f}"}</td>'
+            f'<td class="num">{r.get("within_1pt", 0)}</td>'
+            f'<td class="num">{r.get("spread_blocked", 0)}</td>'
+            f'<td class="num">{r.get("bets", 0)}</td></tr>')
+    return (_svg_edge_bar(rows)
+            + '<table class="grid-table"><thead><tr><th>Day</th><th>Sport</th>'
+              '<th class="num">Priced</th><th class="num">Best edge (pt)</th>'
+              '<th class="num">To bar (pt)</th><th class="num">Within 1 pt</th>'
+              '<th class="num">Spread-blocked</th><th class="num">Bets</th></tr></thead>'
+              f'<tbody>{"".join(body)}</tbody></table>'
+              '<div class="foot">Best net edge the strategy printed on any priced market '
+              'that day (after fees and slippage) against the entry bar. A gap that '
+              'stays negative while spread-blocked counts are low means the market, not '
+              'the bar, is what stands in the way; many markets within a point of the bar '
+              'mean the bar is binding and the fee floor decides.</div>')
+
+
 def _results() -> str:
     rows = "".join(
         f'<tr><td class="num">{_e(n)}</td><td><strong>{_e(t)}</strong></td>'
@@ -436,6 +530,7 @@ def collect(cfg: dict, store) -> dict:
             "equity": eq,
             "series": store.equity_series(acct, limit=500),
             "decisions": store.recent_decisions(acct, limit=300),
+            "edge_bar": edge_bar_rows(store, acct),
             "gate": evidence_gate(store, acct),
             "allocation": allocate(max(eq["equity"], 0.0), cfg,
                                    reports[acct].get("by_sport", {}), ratings,
@@ -478,6 +573,7 @@ def render(data: dict, refresh: int = 60, fragment: bool = False) -> str:
             f'<div class="card"><h2>Sport sleeves (legacy view)</h2>'
             f'{_allocation(a["allocation"])}</div>'
             f'<div class="card"><h2>Decisions</h2>{_decisions(a["decisions"])}</div>'
+            f'<div class="card"><h2>Distance to the bar</h2>{_edge_bar(a.get("edge_bar", []))}</div>'
             f'<div class="card"><h2>Go-live gate (account)</h2>{_gate(a["gate"])}</div>'
             f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
             f'</section>')
@@ -558,6 +654,7 @@ padding:18px;margin-bottom:16px}
 .chart .area{opacity:.10}
 .chart .area.up{fill:var(--up)}.chart .area.down{fill:var(--down)}
 .chart .dot.up{fill:var(--up)}.chart .dot.down{fill:var(--down)}
+.chart .line.edge{stroke:var(--accent)}.chart .dot.edge{fill:var(--accent)}
 table.grid-table{width:100%;border-collapse:collapse;font-size:13px}
 .grid-table th{text-align:left;font-size:11px;color:var(--muted);
 text-transform:uppercase;letter-spacing:.05em;font-weight:600;
