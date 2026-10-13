@@ -59,6 +59,10 @@ systemctl enable --now sportsbot-board    # rebuilds the dashboard HTML every mi
 systemctl enable --now sportsbot-boardserve  # board.html on localhost:8001 for Tailscale Serve
 
 echo "==> initial model fit (tennis + baseball; table tennis bootstraps from Polymarket)"
+# The CLI resolves config/default.yaml against the working directory, and
+# the service user cannot read /root: run the fits from the app directory
+# (measured 2026-10-13: PermissionError on 'config/default.yaml' from /root).
+cd "$APP_DIR"
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit baseball || true
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit tennis || true
 sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit table_tennis || true
@@ -66,4 +70,4 @@ sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit table_tennis || true
 echo
 echo "Setup complete. Start with:   systemctl start sportsbot"
 echo "Watch logs with:              journalctl -u sportsbot -f"
-echo "Check status with:            sudo -u sportsbot $APP_DIR/.venv/bin/sportsbot status"
+echo "Check status with:            cd $APP_DIR && sudo -u sportsbot $APP_DIR/.venv/bin/sportsbot status"
