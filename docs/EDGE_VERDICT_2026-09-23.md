@@ -1488,6 +1488,34 @@ price, in probability points, with standard errors clustered by game.
    queue position, which only live orders measure. That is the
    pre-registered test (`docs/MAKER_TEST.md`).
 
+**Queue-position check (2026-10-14, same data; main and Kalshi only, since
+they have full tapes).** The front-of-queue row above credits a fill on
+every print at the touch. Here instead each fill must work through the
+queue first. A $1 bid (or ask) joins the touch and fills only once tape
+prints at or through its price exceed the size that sat in front of it
+at the sample where it joined. Cancellations ahead of it are ignored,
+which is conservative. Two ways of joining:
+
+| NHL, 16 games | joins | filled | CLV per fill |
+|---|---|---|---|
+| main: first at each new best price | 29 | 45% | −0.04 ± 0.12 pt |
+| main: join the existing queue | 1,234 | 22% | −0.64 ± 0.23 pt |
+| Kalshi: first at each new best price | 41 | 68% | +0.07 ± 0.12 pt |
+| Kalshi: join the existing queue | 1,214 | 22% | −0.24 ± 0.31 pt |
+
+Once the queue in front is counted, the +0.3 to +0.7 points disappears:
+- **Joining behind the queue** fills about one time in five, and those
+  fills lose. They come when the price moves through the order.
+- **Being first at a new price** fills more often and breaks even. It is
+  also rare: NHL books moved to a new best price only 29-41 times across
+  16 games' pre-game windows.
+
+This is Result 15's own caveat measured directly ("≈ 0 under strict
+fills, positive only at the front of the queue"). At realistic queue
+positions there is no NHL maker edge on this night. The $1 live test
+stays a measurement and must not be scaled on the paper rule's numbers.
+Script: `data/ratings/joinlevel.py` against `data/queue.sqlite`.
+
 **Verdict: Polymarket US stays the first venue for the live test.** It
 charges no maker fee, carries start times without `ODDS_API_KEY`, and
 turns its queue over fastest. Kalshi is a close second: its CLV per fill
