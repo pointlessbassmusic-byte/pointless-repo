@@ -1516,6 +1516,53 @@ positions there is no NHL maker edge on this night. The $1 live test
 stays a measurement and must not be scaled on the paper rule's numbers.
 Script: `data/ratings/joinlevel.py` against `data/queue.sqlite`.
 
+**Taker retest with book signals (2026-10-14, same data).** The question
+was whether the order-book state the study records gives a taker an edge
+that average taker CLV hides. A taker pays the far touch and the venue
+fee, and is marked to that venue's closing mid. Six rules were screened
+on each venue's own 30-second samples, with a 5-minute cooldown per game
+and direction and errors clustered by game:
+
+- trading every 10 minutes (the baseline);
+- queue imbalance above 4:1, buying the side about to run out;
+- following a new best price;
+- fading a new best price;
+- following a level pulled without a trade;
+- following another venue's mid when it moved at least 1c while this one
+  did not.
+
+Every rule loses on every venue, net of fee and spread. On NHL the
+baseline loses −1.7 to −2.2 points and the other five −1.0 to −2.6.
+Across all sports the best rule is main's queue imbalance at −0.06 ±
+0.56, and main is geoblocked for US users.
+
+Gross, before fee and spread, two signals do carry information:
+
+| signal | NHL | all sports |
+|---|---|---|
+| queue imbalance | +0.6 to +0.8 pt (t 2.2-2.9) | +0.2 to +1.6 |
+| another venue's lead | +0.1 to +0.5 | +0.7 to +1.3 (t 2.5-3.4) |
+
+The cost of taking is about 2.2 points at even money on Polymarket US
+and Kalshi: half a cent of spread plus a fee of about 1.7c. That is
+three times the information the signals carry. This was one night, with
+36 rule-venue-sport cells screened, so t-values of 2-3 here are a lead
+to watch, not a finding.
+
+The same imbalance signal does not rescue the maker arm either. Here a
+$1 order rests only when imbalance is above 4:1 and must trade through
+the queue in front of it (NHL):
+
+| resting side | fills | CLV per fill |
+|---|---|---|
+| side the imbalance favours | 0.5-2% | n/a (9 and 20 fills) |
+| side it disfavours | 54-57% | −0.5 to −0.6 pt |
+
+A maker on the favoured side almost never fills, and the other side is
+the adverse-selection trade. No taker strategy and no signal-gated maker
+strategy clears costs on this data. Scripts: `data/ratings/taker_screen.py`
+(net), `taker_gross.py` (gross) and `joinlevel_imb.py`.
+
 **Verdict: Polymarket US stays the first venue for the live test.** It
 charges no maker fee, carries start times without `ODDS_API_KEY`, and
 turns its queue over fastest. Kalshi is a close second: its CLV per fill
