@@ -72,3 +72,19 @@ before the cut, at most **5,000 prints** per market (newest first, so a
 truncated window keeps the prints closest to the start). Result 15's
 pre-game fills cluster in the last hours; the 30-minute and to-cut
 deadlines are unaffected inside a 6 h window. The fetch restarts clean.
+
+## Amendment 2 (after the main read; one refinement, chosen on TRAIN only)
+
+On the train half (70% of games), fills at prices under 0.30 had
+negative CLV on MLB, NHL and NCAAF, and the worst realised returns in
+every sport. Fills at 0.50 and above carried the edge. One rule is chosen
+there, and nothing else will be tried: **rest only when the fill price
+is ≥ 0.50.**
+
+Confirmation is on the TEST half: the live arms' sports (MLB, NHL, NFL)
+pooled, 120 s deadline, game-clustered bootstrap (2,000 draws, seed 9).
+
+- **CONFIRMED:** the ≥ 0.50 subset has CLV lower bound > 0 **and** a
+  realised return per $ above both 0 and the all-fills return on the
+  same test games.
+- Otherwise **NOT CONFIRMED**, and the rule is dropped.
