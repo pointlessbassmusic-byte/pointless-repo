@@ -63,3 +63,12 @@ construction can be run there.
 - **A FAIL** removes that sport from the Kalshi touch arms. A sport
   that FAILs here cannot be run on Kalshi's book on the strength of the
   Polymarket number.
+
+## Amendment 1 (11:24Z, before any analysis; nothing scored)
+
+The first fetch did 11 markets in a minute, about 13,000 prints each, on
+a universe of about 1,500 markets: hours. The window becomes the **6 h**
+before the cut, at most **5,000 prints** per market (newest first, so a
+truncated window keeps the prints closest to the start). Result 15's
+pre-game fills cluster in the last hours; the 30-minute and to-cut
+deadlines are unaffected inside a 6 h window. The fetch restarts clean.
