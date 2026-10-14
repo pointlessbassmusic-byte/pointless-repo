@@ -318,6 +318,29 @@ Pipeline per cycle:
       live test's tape shadow there needs a websocket collector, buildable
       once keys exist. `docs/MAKER_TEST.md` now prefers this venue. Soccer is
       not mapped (UCL events carry no moneyline type there).
+- [x] Venue queue study (2026-10-14, `substrate_bridge/queue_study.py`,
+      `sportsbot queue-log` / `queue-report`, EDGE_VERDICT Result 15
+      addendum 3). Polymarket US, main and Kalshi were sampled on the same
+      games every 30 s for 10.5 h, using the US public `/bbo` trade counter
+      as a coarse tape. All 16 NHL games:
+      * The touch is 80-130k contracts deep on every venue; US turns its
+        queue over fastest (0.21/h vs 0.17 main, 0.11 Kalshi).
+      * Front-of-queue CLV per fill: US +0.45 pt (no fee), Kalshi +0.66
+        gross / +0.41 net, main +0.33.
+      * Strict sweeps are rare everywhere before the start.
+      Polymarket US stays the live-test venue; Kalshi is a close second.
+- [x] 2026-10-14 sweep (EDGE_VERDICT Result 21). Tools:
+      `sportsbot wallet-review` (one wallet: settlement, mark-out and mirror),
+      `wallet-scan` (the leaderboard in 10 categories: no copyable skill),
+      `fresh-wallets` (new wallets buying long shots in size lose −9.7 pt per
+      share, t −3.6), `data/ratings/move_study.py` (big pre-game moves,
+      followed or faded, lose the costs), and kalshi-engine
+      `crypto_hourly_study` / `crypto_hourly_recorder` (Kalshi's hourly BTC
+      ladder beats a spot model at every horizon). One lead goes forward:
+      fading fresh-wallet long-shot buys, pre-registered as
+      `sportsbot fresh-watch` (`sportsbot-freshwatch.service`, which
+      update.sh installs). The bar is >= 200 fades across >= 60 markets
+      with t >= 2.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
@@ -475,7 +498,7 @@ item names the measurement that would move it, and the standing rules apply
    the MLB season; soccer is the promising unknown (a point of CLV on 21
    outcome markets, sample growing in paper daily); esports are excluded on
    realised returns; NBA is a December re-measurement. Kalshi measured
-   2026-10-13 (EDGE_VERDICT Result 22, 396 MLB games): +0.80 to +0.93c per
+   2026-10-13 (EDGE_VERDICT Result 23, 396 MLB games): +0.80 to +0.93c per
    fill net of its maker fee at the front of the queue, zero on strict
    through-fills, so the live test can run there with a working
    fill-share denominator today. Also
@@ -522,7 +545,7 @@ item names the measurement that would move it, and the standing rules apply
      offer's terms, cap, lock date and realised conversion, so the harvest is
      accounted like any other arm.
 4. **Score-feed latency measurement** before any in-play code. **Closed
-   for MLB, 2026-10-13 (EDGE_VERDICT Result 21):** on 873 scoring plays in
+   for MLB, 2026-10-13 (EDGE_VERDICT Result 22):** on 873 scoring plays in
    200 games the venue's price covers half the move a median 6 s after the
    pitch and 8 s before the official feed stamps the play (97% of home runs
    are priced before the stamp). A taker reading the feed instantly nets

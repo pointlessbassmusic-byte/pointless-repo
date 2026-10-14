@@ -9,7 +9,8 @@ nothing installed):
 * Public, keyless (`gateway.polymarket.us`): `/v1/sports` (league codes ->
   series ids), `/v1/events?seriesId=` (events with nested markets; an NHL
   game carries ~183 markets, exactly one `SPORTS_MARKET_TYPE_MONEYLINE`),
-  `/v1/markets/{slug}/book`, `/v1/markets/{slug}/settlement`
+  `/v1/markets/{slug}/book`, `/v1/markets/{slug}/bbo` (top of book plus the
+  cumulative `sharesTraded` and `lastTradePx`), `/v1/markets/{slug}/settlement`
   (`{"settlement": 1}` once the LONG side won; an error until settled).
 * Authenticated (`api.polymarket.us`): orders, open orders, positions,
   balances. Headers `X-PM-Access-Key`, `X-PM-Timestamp` (ms) and
@@ -40,6 +41,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -140,8 +142,11 @@ def sign_headers(key_id: str, secret_b64: str, method: str, path: str,
 def _dt(s: Any) -> Optional[datetime]:
     if not s:
         return None
+    # The bbo stamps carry nanoseconds; Python 3.10's fromisoformat takes at
+    # most six fractional digits.
+    text = re.sub(r"(\.\d{6})\d+", r"\1", str(s).replace("Z", "+00:00"))
     try:
-        d = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        d = datetime.fromisoformat(text)
     except ValueError:
         return None
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
@@ -331,6 +336,22 @@ class PolymarketUSClient(ExchangeClient):
                            ask=asks[0].price if asks else None,
                            bids=bids, asks=asks)
 
+    def get_bbo(self, slug: str) -> dict:
+        """Public top of book plus the venue's running trade counters: the
+        closest thing to a tape it publishes without keys. `traded` is the
+        cumulative `sharesTraded`, `last_px` the last print (long frame)."""
+        d = (self._get(f"/v1/markets/{slug}/bbo") or {}).get("marketData") or {}
+        traded = d.get("sharesTraded")
+        try:
+            traded = float(traded) if traded is not None else None
+        except (TypeError, ValueError):
+            traded = None
+        return {"bid": _px(d.get("bestBid")), "ask": _px(d.get("bestAsk")),
+                "last_px": _px(d.get("lastTradePx")), "traded": traded,
+                "open_interest": _px(d.get("openInterest")),
+                "last_ts": _dt((d.get("lastPriceSample") or {}).get("ts")),
+                "state": d.get("state")}
+
     def get_resolution(self, market_id: str) -> Optional[bool]:
         try:
             data = self._get(f"/v1/markets/{market_id}/settlement")
@@ -366,7 +387,7 @@ class PolymarketUSClient(ExchangeClient):
             "participateDontInitiate": bool(getattr(order, "post_only", False)),
             "manualOrderIndicator": "MANUAL_ORDER_INDICATOR_AUTOMATIC",
         }
-        # Venue-enforced expiry (EDGE_VERDICT Result 21): GTD + goodTillTime.
+        # Venue-enforced expiry (EDGE_VERDICT Result 22): GTD + goodTillTime.
         # The docs type it only as a string (date-time on responses); sent as
         # RFC 3339 UTC, to be confirmed on the first live order.
         if order.order_type == OrderType.LIMIT_GTD and order.expires_at is not None:

@@ -35,7 +35,12 @@ def test_fit_baseball_installs_the_seed_when_the_api_refuses(tmp_path, monkeypat
     result = CliRunner().invoke(app, ["fit", "baseball", "-c", _cfg(tmp_path, seeds)])
     assert result.exit_code == 0, result.output
     assert "refused this host" in result.output and "HTTPStatusError" in result.output
-    assert "fitted 2026-10-13" in result.output and "9892 games" in result.output
+    # the provenance line echoes the committed seed's own metadata; read it
+    # from the file, since the daily check-in refreshes the seed (a fixed
+    # date here broke the suite on the first refresh after it was written)
+    meta = json.load(open("config/seeds/baseball.json"))["seed_meta"]
+    assert f"fitted {meta['fitted_at'][:10]}" in result.output
+    assert f"{meta['n_games']} games" in result.output
     installed = json.load(open(tmp_path / "ratings" / "baseball.json"))
     assert len(installed["elo"]) == 31 and installed["last_season"] == 2026
 

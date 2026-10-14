@@ -52,7 +52,7 @@ def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
 # Venue-side order lifetime: the local TTL cancels resting orders each
 # cycle, but a crashed process or a failed cancel would leave a quote
 # resting into the game, where faster watchers pick it off (EDGE_VERDICT
-# Result 21). Every order therefore carries a venue-enforced expiry a
+# Result 22). Every order therefore carries a venue-enforced expiry a
 # little past the TTL. Polymarket's SDK requires >= 3 minutes ahead.
 VENUE_MIN_EXPIRY_S = 240.0
 EXPIRY_GRACE_S = 60.0

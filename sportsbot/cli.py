@@ -687,6 +687,126 @@ def twobook_report(db: str = typer.Option("data/twobook.sqlite"),
     console.print(format_report(report(db, step=step)))
 
 
+@app.command("wallet-review")
+def wallet_review(address: str = typer.Argument(..., help="the Polymarket (polymarket.com) wallet address, 0x..."),
+                  mirror_cost: float = typer.Option(0.01, help="what the opposite trade pays to cross, per share"),
+                  history: bool = typer.Option(True, help="fetch price histories for 1h/24h mark-outs"),
+                  max_rows: int = typer.Option(20000, help="most recent activity rows to grade"),
+                  out: str = typer.Option("data/wallet_review.json", help="graded trades (data/ is gitignored)")):
+    """Grade one wallet's Polymarket history against settlement and mark-out,
+    and price the exact opposite of every trade after spread and fee.
+    Public reads only; the address and results stay in data/, never committed."""
+    import json
+
+    from sportsbot.backtest import wallet_review as wr
+
+    import logging
+    logging.getLogger("sportsbot.backtest.wallet_review").setLevel(logging.INFO)
+    graded = wr.WalletReview(address).run(mirror_cost=mirror_cost, with_history=history, max_rows=max_rows)
+    with open(out, "w") as fh:
+        json.dump(wr.to_json(graded), fh)
+    console.print(wr.format_summary(wr.summarize(graded)), soft_wrap=True)
+    console.print(f"{len(graded)} trades graded -> {out}")
+
+
+@app.command("wallet-scan")
+def wallet_scan(per_category: int = typer.Option(5, help="all-time top wallets by P&L per leaderboard category"),
+                month: int = typer.Option(3, help="this month's top wallets by P&L per category"),
+                max_rows: int = typer.Option(3000, help="most recent activity rows per wallet"),
+                max_tokens: int = typer.Option(120, help="price histories sampled per wallet"),
+                copy_delay: float = typer.Option(600.0, help="seconds before the copier enters"),
+                out: str = typer.Option("data/wallet_scan.json")):
+    """Are the leaderboard's wallets, in any category, worth copying? Older
+    half of each wallet's trades ranks, newer half tests; copy priced after
+    a delay, half-spread and fee. Public reads only."""
+    import json
+    import logging
+
+    import httpx
+
+    from sportsbot.backtest import wallet_scan as ws
+
+    logging.getLogger("sportsbot.backtest").setLevel(logging.WARNING)
+    info = ws.pool(httpx.Client(timeout=30), per_category=per_category, month=month)
+    console.print(f"{len(info)} wallets in the pool")
+    scanner = ws.Scanner(max_rows=max_rows, max_tokens=max_tokens, copy_delay=copy_delay)
+    results = []
+    for i, addr in enumerate(info, 1):
+        try:
+            results.append(scanner.wallet(addr))
+        except Exception as exc:  # noqa: BLE001 — one wallet's failure is one missing row
+            results.append({"address": addr, "trades": 0, "skipped": f"error: {exc}"[:80]})
+        console.print(f"  {i}/{len(info)} {info[addr]['name'][:24]}: {results[-1].get('trades')} trades")
+    v = ws.verdict(results)
+    with open(out, "w") as fh:
+        json.dump({"pool": {a: {**w, "categories": sorted(w["categories"])} for a, w in info.items()},
+                   "results": results, "verdict": v}, fh, default=str)
+    console.print(ws.format_scan(info, results, v), soft_wrap=True)
+
+
+@app.command("fresh-wallets")
+def fresh_wallets(days: int = typer.Option(120, help="resolved markets whose scheduled end fell in this window"),
+                  control_sample: int = typer.Option(1500, help="control trades priced for the copy test")):
+    """Do brand-new wallets buying long shots in size (non-sports, non-crypto)
+    know something, and can a follower still earn it after a delay, spread and
+    fee? Pre-registered in the module docstring. Public reads only."""
+    import logging
+
+    from sportsbot.backtest import fresh_wallet as fw
+
+    logging.getLogger("sportsbot.backtest.fresh_wallet").setLevel(logging.INFO)
+    res = fw.Study().run(days=days, control_sample=control_sample)
+    console.print(fw.format_summary(fw.summarize(res)), soft_wrap=True)
+
+
+@app.command("fresh-watch")
+def fresh_watch(hours: float = typer.Option(0.0, help="how long to watch; 0 = until stopped"),
+                poll: float = typer.Option(60.0, help="seconds between polls of the public trade feed"),
+                db: str = typer.Option("data/fresh_watch.sqlite"),
+                report: bool = typer.Option(False, "--report", help="score the record instead of watching")):
+    """Forward test (pre-registered, Result 21b): fade fresh-wallet long-shot
+    buys in non-sports markets 10 minutes later at the other side's ask,
+    scored at settlement. Public reads and a paper record only."""
+    import logging
+
+    from sportsbot.substrate_bridge import fresh_watch as fwt
+
+    if report:
+        console.print(fwt.format_report(fwt.report(db)))
+        return
+    logging.getLogger("sportsbot.substrate_bridge.fresh_watch").setLevel(logging.INFO)
+    fwt.Watch(db).run(hours=hours, poll=poll)
+
+
+@app.command("queue-log")
+def queue_log(config: str = CONFIG_OPT,
+              minutes: float = typer.Option(120.0, help="how long to sample"),
+              interval: float = typer.Option(30.0, help="seconds between passes"),
+              sports: str = typer.Option("hockey,baseball,basketball,football,college_football,tennis"),
+              window_h: float = typer.Option(12.0, help="games starting within this many hours"),
+              db: str = typer.Option("data/queue.sqlite")):
+    """Sample Polymarket US (bbo + book) and Polymarket main (book + taker
+    tape) for every US moneyline about to start. Data only (substrate_bridge):
+    public reads, no keys, no orders. Answers whether a $1 order resting at
+    the touch is ever traded through before the start on each venue."""
+    _setup(config)
+    from sportsbot.substrate_bridge.queue_study import QueueSampler
+
+    res = QueueSampler(db).run(minutes=minutes, interval=interval, window_h=window_h,
+                               sports=tuple(s.strip() for s in sports.split(",") if s.strip()))
+    console.print(res)
+
+
+@app.command("queue-report")
+def queue_report(db: str = typer.Option("data/queue.sqlite"),
+                 interval: float = typer.Option(30.0, help="the log interval in seconds")):
+    """Touch queue, volume, strict fills per market-hour and CLV per fill,
+    Polymarket US against Polymarket main on the same games."""
+    from sportsbot.substrate_bridge.queue_study import format_report, report
+
+    console.print(format_report(report(db, interval=interval)), soft_wrap=True)
+
+
 @app.command("venue-survey")
 def venue_survey(sports: str = typer.Option("nfl,nba,nhl,ufc,tennis,mlb"),
                  out: str = typer.Option("", help="also dump the paired books to this JSON path")):

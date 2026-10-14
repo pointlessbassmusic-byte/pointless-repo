@@ -1,4 +1,4 @@
-"""Venue-enforced order lifetime and post-only (EDGE_VERDICT Result 21): a
+"""Venue-enforced order lifetime and post-only (EDGE_VERDICT Result 22): a
 crashed process must not leave a quote resting into the game, and a maker
 quote must never cross and pay the taker fee."""
 from datetime import datetime, timedelta, timezone

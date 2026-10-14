@@ -35,14 +35,16 @@ is 3 minutes), Polymarket US `TIME_IN_FORCE_GOOD_TILL_DATE` +
 `goodTillTime` (sent as RFC 3339 UTC; the docs give no request format, so
 confirm it on the first order with the others). A crash, a host reboot or
 a failed cancel therefore cannot leave a quote resting into the game,
-where Result 21 shows the price moves seconds after each pitch and a
+where Result 22 shows the price moves seconds after each pitch and a
 resting order is what gets picked off. An order whose expiry could not
 fall a minute before the start is refused locally.
 
 Venue: **Polymarket US** (preferred since 2026-10-13) or **Kalshi**, both
 US-legal. Kalshi's own tape now carries the same measurement (EDGE_VERDICT
-Result 22, 396 MLB games): +0.80 to +0.93c per fill net of its maker fee
-at the front of the queue, zero on strict through-fills. Kalshi has the
+Result 23, 396 MLB games): +0.80 to +0.93c per fill net of its maker fee
+at the front of the queue, zero on strict through-fills. These are bounds
+only: counting the queue in front removes the NHL edge (Result 15
+addendum 3), so nothing here sizes the test. Kalshi has the
 public tape the fill-share denominator needs today. Never the main Polymarket CLOB from a US IP.
 
 Why Polymarket US first, from its own fee schedule and gateway
@@ -51,7 +53,8 @@ Why Polymarket US first, from its own fee schedule and gateway
 * **Makers pay nothing.** Takers pay 0.0695 × C × p × (1 − p), as on
   Kalshi; makers earn a 0.0125 × C × p × (1 − p) rebate until 2026-10-19
   13:00 ET and from then a volume-tiered rebate that is zero below $10M a
-  month. Kalshi's maker fee takes about 0.12 pt of the measured 0.6.
+  month. Kalshi charges makers $0.0025 a contract on NHL/NFL (0.25 pt)
+  and half that on MLB.
 * **Every game has a start time** (`gameStartTime`), so the NHL/NFL leg
   needs no `ODDS_API_KEY`; Kalshi's tickers carry none.
 * **Its own books, measured 2026-10-13 (read-only, no keys):**
@@ -64,9 +67,17 @@ Why Polymarket US first, from its own fee schedule and gateway
   | Tennis | 110 | 29 | 0.010 | 80 |
   | College football | 118 | 2 | 0.005 | 167,521 |
 
-  Touch size is the queue a new $1 order joins: on MLB and college
-  football it will rarely fill, on tennis it sits near the front. That
-  is the fill-share question this test exists to answer.
+  Touch size is the queue a new $1 order joins. It is deep on every
+  venue: on 16 NHL games sampled across all three books (EDGE_VERDICT
+  Result 15 addendum 3) the touch held 80-130k contracts on each, and
+  Polymarket US turned its queue over fastest (0.21 an hour against
+  main's 0.17 and Kalshi's 0.11).
+  * Front-of-queue fills earned +0.45 pt there, against +0.41 on Kalshi
+    net of its fee and +0.33 on main.
+  * Strict sweeps were rare everywhere (one per 4-25 market-hours).
+
+  Where real fills fall between those bounds is the fill-share question
+  this test exists to answer.
 
 Two caveats specific to it. (1) It publishes no keyless trade tape (trades
 stream only over the authenticated markets websocket), so the paper venue

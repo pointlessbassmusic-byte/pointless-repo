@@ -168,7 +168,7 @@ class Order(BaseModel):
     filled: float = 0.0
     status: OrderStatus = OrderStatus.PENDING
     # Venue-enforced lifetime (live venues; paper has its own TTL). A crashed process must not leave a quote resting into the
-    # game, where faster watchers pick it off (EDGE_VERDICT Result 21).
+    # game, where faster watchers pick it off (EDGE_VERDICT Result 22).
     expires_at: Optional[datetime] = None
     # Maker-only: the venue must reject rather than let the order cross.
     # Set by the executor for `.../maker` arms; sent as Polymarket US

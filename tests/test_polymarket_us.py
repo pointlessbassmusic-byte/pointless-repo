@@ -143,6 +143,22 @@ def test_book_and_settlement_parsing():
     assert c.get_resolution("open-market") is None                  # 404 "Settlement not found"
 
 
+def test_bbo_reads_the_running_trade_counter_and_last_print():
+    bbo = {"marketData": {"marketSlug": "aec-nhl-nj-det", "currentPx": {"value": "0.4950"},
+                          "lastTradePx": {"value": "0.4900", "currency": "USD"},
+                          "sharesTraded": "18882.8300", "openInterest": "13832.1400",
+                          "bestAsk": {"value": "0.5000"}, "bestBid": {"value": "0.4900"},
+                          "lastPriceSample": {"ts": "2026-10-13T16:17:25.038731659Z"},
+                          "state": "MARKET_STATE_OPEN"}}
+    c = PolymarketUSClient(key_id="", secret_key="", http=FakeHttp({"/bbo": (200, bbo)}))
+    b = c.get_bbo("aec-nhl-nj-det")
+    assert (b["bid"], b["ask"], b["last_px"]) == (0.49, 0.50, 0.49)
+    assert b["traded"] == pytest.approx(18882.83) and b["open_interest"] == pytest.approx(13832.14)
+    assert b["last_ts"].tzinfo is not None and b["state"] == "MARKET_STATE_OPEN"
+    empty = PolymarketUSClient(key_id="", secret_key="", http=FakeHttp({"/bbo": (200, {"marketData": {}})}))
+    assert empty.get_bbo("x")["traded"] is None and empty.get_bbo("x")["last_px"] is None
+
+
 def test_order_body_prices_in_yes_terms_and_sends_the_maker_only_flag():
     c = PolymarketUSClient(key_id="k", secret_key=SECRET, http=FakeHttp())
     yes = Order(market_id="aec-nhl-nj-det", side=Side.YES, price=0.49, size=2.0408, post_only=True)

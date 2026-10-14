@@ -46,8 +46,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   `config/allocation.yaml`; see `docs/ALLOCATION.md`).
 - `sportsbot/backtest/` — walk-forward with side randomization.
 - `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
-  (bot-log export, Kalshi weather snapshots). Data only; never wires
-  substrate output into trading.
+  (bot-log export, Kalshi weather snapshots) and venue measurements
+  (`twobook.py` lead-lag, `queue_study.py`: touch queue, strict fills per
+  market-hour and CLV per fill on Polymarket US vs main vs Kalshi for the
+  same games, US side from its public `/bbo` trade counter). Data only;
+  never wires substrate output into trading.
 - `substrate/` — Substrate/Echo certification engine, consolidated
   VERBATIM from its own handoff. Read `substrate/HANDOFF.md` before
   touching it. `substrate/PROTOCOL_v1.md` is FROZEN (hash-committed):
@@ -95,10 +98,12 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Live smoke (reads only, safe): `sportsbot scan`.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
-- In-play feed latency (MLB): `sportsbot score-latency` (network; Result 21).
-- Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 22).
+- In-play feed latency (MLB): `sportsbot score-latency` (network; Result 22).
+- Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 23).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
+- Venue queue study: `sportsbot queue-log` (public reads, no keys) then
+  `sportsbot queue-report` (offline).
 - Operator: `sportsbot digest [--post]` (daily lines, Discord webhook via
   `SPORTSBOT_DISCORD_WEBHOOK`), `sportsbot board-serve` (board on localhost
   for Tailscale Serve; whitelisted pages only).
@@ -317,16 +322,18 @@ the outcome and fabricates longshot edge.
   Up/Down windows lose in every configuration: the leg left unpaired is the
   loser by construction (0 of 701 won).
 - In-play MLB is not a feed race anyone outside the stadium wins
-  (EDGE_VERDICT Result 21, `sportsbot score-latency`): on 873 scoring plays
+  (EDGE_VERDICT Result 22, `sportsbot score-latency`): on 873 scoring plays
   Polymarket's price covers half the move 6 s after the pitch, 8 s before
   MLB's own feed stamps the play, and a taker reading the feed at zero
   delay nets -0.16c per $1 (CI spans zero), going negative within 5 s.
   Write no in-play taker code; NBA is unmeasured.
-- The touch edge holds on Kalshi too (EDGE_VERDICT Result 22,
+- The touch edge holds on Kalshi too, as an upper bound (EDGE_VERDICT Result 23,
   `sportsbot kalshi-touch`): on 396 settled MLB games a bid one tick under
   each pre-start print earns +0.80 to +0.93c per fill net of the maker fee
   at the front of the queue, and zero (+-0.3c) on strict through-fills, the
-  same bracket as Result 15. Kalshi's MLB tickers are not first pitch: 7 of
+  same bracket as Result 15; Result 15 addendum 3 counts the queue in front
+  on NHL and the edge goes, so this is an upper bound, never a sizing
+  input. Kalshi's MLB tickers are not first pitch: 7 of
   398 ran 0.6-3.5 h late, so baseball starts are pulled to the earlier of
   the venue's time and MLB's schedule (`bot/start_check.py`), never later.
 - PnL from hundreds of bets cannot settle an edge claim: per-bet return SD on
