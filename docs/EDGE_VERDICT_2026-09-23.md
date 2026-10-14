@@ -1839,10 +1839,33 @@ with the crypto desk's addendum 26 (polymarket-arbitrage, a different
 model). It is the sixth measured non-member of the reference-price
 class.
 
+ETH (KXETHD, the same 14 days, 328 events) gives the same answer. The
+book's Brier is better at every horizon by +0.0011 to +0.0083. The
+residual beta runs −0.21 to +0.32 with a se of ~0.2. The taker rule
+loses 1.3-3.0 points from 15 minutes in; its one positive, at 30
+minutes, is +0.12 ± 0.83.
+
 A forward recorder (`crypto_hourly_recorder.py`) logs the final 20
-minutes of each hour every 5 s with live Kraken and Coinbase prices.
-That keeps the last minutes, where 1-minute spot is stale, honest. It
-started 2026-10-14 12:00Z.
+minutes of each hour every 5 s with live Kraken and Coinbase prices, so
+the stale 1-minute spot cannot be the excuse. Its first two hours
+(12:00 and 13:00Z, 16 markets) are too few to read. With the book ahead
+from 30 minutes out on both coins, it is kept as a tool, not run
+continuously.
+
+### 21e. The stock desk's Form 4 study (polymarket-arbitrage `insider-purchases`)
+
+This was built in the crypto/stock desk's own registry, pre-registered
+before collection (polymarket-arbitrage PR #3). It covers officer and
+director open-market purchases ≥ $25k, 28,706 priced events from 2016
+to 2026. The result is inconclusive:
+
+- **Against the same name a quarter later:** +1.21% per trade-month,
+  with a PSR of 0.91 against the 0.95 bar.
+- **Against SPY:** the window after the filing earns +0.00%. The names
+  fall about 3% into the buy, then pause.
+
+So there is no return above the market. This is the stock market's
+"public wallets" answer.
 
 ### What this leaves
 
