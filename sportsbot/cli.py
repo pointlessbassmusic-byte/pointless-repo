@@ -372,11 +372,17 @@ def digest(config: str = CONFIG_OPT,
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
     today_rows = [r for r in edge_bar_rows(store, "sim", days=1)]
     touch = alerts.touch_today(store)
+    import os
+
+    from sportsbot.substrate_bridge.fresh_watch import status_line
+    data_dir = os.path.dirname(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite")) or "."
+    forward = [x for x in (status_line(os.path.join(data_dir, "fresh_watch.sqlite")),) if x]
     texts = []
     for acct, mode in ACCOUNTS.items():
         texts.append(alerts.digest_text(store, acct, mode, starting_balance(cfg, acct),
                                         touch=touch if acct == "sim" else None,
-                                        edge_rows=today_rows if acct == "sim" else None))
+                                        edge_rows=today_rows if acct == "sim" else None,
+                                        extra=forward if acct == "sim" else None))
     text = "\n".join(texts)
     console.print(text)
     if post:

@@ -204,3 +204,20 @@ def report(db: str = "data/fresh_watch.sqlite") -> dict:
 
 def format_report(r: dict) -> str:
     return json.dumps(r, indent=1, default=str)
+
+
+def status_line(db: str) -> Optional[str]:
+    """One line for the digest and the board; None when no record exists."""
+    import os
+    if not os.path.exists(db):
+        return None
+    try:
+        r = report(db)
+    except sqlite3.Error:
+        return None
+    line = (f"fresh-wallet fade (forward test): {r['signals']} signals in {r['markets']} markets, "
+            f"{r['graded']} graded")
+    if r.get("mean") is not None:
+        se = f" ± {r['se'] * 100:.1f}" if r.get("se") else ""
+        line += f", {r['mean'] * 100:+.1f}{se} pt per share; {r['verdict']} (bar: 200 fades, 60 markets, t >= 2)"
+    return line

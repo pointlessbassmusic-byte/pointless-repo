@@ -83,7 +83,8 @@ def touch_today(store) -> dict:
 
 
 def digest_text(store, account: str, mode: str, starting_balance: float,
-                touch: dict | None = None, edge_rows: list[dict] | None = None) -> str:
+                touch: dict | None = None, edge_rows: list[dict] | None = None,
+                extra: list[str] | None = None) -> str:
     """The daily three lines: book, touch arm, distance to the bar."""
     from sportsbot.bot.ledger import account_equity
 
@@ -109,4 +110,5 @@ def digest_text(store, account: str, mode: str, starting_balance: float,
                  for r in edge_rows if r.get("best") is not None]
         if parts:
             lines.append("distance to bar: " + "; ".join(parts))
+    lines.extend(extra or [])
     return "\n".join(lines)
