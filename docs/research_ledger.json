@@ -105,6 +105,13 @@
       "verdict": "FAIL",
       "result": "No pre-game cross ever (best -1.4c/pair). In-play gaps are post-point latency (5 of 42 survive 20 s). PM US follows Kalshi (in-play beta 0.93 within 20 s, t 33; Kalshi never follows); pre-game the venues sit 1-2c apart with nothing to trade.",
       "doc": "docs/PMUS_KALSHI_RESULT_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-14",
+      "test": "Result 15 touch-maker on Kalshi's own tape (MLB, NHL, NFL, NCAAF, soccer; population baseline, test half)",
+      "verdict": "PASS",
+      "result": "NHL PASS: +0.67c CLV/fill [+0.61, +0.71], return +2.0% on 41 test games. MLB/NFL/soccer CLV +0.65 to +1.12c with intervals above zero but realised return inconclusive; NCAAF spans zero. Queue-priority caveat stands: only the live $1 test measures fill share. A PASS here funds nothing by itself.",
+      "doc": "docs/KALSHI_TOUCH_RESULT_2026-10-14.md"
     }
   ]
 }
