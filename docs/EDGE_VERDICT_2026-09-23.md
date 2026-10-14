@@ -1424,6 +1424,87 @@ unchanged everywhere: every fill here is a queue-priority fill at the
 existing bid; tonight's NHL touch sizes of 8,000–48,000 contracts say
 how far behind a new $1 order sits.
 
+### Result 15, addendum 3 (2026-10-14): the live venue — Polymarket US, main and Kalshi on the same 16 NHL games
+
+_2026-10-13 16:27Z to 10-14 03:00Z. The question came from the venue
+client (PR #79): Polymarket US carries market-maker queues of 10^5
+contracts at the NHL touch, so does a $1 order there ever fill, and is
+it worse than main (where Result 15 was measured) or Kalshi (the other
+US-legal venue)? `sportsbot queue-log` sampled every US moneyline
+starting within 12 h, every 30 s. Each pass read the US bbo and book,
+main's CLOB book and Kalshi's book for the same game; main is matched
+by names and start, Kalshi by names and a close within 12 h of the US
+start, since its NHL tickers carry no time. Main's and Kalshi's public
+taker tapes were stored as well. That gave 46,898 / 45,395 / 39,173 book
+samples and 5,009 / 28,650 tape prints. All 16 NHL games had started by
+03:00Z. Only pre-start samples are used. Re-read with
+`sportsbot queue-report`._
+
+Each 30-second interval is judged against the touch sampled at its
+start, on two fill bounds:
+
+- **Strict**: a print strictly through the touch, so the whole level in
+  front was consumed. This is the lower bound.
+- **At-or-through**: the paper venue's rule (`core.books.print_crosses`),
+  which implies the order was at the front of the queue. This is the
+  upper bound, and the rule Result 15 was measured on.
+
+Polymarket US publishes no keyless tape, so its rule reads the last
+print per interval from the `/bbo` trade counter. Main and Kalshi are
+shown on the exact rule; their coarse (last-print) rule agrees to within
+the errors. CLV is the mid at the last pre-start sample minus the fill
+price, in probability points, with standard errors clustered by game.
+
+| NHL, 16 games, pre-start | Polymarket US | Polymarket main | Kalshi |
+|---|---|---|---|
+| market-hours sampled | 110.8 | 110.8 | 108.9 |
+| touch queue, median contracts | 127,567 | 79,750 | 81,973 |
+| volume per hour | 27,056 | 13,767 | 8,640 |
+| queue turnover per hour | **0.21** | 0.17 | 0.11 |
+| strict sweeps per market-hour | 0.04 | 0.09 | 0.28 |
+| CLV per strict fill | −0.75 ± 0.54 (4) | +0.00 ± 0.14 (10) | +0.42 ± 0.07 (30) |
+| at-or-through per market-hour | 33.4 | 11.0 | 44.5 |
+| CLV per at-or-through fill | +0.45 ± 0.05 (3,699) | +0.33 ± 0.10 (1,216) | +0.66 ± 0.13 (4,850) |
+| maker fee per contract | 0 (rebate ≈ 0.31 at 50c until 10-19) | 0 (rebate) | 0.25 |
+| **net CLV, at-or-through** | **+0.45** (+0.76 with the rebate) | +0.33 | +0.41 |
+
+1. **The queue is not a US problem.** Every venue's NHL touch is
+   80,000-130,000 contracts deep, so a $1 order joins behind a large
+   queue everywhere. Polymarket US trades the most of the three and turns
+   its queue over fastest.
+2. **The upper bound pays on all three venues**, by +0.3 to +0.7 points
+   per fill. That has the same sign and size as Result 15's +0.6 on main,
+   now on two more venues. Net of fees the three are within each other's
+   errors: US +0.45 (no fee), Kalshi +0.41, main +0.33.
+3. **The lower bound is rare everywhere before the start.** It runs at
+   0.04-0.28 strict sweeps per market-hour, which is one per 4-25 hours
+   of a game's book.
+   - On Polymarket US the few sweeps lost (n = 4).
+   - On Kalshi they made +0.42 gross and +0.17 net (n = 30, 16 games).
+
+   Kalshi's touch gets swept more often, and on this night its sweeps
+   were not adverse.
+4. **Real fills lie between the bounds.** Where they land depends on
+   queue position, which only live orders measure. That is the
+   pre-registered test (`docs/MAKER_TEST.md`).
+
+**Verdict: Polymarket US stays the first venue for the live test.** It
+charges no maker fee, carries start times without `ODDS_API_KEY`, and
+turns its queue over fastest. Kalshi is a close second: its CLV per fill
+is best on both bounds, but it charges a 0.25-point NHL maker fee and
+needs `ODDS_API_KEY` for start times.
+
+Limits of this read:
+- **One night, 16 games.** The at-or-through counts are not independent
+  fills: the same resting touch counts again in every interval it trades.
+- **The US rule is coarser** than the other two venues' rules.
+- **Other sports are not read:**
+  - MLB had 1 game, college football 2, and NBA 5 preseason games.
+  - Tennis had 23 matches start. At-or-through CLV was US −0.19 ± 0.17
+    (82 fills), main +0.38 ± 0.07 (114) and Kalshi −0.19 ± 0.44 (110).
+    Tennis is a main-book product: the US touch queue (5,800) is 3.6
+    times main's.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
