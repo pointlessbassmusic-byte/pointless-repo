@@ -1,19 +1,27 @@
 """Polymarket discovery for the touch-only sports: several leagues per key,
 de-duplicated, and three-way (Yes/No) books shaped for the touch arm."""
 
+from datetime import datetime, timedelta, timezone
+
 from sportsbot.core.types import Sport
 from sportsbot.exchanges.polymarket import SPORT_FOR_TAG, SPORT_TAGS, PolymarketClient
 
 
+def _iso(hours: float) -> str:
+    """A time relative to now: fixed dates turn these open games into finished ones."""
+    return (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _event(slug, tag, markets):
-    return {"slug": slug, "title": slug, "startDate": "2026-10-13T08:00:00Z", "markets": markets}
+    return {"slug": slug, "title": slug, "startDate": _iso(-11), "markets": markets}
 
 
-def _ml(cid, slug, outcomes, question, group=None, start="2026-10-13T19:00:00Z"):
+def _ml(cid, slug, outcomes, question, group=None, start=None):
+    start = start or _iso(6)
     return {"conditionId": cid, "slug": slug, "question": question, "groupItemTitle": group,
             "sportsMarketType": "moneyline", "closed": False, "acceptingOrders": True,
             "enableOrderBook": True, "outcomes": outcomes, "clobTokenIds": '["t1", "t2"]',
-            "gameStartTime": start, "endDate": "2026-10-14T00:00:00Z", "active": True,
+            "gameStartTime": start, "endDate": _iso(11), "active": True,
             "orderPriceMinTickSize": 0.01, "orderMinSize": 5, "negRisk": True}
 
 
@@ -57,7 +65,9 @@ def test_multi_tag_discovery_dedupes_and_shapes_three_way_books(monkeypatch):
     assert atm.sport is Sport.SOCCER and atm.home == "Club Atlético de Madrid" and atm.away == "not Club Atlético de Madrid"
     assert atm.meta["three_way"] is True and atm.meta["outcome_title"] == "Club Atlético de Madrid"
     assert draw.home.startswith("Draw (") and draw.yes_token_id == "t1" and draw.no_token_id == "t2"
-    assert atm.start_time is not None and atm.start_time.hour == 19
+    # the start is read from gameStartTime (the fixture's: six hours from now)
+    assert atm.start_time is not None
+    assert abs(atm.start_time - (datetime.now(timezone.utc) + timedelta(hours=6))) < timedelta(minutes=1)
 
 
 def test_two_sided_esports_market_keeps_team_names(monkeypatch):
