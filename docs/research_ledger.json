@@ -98,6 +98,13 @@
       "verdict": "FAIL",
       "result": "15,224 settled combos (Aug 17-30): YES settled 20.1% at a 19.5c mean price; NO side -3.7% per $ net of taker fee, CI spans zero, confirmation half only 16 markets. Combo buyers on Kalshi are priced fairly; no house edge to quote for.",
       "doc": "docs/COMBO_HOUSE_SIDE_PREREG_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-14",
+      "test": "Kalshi vs Polymarket US on the same games: complement arb, lead-lag, maker-on-PM-US/hedge-on-Kalshi (114 games, 20 s books, 60 min)",
+      "verdict": "FAIL",
+      "result": "No pre-game cross ever (best -1.4c/pair). In-play gaps are post-point latency (5 of 42 survive 20 s). PM US follows Kalshi (in-play beta 0.93 within 20 s, t 33; Kalshi never follows); pre-game the venues sit 1-2c apart with nothing to trade.",
+      "doc": "docs/PMUS_KALSHI_RESULT_2026-10-14.md"
     }
   ]
 }
