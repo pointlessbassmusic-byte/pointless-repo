@@ -684,6 +684,25 @@ def fresh_wallets(days: int = typer.Option(120, help="resolved markets whose sch
     console.print(fw.format_summary(fw.summarize(res)), soft_wrap=True)
 
 
+@app.command("fresh-watch")
+def fresh_watch(hours: float = typer.Option(0.0, help="how long to watch; 0 = until stopped"),
+                poll: float = typer.Option(60.0, help="seconds between polls of the public trade feed"),
+                db: str = typer.Option("data/fresh_watch.sqlite"),
+                report: bool = typer.Option(False, "--report", help="score the record instead of watching")):
+    """Forward test (pre-registered, Result 21b): fade fresh-wallet long-shot
+    buys in non-sports markets 10 minutes later at the other side's ask,
+    scored at settlement. Public reads and a paper record only."""
+    import logging
+
+    from sportsbot.substrate_bridge import fresh_watch as fwt
+
+    if report:
+        console.print(fwt.format_report(fwt.report(db)))
+        return
+    logging.getLogger("sportsbot.substrate_bridge.fresh_watch").setLevel(logging.INFO)
+    fwt.Watch(db).run(hours=hours, poll=poll)
+
+
 @app.command("queue-log")
 def queue_log(config: str = CONFIG_OPT,
               minutes: float = typer.Option(120.0, help="how long to sample"),
