@@ -612,6 +612,25 @@ def twobook_report(db: str = typer.Option("data/twobook.sqlite"),
     console.print(format_report(report(db, step=step)))
 
 
+@app.command("wallet-review")
+def wallet_review(address: str = typer.Argument(..., help="the Polymarket (polymarket.com) wallet address, 0x..."),
+                  mirror_cost: float = typer.Option(0.01, help="what the opposite trade pays to cross, per share"),
+                  history: bool = typer.Option(True, help="fetch price histories for 1h/24h mark-outs"),
+                  out: str = typer.Option("data/wallet_review.json", help="graded trades (data/ is gitignored)")):
+    """Grade one wallet's Polymarket history against settlement and mark-out,
+    and price the exact opposite of every trade after spread and fee.
+    Public reads only; the address and results stay in data/, never committed."""
+    import json
+
+    from sportsbot.backtest import wallet_review as wr
+
+    graded = wr.WalletReview(address).run(mirror_cost=mirror_cost, with_history=history)
+    with open(out, "w") as fh:
+        json.dump(wr.to_json(graded), fh)
+    console.print(wr.format_summary(wr.summarize(graded)), soft_wrap=True)
+    console.print(f"{len(graded)} trades graded -> {out}")
+
+
 @app.command("queue-log")
 def queue_log(config: str = CONFIG_OPT,
               minutes: float = typer.Option(120.0, help="how long to sample"),
