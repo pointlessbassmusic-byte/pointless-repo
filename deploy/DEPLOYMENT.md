@@ -50,6 +50,7 @@ directory, and the service user cannot read `/root`.
 | trading dashboard (sim/real) | `... sportsbot board` → `/opt/sportsbot/data/board.html`; runs every minute as `sportsbot-board.service` |
 | $100 sim book | runs as `sportsbot-sim.service` (paper mode, live market data); logs via `journalctl -u sportsbot-sim` |
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
+| fresh-wallet fade forward test | `sportsbot-freshwatch.service` (installed and started by the daily `update.sh` the first time it sees the unit; public reads, a paper record in `data/fresh_watch.sqlite`, no orders); read it with `sportsbot fresh-watch --report --db /opt/sportsbot/data/fresh_watch.sqlite` (EDGE_VERDICT Result 21b) |
 | Polymarket US keys | `POLYMARKET_US_KEY_ID` / `POLYMARKET_US_SECRET_KEY` in `.env` (polymarket.us/developer); `sportsbot doctor -c config/maker_test.yaml` with `exchange: polymarket_us` checks them and pings the gateway |
 | live maker fill-share test | `config/maker_test.yaml` + the runbook in `docs/MAKER_TEST.md` (inert until `mode: live`, `SPORTSBOT_LIVE=1`, keys, and a learning budget in `config/allocation.yaml`) |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |

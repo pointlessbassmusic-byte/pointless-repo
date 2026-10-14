@@ -1,0 +1,26 @@
+[Unit]
+Description=sportsbot fresh-wallet fade forward test (public reads; a paper record, no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+# Result 21b's pre-registered forward test: polls Polymarket's public trade
+# feed once a minute, records fresh-wallet long-shot buys in non-sports
+# markets, prices the fade 10 minutes later, scores it at settlement.
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot fresh-watch --db /opt/sportsbot/data/fresh_watch.sqlite
+Restart=on-failure
+RestartSec=120
+MemoryMax=400M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
