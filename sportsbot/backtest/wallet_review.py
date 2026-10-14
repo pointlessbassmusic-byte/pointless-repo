@@ -195,13 +195,15 @@ class WalletReview:
         return None
 
     # -------------------------------------------------------------- fetch
-    def activity(self) -> list[dict]:
+    def activity(self, max_rows: int = MAX_ROWS) -> list[dict]:
+        """Newest first; stops after `max_rows` rows."""
         rows: list[dict] = []
         offset = 0
-        while offset < MAX_ROWS:
+        while offset < max_rows:
             page = self._get(f"{DATA_API}/activity", {"user": self.address, "limit": PAGE,
                                                        "offset": offset}) or []
             rows.extend(page)
+            log.info("activity: %d rows", len(rows))
             if len(page) < PAGE:
                 break
             offset += PAGE
@@ -255,6 +257,8 @@ class WalletReview:
                        usdc=float(r.get("usdcSize") or p * float(r["size"])),
                        category=category(str(r.get("eventSlug") or r.get("slug") or ""), str(r.get("title") or "")),
                        lead_h=(horizon_end - ts) / 3600 if horizon_end and horizon_end > ts else None)
+            if mk and mk.start_ts and ts >= mk.start_ts:
+                g.extra["in_play"] = True          # traded after the game started
             sign = 1.0 if g.side == "BUY" else -1.0
             if mk and idx < len(mk.payouts) and mk.payouts[idx] is not None:
                 v = mk.payouts[idx]
@@ -273,6 +277,8 @@ class WalletReview:
                     except Exception as exc:  # noqa: BLE001 — no history: no mark-out, not a crash
                         log.debug("history failed %s: %s", tok[:10], exc)
                         hist_cache[tok] = []
+                    if len(hist_cache) % 50 == 0:
+                        log.info("price histories: %d tokens", len(hist_cache))
                 hist = hist_cache[tok]
                 for hours, attr in ((1, "markout_1h"), (24, "markout_24h")):
                     t = ts + hours * 3600
@@ -286,9 +292,11 @@ class WalletReview:
             out.append(g)
         return out
 
-    def run(self, mirror_cost: float = 0.01, with_history: bool = True) -> list[Graded]:
-        rows = self.activity()
+    def run(self, mirror_cost: float = 0.01, with_history: bool = True,
+            max_rows: int = MAX_ROWS) -> list[Graded]:
+        rows = self.activity(max_rows=max_rows)[:max_rows]
         mk = self.markets(r.get("conditionId") for r in rows if r.get("type") == "TRADE")
+        log.info("%d rows, %d markets", len(rows), len(mk))
         return self.grade(rows, mk, mirror_cost=mirror_cost, with_history=with_history)
 
 
@@ -333,7 +341,8 @@ def summarize(graded: list[Graded]) -> dict:
 
     res = {"all": block(graded), "by": {}}
     for dim, fn in (("category", lambda g: g.category), ("price", lambda g: price_bucket(g.price)),
-                    ("side", lambda g: g.side), ("lead", lambda g: lead_bucket(g.lead_h)),
+                    ("side", lambda g: g.side),
+                    ("lead", lambda g: "in-play" if g.extra.get("in_play") else lead_bucket(g.lead_h)),
                     ("month", lambda g: datetime.fromtimestamp(g.ts, timezone.utc).strftime("%Y-%m"))):
         groups: dict[str, list[Graded]] = defaultdict(list)
         for g in graded:

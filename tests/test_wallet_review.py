@@ -101,6 +101,10 @@ def test_markout_never_reads_past_the_game_start():
     (g,) = [x for x in r.grade(rows, mk) if x.condition_id == "c1"]
     assert g.markout_1h == pytest.approx(0.78 - 0.80)         # the 30-min print, not the in-play 60-min one
     assert g.lead_h == pytest.approx(2400 / 3600)
+    mk["c1"].start_ts = T0 - 60                                # traded a minute after the start
+    (g,) = [x for x in r.grade(rows, mk) if x.condition_id == "c1"]
+    assert g.extra.get("in_play") is True and g.markout_1h is None
+    assert "in-play" in wr.summarize([g])["by"]["lead"]
 
 
 def test_summary_buckets_and_mirror_totals():
