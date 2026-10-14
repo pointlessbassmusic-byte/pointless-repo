@@ -55,6 +55,9 @@ def test_fresh_long_shot_buyers_are_the_signal_and_copies_are_priced(tmp_path):
     assert sig["copy_600"] == pytest.approx(1.0 - entry - 0.05 * entry * (1 - entry))
     entry = 0.40 + fw.HALF_SPREAD
     assert sig["copy_3600"] == pytest.approx(1.0 - entry - 0.05 * entry * (1 - entry))
+    # the fade buys the other outcome at 1 - px plus the half-spread; the long shot won, so it loses
+    other = (1 - 0.20) + fw.HALF_SPREAD
+    assert sig["fade_600"] == pytest.approx(0.0 - other - 0.05 * other * (1 - other))
     s = fw.summarize(res)
     assert s["signal"]["surplus"]["mean"] == pytest.approx(0.90)
     assert s["control"]["surplus"]["mean"] == pytest.approx(-0.30)

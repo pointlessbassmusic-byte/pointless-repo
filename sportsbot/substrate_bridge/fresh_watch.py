@@ -5,7 +5,10 @@ The 120-day study found that brand-new Polymarket wallets buying long shots
 in size lose: −9.7 ± 2.7 pt per share at settlement. The inversion (buy the
 other side 10 minutes later) would have made about +8 pt after costs, but
 it was looked at after the fact on 176 clustered markets. This is its own
-pre-registered test, written 2026-10-14 before the first row:
+pre-registered test, written 2026-10-14 before the first row. The same
+day the rule FAILED its retrospective holdout (days 121-300: +4.6 ± 3.0,
+t 1.5; 96% of it five markets, per-market mean −2.4 pt; EDGE_VERDICT
+21b), so this record is kept as cheap evidence and is expected to fail:
 
 * signal: a taker BUY >= $1,000 at <= 0.35 in a non-sports, non-crypto
   market (wallet_review's categoriser), from a wallet whose first-ever
@@ -204,3 +207,20 @@ def report(db: str = "data/fresh_watch.sqlite") -> dict:
 
 def format_report(r: dict) -> str:
     return json.dumps(r, indent=1, default=str)
+
+
+def status_line(db: str) -> Optional[str]:
+    """One line for the digest and the board; None when no record exists."""
+    import os
+    if not os.path.exists(db):
+        return None
+    try:
+        r = report(db)
+    except sqlite3.Error:
+        return None
+    line = (f"fresh-wallet fade (forward test): {r['signals']} signals in {r['markets']} markets, "
+            f"{r['graded']} graded")
+    if r.get("mean") is not None:
+        se = f" ± {r['se'] * 100:.1f}" if r.get("se") else ""
+        line += f", {r['mean'] * 100:+.1f}{se} pt per share; {r['verdict']} (bar: 200 fades, 60 markets, t >= 2)"
+    return line

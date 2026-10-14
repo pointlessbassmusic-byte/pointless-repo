@@ -56,3 +56,42 @@ def test_signal_fade_and_settlement(tmp_path):
     r = fw.report(str(tmp_path / "f.sqlite"))
     assert r["graded"] == 1 and r["mean"] == pytest.approx(1 - 0.87 - 0.05 * 0.87 * 0.13)
     assert r["verdict"] == "collecting"
+
+
+def test_status_line_for_the_digest_and_board(tmp_path):
+    db = str(tmp_path / "f.sqlite")
+    assert fw.status_line(db) is None                      # no record on this host
+    http = Http()
+    w = fw.Watch(db, http=http, clock=lambda: NOW, sleep=lambda s: None)
+    w.scan()
+    w.price_fades()
+    line = fw.status_line(db)
+    assert "1 signals in 1 markets, 0 graded" in line
+    http.closed = True
+    w.settle()
+    assert "collecting" in fw.status_line(db) and "pt per share" in fw.status_line(db)
+
+
+def test_the_board_shows_the_forward_test_card():
+    from sportsbot import dashboard
+    page = dashboard._forward(["fresh-wallet fade (forward test): 3 signals"])
+    assert "fresh-wallet fade" in page
+    assert "No forward-test record" in dashboard._forward([])
+
+
+def test_digest_appends_extra_lines():
+    from sportsbot.bot import alerts
+
+    class Store:
+        def settled_bets(self, limit, mode):
+            return []
+
+    import sportsbot.bot.ledger as ledger
+    orig = ledger.account_equity
+    ledger.account_equity = lambda store, acct, start: {"equity": 100.0, "realized_pnl": 0.0,
+                                                         "open_positions": 0, "settled_bets": 0}
+    try:
+        text = alerts.digest_text(Store(), "sim", "paper", 100.0, extra=["fresh-wallet fade: x"])
+    finally:
+        ledger.account_equity = orig
+    assert text.splitlines()[-1] == "fresh-wallet fade: x"
