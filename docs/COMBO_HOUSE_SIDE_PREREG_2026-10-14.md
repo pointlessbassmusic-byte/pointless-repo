@@ -47,3 +47,38 @@ Being the house on combos means answering Kalshi's combo RFQs as a quoter
 (API member), not buying NO on the screen. A PASS justifies building a
 paper RFQ responder, then a minimum-size live one behind the pre-live
 gate. It does not justify anything in the app.
+
+## Result (2026-10-14, read once): FAIL — Kalshi sports combos are priced fairly
+
+`KXMVESPORTSMULTIGAMEEXTENDED`, settled. The public API's settled listing
+returned 20,000 markets (the pre-registered cap) covering only 10 close
+dates, 2026-08-17 → 08-30. Of these, 15,224 had volume and a last price
+in [0.01, 0.99].
+
+| half | markets | dates | NO side net per $ (95% CI, date-clustered) | YES settle rate | mean price |
+|---|---|---|---|---|---|
+| discovery | 15,208 | 7 | −0.037 [−0.170, +0.042] | 0.200 | 0.194 |
+| confirmation | 16 | 3 | −0.039 [−0.583, +0.417] | 0.312 | 0.335 |
+| all | 15,224 | 10 | −0.037 [−0.182, +0.043] | 0.201 | 0.195 |
+
+The verdict is **FAIL** on every count:
+
+- **The sign is wrong.** The NO side loses in both halves.
+- **The confirmation half is far too small.** It holds 16 markets against a bar of 300, because the listing's dates were almost all in the discovery 70%.
+
+The substance does not depend on that split. Combo YES settled at 20.1%
+against an average fill price of 19.5¢: buyers are paid fairly, if
+anything slightly more than fairly. Gross of fees the house side is about
+zero in every price bucket below 0.50, and negative above it. Above 0.70,
+YES settled at 0.865 against a price of 0.849.
+
+The volume-weighted NO net is −0.024 per $. Across leg counts only the
+14–22-leg tail is positive, on n ≤ 223 per cell, which is not a test.
+
+**What it means.** On Kalshi, being the house on sports combos earns
+nothing at the prices combo buyers pay; the quoters' edge, if any, is
+smaller than one Kalshi taker fee. The operator's −19.7% on Polymarket US
+combos is therefore not the mirror image of a harvestable house edge. Most
+of it is table-tennis combos (−37.6% on 70 bets, about t −2), plus parlay
+variance (tennis −8.5% on 49 bets is well inside the noise). Do not build
+an RFQ responder on this evidence.
