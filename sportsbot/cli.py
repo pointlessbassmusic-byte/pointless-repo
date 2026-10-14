@@ -634,6 +634,41 @@ def wallet_review(address: str = typer.Argument(..., help="the Polymarket (polym
     console.print(f"{len(graded)} trades graded -> {out}")
 
 
+@app.command("wallet-scan")
+def wallet_scan(per_category: int = typer.Option(5, help="all-time top wallets by P&L per leaderboard category"),
+                month: int = typer.Option(3, help="this month's top wallets by P&L per category"),
+                max_rows: int = typer.Option(3000, help="most recent activity rows per wallet"),
+                max_tokens: int = typer.Option(120, help="price histories sampled per wallet"),
+                copy_delay: float = typer.Option(600.0, help="seconds before the copier enters"),
+                out: str = typer.Option("data/wallet_scan.json")):
+    """Are the leaderboard's wallets, in any category, worth copying? Older
+    half of each wallet's trades ranks, newer half tests; copy priced after
+    a delay, half-spread and fee. Public reads only."""
+    import json
+    import logging
+
+    import httpx
+
+    from sportsbot.backtest import wallet_scan as ws
+
+    logging.getLogger("sportsbot.backtest").setLevel(logging.WARNING)
+    info = ws.pool(httpx.Client(timeout=30), per_category=per_category, month=month)
+    console.print(f"{len(info)} wallets in the pool")
+    scanner = ws.Scanner(max_rows=max_rows, max_tokens=max_tokens, copy_delay=copy_delay)
+    results = []
+    for i, addr in enumerate(info, 1):
+        try:
+            results.append(scanner.wallet(addr))
+        except Exception as exc:  # noqa: BLE001 — one wallet's failure is one missing row
+            results.append({"address": addr, "trades": 0, "skipped": f"error: {exc}"[:80]})
+        console.print(f"  {i}/{len(info)} {info[addr]['name'][:24]}: {results[-1].get('trades')} trades")
+    v = ws.verdict(results)
+    with open(out, "w") as fh:
+        json.dump({"pool": {a: {**w, "categories": sorted(w["categories"])} for a, w in info.items()},
+                   "results": results, "verdict": v}, fh, default=str)
+    console.print(ws.format_scan(info, results, v), soft_wrap=True)
+
+
 @app.command("queue-log")
 def queue_log(config: str = CONFIG_OPT,
               minutes: float = typer.Option(120.0, help="how long to sample"),
