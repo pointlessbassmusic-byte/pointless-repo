@@ -66,3 +66,18 @@ Every fill here is credited as if the order were first in the queue at
 its level. A new $1 order on Kalshi sits behind the existing size. That
 fill share is the one number only the live test can measure, which is
 why it runs at $1.
+
+## Amendment 2 read: the favourite-side rule is NOT CONFIRMED (dropped)
+
+The rule, chosen on the train half: rest only when the fill price is
+≥ 0.50. Confirmation on the test half, MLB, NHL and NFL pooled, 120 s:
+
+| | fills | games | CLV per fill | realised return per $ |
+|---|---|---|---|---|
+| all fills | 340,011 | 126 | +0.73¢ [+0.39, +0.94] | +0.015 [−0.100, +0.141] |
+| price ≥ 0.50 | 170,438 | 126 | +0.01¢ [−2.12, +1.29] | −0.100 [−0.351, +0.147] |
+
+The train-half pattern was noise: out of sample the favourite side is the
+worse half, not the better one. The touch arm keeps resting on both
+sides, as the live config already does. No refinement is adopted from
+this data.
