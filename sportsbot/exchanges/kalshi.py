@@ -27,7 +27,7 @@ import math
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -101,6 +101,13 @@ _MLB_TICKER = re.compile(r"^KXMLBGAME-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})")
 _MONTHS = {m: i for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+
+
+# Team-sport series whose occurrence_datetime is a fixed offset after the
+# scheduled start (see _to_market_info). Tennis is NOT here: its
+# occurrence slot does not track the match start.
+OCCURRENCE_START_SERIES = {"KXNHLGAME", "KXNFLGAME", "KXNBAGAME"}
+OCCURRENCE_TO_START = timedelta(hours=3, minutes=30)
 
 
 def mlb_first_pitch(ticker: str):
@@ -543,6 +550,18 @@ class KalshiClient(ExchangeClient):
         close_time = self._ts(m, "expected_expiration_time", "close_time")
         start_time = (mlb_first_pitch(m.get("ticker", ""))
                       if sport is Sport.BASEBALL else None)
+        start_source = "ticker" if start_time is not None else None
+        if start_time is None and series in OCCURRENCE_START_SERIES:
+            # NHL/NFL/NBA: occurrence_datetime is the scheduled END, a
+            # fixed 3.0 h after the scheduled start on every game checked
+            # (69 of 69 against Polymarket US's start times, 2026-10-14).
+            # Subtracting 3.5 h puts the estimate half an hour EARLY, so
+            # the pre-match guards stop quoting before the real start;
+            # a late estimate would let the bot quote in play.
+            occ = self._ts(m, "occurrence_datetime")
+            if occ is not None:
+                start_time = occ - OCCURRENCE_TO_START
+                start_source = "occurrence-3.5h"
         return MarketInfo(
             exchange=Exchange.KALSHI,
             market_id=m.get("ticker", ""),
@@ -564,6 +583,7 @@ class KalshiClient(ExchangeClient):
             meta={
                 "series": series,
                 "event_ticker": m.get("event_ticker"),
+                "start_source": start_source,
                 # trailing segment of the ticker: the team this contract pays on
                 "team_code": str(m.get("ticker", "")).rsplit("-", 1)[-1],
                 "yes_bid": self._dollars(m, "yes_bid_dollars"),

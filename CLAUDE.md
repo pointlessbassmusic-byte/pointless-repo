@@ -19,8 +19,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   and The Odds API full names resolve to one form, ambiguity -> None).
   Basketball/football/hockey have NO rating model: `signal: sharp` is
   required and the Pinnacle line prices them (in season when MLB and
-  tennis are not). Kalshi tickers for them carry no time, so start_time
-  is None there and the risk layer refuses entries until one is known.
+  tennis are not). Kalshi tickers for them carry no time; NHL/NFL/NBA
+  start_time is derived as occurrence_datetime − 3.5 h (the scheduled
+  end is start + 3.0 h on every game checked, so the estimate runs half
+  an hour early, never late). Elsewhere a missing start stays None and
+  the risk layer refuses the entry.
 - `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
   archived/dead, never reintroduce it), `kalshi.py` (2026 API: dollar-string

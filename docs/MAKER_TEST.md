@@ -64,11 +64,13 @@ fill without the shadow. (2) Order prices are always in YES terms (buying
 NO at 0.40 is sent as a short at 0.60) and `participateDontInitiate` makes
 every maker order post-only; confirm both on the first order by hand, as
 step 4 below says.
-Kalshi's NHL and NFL tickers carry no start time, and the risk layer
-refuses an entry whose start it does not know; today that time comes
-from the sharp harness's commence field, so on Kalshi the NHL/NFL leg of
-this test needs `ODDS_API_KEY` as well as the venue keys. The paper sim
-on Polymarket has the start from Gamma and needs nothing.
+Kalshi's NHL and NFL tickers carry no start time. Since 2026-10-14 the
+client derives one from the market's `occurrence_datetime` (the scheduled
+end, 3.0 h after the start on 69 of 69 games checked) minus 3.5 h: half
+an hour early, so quoting stops before the real start. The NHL/NFL leg
+therefore no longer needs `ODDS_API_KEY`; the key still supplies the
+sharp close the read-out grades against. The paper sim on Polymarket has
+the start from Gamma and needs nothing.
 
 ## What is recorded, per resting order
 
@@ -132,9 +134,9 @@ preflight and exits non-zero on any FAIL.
    sends orders to the demo exchange; `doctor` warns). The Kalshi key must
    be an **RSA** key from Kalshi's API-keys page: an Ed25519 key (what some
    other Kalshi tools use, ~120 bytes) cannot sign these requests, and
-   `doctor` FAILs it. `ODDS_API_KEY` is needed on Kalshi for NHL/NFL start
-   times; on either venue it also gives the sharp close the read-out
-   grades against.
+   `doctor` FAILs it. `ODDS_API_KEY` is optional: on either venue it
+   gives the sharp close the read-out grades against (Kalshi NHL/NFL start
+   times now come from the market itself).
 2. **Make your own copies; never edit the tracked files on the server.**
    The daily `deploy/update.sh` pulls with `--ff-only` and stops on a
    locally modified tracked file. `*.local.yaml` is git-ignored:

@@ -1,19 +1,29 @@
 """Polymarket discovery for the touch-only sports: several leagues per key,
 de-duplicated, and three-way (Yes/No) books shaped for the touch arm."""
 
+from datetime import datetime, timedelta, timezone
+
 from sportsbot.core.types import Sport
 from sportsbot.exchanges.polymarket import SPORT_FOR_TAG, SPORT_TAGS, PolymarketClient
 
+# Relative to now: fixed dates turn into already-ended markets (which
+# discovery rightly drops) the day after they are written.
+_NOW = datetime.now(timezone.utc).replace(microsecond=0)
+_ISO = "%Y-%m-%dT%H:%M:%SZ"
+_EVENT_START = (_NOW - timedelta(hours=2)).strftime(_ISO)
+_GAME_START = (_NOW + timedelta(hours=6)).strftime(_ISO)
+_END = (_NOW + timedelta(hours=12)).strftime(_ISO)
+
 
 def _event(slug, tag, markets):
-    return {"slug": slug, "title": slug, "startDate": "2026-10-13T08:00:00Z", "markets": markets}
+    return {"slug": slug, "title": slug, "startDate": _EVENT_START, "markets": markets}
 
 
-def _ml(cid, slug, outcomes, question, group=None, start="2026-10-13T19:00:00Z"):
+def _ml(cid, slug, outcomes, question, group=None, start=_GAME_START):
     return {"conditionId": cid, "slug": slug, "question": question, "groupItemTitle": group,
             "sportsMarketType": "moneyline", "closed": False, "acceptingOrders": True,
             "enableOrderBook": True, "outcomes": outcomes, "clobTokenIds": '["t1", "t2"]',
-            "gameStartTime": start, "endDate": "2026-10-14T00:00:00Z", "active": True,
+            "gameStartTime": start, "endDate": _END, "active": True,
             "orderPriceMinTickSize": 0.01, "orderMinSize": 5, "negRisk": True}
 
 
@@ -57,7 +67,7 @@ def test_multi_tag_discovery_dedupes_and_shapes_three_way_books(monkeypatch):
     assert atm.sport is Sport.SOCCER and atm.home == "Club Atlético de Madrid" and atm.away == "not Club Atlético de Madrid"
     assert atm.meta["three_way"] is True and atm.meta["outcome_title"] == "Club Atlético de Madrid"
     assert draw.home.startswith("Draw (") and draw.yes_token_id == "t1" and draw.no_token_id == "t2"
-    assert atm.start_time is not None and atm.start_time.hour == 19
+    assert atm.start_time is not None and atm.start_time.strftime(_ISO) == _GAME_START
 
 
 def test_two_sided_esports_market_keeps_team_names(monkeypatch):
