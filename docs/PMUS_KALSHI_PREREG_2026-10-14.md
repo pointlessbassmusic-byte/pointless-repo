@@ -49,3 +49,21 @@ clustered by game. Samples where either book is one-sided or wider than
 
 One recording, one read. Pre-game and in-play are reported separately
 but share the verdict rule.
+
+## Amendment 1 (before any analysis): C — maker on Polymarket US, hedge as taker on Kalshi (descriptive)
+
+A resting Polymarket US order for team X at price b (no maker fee) that
+fills is hedged at once by buying the opponent on Kalshi at `1 − bid_K(X)`
+plus the Kalshi taker fee. The locked result is `bid_K − b − fee_K`. The
+check: in what share of samples can b sit at or one tick inside the
+Polymarket US touch and still lock at least 1¢? Both directions, i.e. a
+bid for X and a bid for the opponent.
+
+This is reported as an upper bound on opportunity. It cannot show whether
+such orders fill: Polymarket US publishes no keyless trade tape, and a
+fill there is most likely exactly when Kalshi's bid has just moved down
+(adverse selection). A meaningful share here would justify a
+minimum-size live check. A small one closes the idea.
+
+(Timing note: the commit above is stamped 10:34Z, and the recording
+started at 10:34Z, not 10:40Z/10:35Z as written; no data had been read.)
