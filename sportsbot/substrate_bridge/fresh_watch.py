@@ -5,7 +5,10 @@ The 120-day study found that brand-new Polymarket wallets buying long shots
 in size lose: −9.7 ± 2.7 pt per share at settlement. The inversion (buy the
 other side 10 minutes later) would have made about +8 pt after costs, but
 it was looked at after the fact on 176 clustered markets. This is its own
-pre-registered test, written 2026-10-14 before the first row:
+pre-registered test, written 2026-10-14 before the first row. The same
+day the rule FAILED its retrospective holdout (days 121-300: +4.6 ± 3.0,
+t 1.5; 96% of it five markets, per-market mean −2.4 pt; EDGE_VERDICT
+21b), so this record is kept as cheap evidence and is expected to fail:
 
 * signal: a taker BUY >= $1,000 at <= 0.35 in a non-sports, non-crypto
   market (wallet_review's categoriser), from a wallet whose first-ever
