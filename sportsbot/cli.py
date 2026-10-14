@@ -671,7 +671,9 @@ def wallet_scan(per_category: int = typer.Option(5, help="all-time top wallets b
 
 @app.command("fresh-wallets")
 def fresh_wallets(days: int = typer.Option(120, help="resolved markets whose scheduled end fell in this window"),
-                  control_sample: int = typer.Option(1500, help="control trades priced for the copy test")):
+                  skip_days: int = typer.Option(0, help="leave out the most recent N days (a holdout window)"),
+                  control_sample: int = typer.Option(1500, help="control trades priced for the copy test"),
+                  out: str = typer.Option("", help="also write every graded trade to this JSON (data/ is gitignored)")):
     """Do brand-new wallets buying long shots in size (non-sports, non-crypto)
     know something, and can a follower still earn it after a delay, spread and
     fee? Pre-registered in the module docstring. Public reads only."""
@@ -680,8 +682,14 @@ def fresh_wallets(days: int = typer.Option(120, help="resolved markets whose sch
     from sportsbot.backtest import fresh_wallet as fw
 
     logging.getLogger("sportsbot.backtest.fresh_wallet").setLevel(logging.INFO)
-    res = fw.Study().run(days=days, control_sample=control_sample)
-    console.print(fw.format_summary(fw.summarize(res)), soft_wrap=True)
+    res = fw.Study().run(days=days, control_sample=control_sample, skip_days=skip_days)
+    summary = fw.summarize(res)
+    if out:
+        import json
+        with open(out, "w") as fh:
+            json.dump({"summary": summary, "signal": res["signal"], "control_sampled": res["control_sampled"]},
+                      fh, default=str)
+    console.print(fw.format_summary(summary), soft_wrap=True)
 
 
 @app.command("fresh-watch")

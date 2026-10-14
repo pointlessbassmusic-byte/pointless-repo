@@ -92,11 +92,12 @@ class Study:
         return val
 
     # -------------------------------------------------------------- data
-    def markets(self, days: int) -> list[dict]:
-        """Resolved, liquid, non-sports non-crypto binaries, by 5-day end-date slices."""
-        now = self.clock()
+    def markets(self, days: int, skip_days: int = 0) -> list[dict]:
+        """Resolved, liquid, non-sports non-crypto binaries whose scheduled end
+        fell between `days` and `skip_days` ago, by 5-day end-date slices."""
+        now = self.clock() - skip_days * 86400
         out: dict[str, dict] = {}
-        t = now - days * 86400
+        t = self.clock() - days * 86400
         while t < now:
             t2 = min(now, t + 5 * 86400)
             offset = 0
@@ -162,8 +163,9 @@ class Study:
                 log.info("markets: %d of %d, %d candidate trades", i, len(markets), len(out))
         return out
 
-    def run(self, days: int = 120, control_sample: int = 1500) -> dict:
-        markets = self._cached(f"markets_{days}d_{int(self.clock() // 86400)}.json", lambda: self.markets(days))
+    def run(self, days: int = 120, control_sample: int = 1500, skip_days: int = 0) -> dict:
+        markets = self._cached(f"markets_{days}d_skip{skip_days}_{int(self.clock() // 86400)}.json",
+                               lambda: self.markets(days, skip_days))
         by_cid = {m["cid"]: m for m in markets}
         cands = self.candidates(markets)
         firsts = self._cached("first_seen.json", lambda: {})
@@ -204,6 +206,10 @@ class Study:
                     continue
                 entry = px + HALF_SPREAD
                 c[f"copy_{d}"] = c["won"] - entry - m["fee_rate"] * entry * (1 - entry)
+                # the fade: buy the OTHER outcome at its price (1 - px) plus the half-spread
+                other = (1.0 - px) + HALF_SPREAD
+                if other < 1.0:
+                    c[f"fade_{d}"] = (1.0 - c["won"]) - other - m["fee_rate"] * other * (1 - other)
         return {"markets": len(markets), "candidates": len(cands), "signal": signal, "control": control,
                 "control_sampled": control_s}
 
@@ -227,7 +233,8 @@ def summarize(res: dict) -> dict:
         for r in rows:
             r["surplus"] = r["won"] - r["price"]
         out[name] = {"surplus": _ms(rows, "surplus"),
-                     **{f"copy_{d}": _ms(rows, f"copy_{d}") for d in DELAYS}}
+                     **{f"copy_{d}": _ms(rows, f"copy_{d}") for d in DELAYS},
+                     **{f"fade_{d}": _ms(rows, f"fade_{d}") for d in DELAYS}}
     return out
 
 
@@ -244,4 +251,5 @@ def format_summary(s: dict) -> str:
         b = s[name]
         lines.append(f"{name:16s} surplus {f(b['surplus']):34s} copy +10m {f(b['copy_600']):34s} "
                      f"copy +1h {f(b['copy_3600'])}")
+        lines.append(f"{'':16s} fade +10m {f(b['fade_600']):34s} fade +1h {f(b['fade_3600'])}")
     return "\n".join(lines)
