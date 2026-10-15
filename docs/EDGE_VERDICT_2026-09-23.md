@@ -1790,6 +1790,28 @@ in news and politics markets, where this repo's resolved-market study
 found favourites overpriced at fixed horizons. It is therefore a lead
 for a pre-registered forward test, not a trade.
 
+**21b holdout (2026-10-14, the same rule on an earlier window).** The
+rule was run unchanged on markets whose scheduled end fell 121-300 days
+ago: 2,325 markets, a window the discovery never saw. The bar, written
+before the run, was a fade P&L at +10 min > 0 with t ≥ 2 clustered by
+market.
+
+| fade +10 min | fades / markets | P&L per share | top-5 markets' share | without the top 5 | mean per market |
+|---|---|---|---|---|---|
+| discovery (rerun) | 648 / 169 | +7.2 ± 3.0 (t 2.4) | 22% | +7.05 | +3.73 |
+| **holdout** | 867 / 183 | **+4.6 ± 3.0 (t 1.5)** | **96%** | **+0.26** | **−2.43** |
+| established wallets, holdout | 1,477 / 309 | +0.3 ± 3.5 | — | — | — |
+
+The holdout fails the bar. Its positive mean is five markets: without
+them it is +0.26 per share, and the per-market average is negative
+(139 of 183 markets win, a few lose big). This is the profile of
+selling long shots: short volatility, like the Fed rule, but without a
+reference market behind it.
+
+The discovery effect was that window's. The forward test stays on the
+server as a data-only record (it costs nothing), but it is expected to
+fail, and nothing is built on it.
+
 ### 21c. Big pre-game moves, followed or faded: both lose the costs (`data/ratings/move_study.py`)
 
 This was the "fade large open-to-close moves" item from the 2026-09
