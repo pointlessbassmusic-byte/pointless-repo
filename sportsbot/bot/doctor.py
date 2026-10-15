@@ -61,8 +61,36 @@ def check_mode(cfg: dict) -> list[Check]:
                          if gate else
                          "mode=live but SPORTSBOT_LIVE!=1 — runner will "
                          "force paper (the double gate, working as designed)"))
+        out.extend(_check_live_book(cfg))
     else:
         out.append(Check("config.live_gate", PASS, "paper mode"))
+    return out
+
+
+SIM_DB = "data/sportsbot.sqlite"
+
+
+def _check_live_book(cfg: dict) -> list[Check]:
+    """A live config must trade its own ledger, sized to money that was
+    actually deposited. Sharing the sim's file would let paper bets count
+    toward the live book's exposure, drawdown and kill switch (and the
+    reverse); a zero starting balance makes the equity curve, the allocator
+    bankroll and the daily limits meaningless."""
+    out = []
+    path = cfg.get("storage", {}).get("sqlite_path", SIM_DB)
+    out.append(_ck("live.own_db", os.path.normpath(path) != os.path.normpath(SIM_DB),
+                   f"live book uses its own DB ({path})",
+                   f"live config points at the sim DB {SIM_DB} — give it its own "
+                   "storage.sqlite_path"))
+    real = float((cfg.get("accounts", {}).get("real") or {}).get("starting_balance", 0.0) or 0.0)
+    out.append(_ck("live.funded", real > 0.0,
+                   f"accounts.real.starting_balance=${real:.2f}",
+                   "accounts.real.starting_balance is 0 — set it to the deposit"))
+    amount = float(cfg.get("bankroll", {}).get("amount", 0.0) or 0.0)
+    out.append(_ck("live.bankroll_le_deposit", 0.0 < amount <= real or real == 0.0,
+                   f"bankroll.amount=${amount:.2f} <= deposit",
+                   f"bankroll.amount=${amount:.2f} exceeds the ${real:.2f} deposit — "
+                   "the bot would size off money that is not there"))
     return out
 
 
@@ -220,6 +248,11 @@ def check_secrets(cfg: dict) -> list[Check]:
                                  "key file is group/world readable — chmod 600"))
             else:
                 out.append(Check("secrets.kalshi_key_file", PASS, "present"))
+                out.append(_check_kalshi_key_type(key_path, missing_level))
+        if mode == "live" and (os.environ.get("KALSHI_ENV") or "demo").lower() != "prod":
+            out.append(Check("secrets.KALSHI_ENV", WARN,
+                             "KALSHI_ENV is not 'prod' — live orders go to the DEMO "
+                             "exchange (set KALSHI_ENV=prod for real money)"))
     elif exchange == "polymarket_us":
         for var in ("POLYMARKET_US_KEY_ID", "POLYMARKET_US_SECRET_KEY"):
             out.append(_ck(f"secrets.{var}", bool(os.environ.get(var)),
@@ -233,6 +266,28 @@ def check_secrets(cfg: dict) -> list[Check]:
         out.append(Check("secrets", PASS,
                          "paper mode on public data: no keys required"))
     return out
+
+
+def _check_kalshi_key_type(key_path: str, bad_level: str) -> Check:
+    """Kalshi signs with RSA-PSS, so the file must hold an RSA private key.
+    Other venues' and tools' keys (Ed25519, ~120 bytes) load fine and then
+    fail on the first signed request, which in a live run is the first
+    order. Only the key's TYPE is reported, never its contents."""
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        with open(key_path, "rb") as fh:
+            key = serialization.load_pem_private_key(fh.read(), password=None)
+    except Exception as exc:
+        return Check("secrets.kalshi_key_type", bad_level,
+                     f"key file does not load as an unencrypted PEM private key "
+                     f"({type(exc).__name__})")
+    if isinstance(key, rsa.RSAPrivateKey):
+        return Check("secrets.kalshi_key_type", PASS, f"RSA {key.key_size}-bit")
+    return Check("secrets.kalshi_key_type", bad_level,
+                 f"{type(key).__name__.replace('PrivateKey', '')} key — Kalshi needs the "
+                 "RSA key from its API-keys page (this one cannot sign Kalshi requests)")
 
 
 # ---------------------------------------------------------------- network
@@ -282,6 +337,8 @@ def check_network(cfg: dict) -> list[Check]:
                                  "not OK (geoblock/auth/maintenance?)"))
         except Exception as exc:
             out.append(Check(name, FAIL, f"unreachable: {exc}"))
+    if exchange == "kalshi" and cfg.get("mode", "paper") == "live":
+        out.append(_check_kalshi_auth())
     if skew is not None:
         level = (FAIL if skew > CLOCK_FAIL_S
                  else WARN if skew > CLOCK_WARN_S else PASS)
@@ -290,6 +347,28 @@ def check_network(cfg: dict) -> list[Check]:
                          + ("" if level == PASS else
                             " — fix NTP/chrony before signing orders")))
     return out
+
+
+def _check_kalshi_auth() -> Check:
+    """One signed read (the balance) against the exchange the orders will
+    go to. Key presence is not key validity: a wrong key type, a revoked key
+    or a key ID that does not match the file all fail here, before the first
+    order instead of on it."""
+    try:
+        from sportsbot.exchanges.kalshi import API_ROOT, KalshiClient
+
+        data = KalshiClient()._request("GET", f"{API_ROOT}/portfolio/balance", auth=True)
+    except Exception as exc:
+        return Check("net.kalshi_auth", FAIL,
+                     f"signed request failed ({type(exc).__name__}: {str(exc)[:120]})")
+    for field, scale in (("balance_fp", 1.0), ("balance", 0.01)):
+        if isinstance(data, dict) and data.get(field) not in (None, ""):
+            try:
+                return Check("net.kalshi_auth", PASS,
+                             f"authenticated; balance ${float(data[field]) * scale:.2f}")
+            except (TypeError, ValueError):
+                break
+    return Check("net.kalshi_auth", PASS, "authenticated")
 
 
 # ---------------------------------------------------------------- driver

@@ -125,3 +125,72 @@ def test_fee_floor_rejects_an_edge_bar_the_venue_eats():
     assert levels["params.fee_floor[bankroll.min_edge]"] == FAIL
     assert levels["params.fee_floor[sports.tennis.min_edge_override]"] == FAIL
     assert all(c.level == PASS for c in check_params({}) if "fee_floor" in c.name)
+
+
+# ----------------------------------------------- Kalshi key validity (2026-10-13)
+def _write_key(tmp_path, kind):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
+
+    key = (rsa.generate_private_key(public_exponent=65537, key_size=2048) if kind == "rsa"
+           else ed25519.Ed25519PrivateKey.generate())
+    path = tmp_path / f"{kind}.pem"
+    path.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                       serialization.PrivateFormat.PKCS8,
+                                       serialization.NoEncryption()))
+    path.chmod(0o600)
+    return str(path)
+
+
+@pytest.mark.parametrize("kind,level", [("rsa", PASS), ("ed25519", FAIL)])
+def test_live_kalshi_key_must_be_rsa(tmp_path, monkeypatch, kind, level):
+    """The 2026-10-13 incident: an Ed25519 key (another tool's) passed as
+    'present' and would have failed on the first order."""
+    monkeypatch.setenv("KALSHI_API_KEY_ID", "id")
+    monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", _write_key(tmp_path, kind))
+    monkeypatch.setenv("KALSHI_ENV", "prod")
+    checks = by_name(check_secrets({"mode": "live", "exchange": "kalshi"}))
+    assert checks["secrets.kalshi_key_type"].level == level
+    if kind == "ed25519":
+        assert "RSA" in checks["secrets.kalshi_key_type"].detail
+
+
+def test_unloadable_kalshi_key_fails_live(tmp_path, monkeypatch):
+    bad = tmp_path / "bad.pem"
+    bad.write_text("not a key")
+    bad.chmod(0o600)
+    monkeypatch.setenv("KALSHI_API_KEY_ID", "id")
+    monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", str(bad))
+    checks = by_name(check_secrets({"mode": "live", "exchange": "kalshi"}))
+    assert checks["secrets.kalshi_key_type"].level == FAIL
+    assert "not a key" not in checks["secrets.kalshi_key_type"].detail   # contents never echoed
+
+
+def test_live_kalshi_on_demo_env_warns(tmp_path, monkeypatch):
+    monkeypatch.setenv("KALSHI_API_KEY_ID", "id")
+    monkeypatch.setenv("KALSHI_PRIVATE_KEY_PATH", _write_key(tmp_path, "rsa"))
+    monkeypatch.delenv("KALSHI_ENV", raising=False)
+    checks = by_name(check_secrets({"mode": "live", "exchange": "kalshi"}))
+    assert checks["secrets.KALSHI_ENV"].level == WARN
+    monkeypatch.setenv("KALSHI_ENV", "prod")
+    assert "secrets.KALSHI_ENV" not in by_name(check_secrets({"mode": "live", "exchange": "kalshi"}))
+
+
+def test_kalshi_auth_probe(monkeypatch):
+    from sportsbot.bot import doctor
+    from sportsbot.exchanges import kalshi
+
+    class _Ok:
+        def _request(self, method, path, auth=False, **kw):
+            assert auth and path.endswith("/portfolio/balance")
+            return {"balance": 12345}
+
+    class _Bad:
+        def _request(self, *a, **kw):
+            raise TypeError("Ed25519PrivateKey.sign() takes 1 positional arguments")
+
+    monkeypatch.setattr(kalshi, "KalshiClient", _Ok)
+    ok = doctor._check_kalshi_auth()
+    assert ok.level == PASS and "$123.45" in ok.detail
+    monkeypatch.setattr(kalshi, "KalshiClient", _Bad)
+    assert doctor._check_kalshi_auth().level == FAIL

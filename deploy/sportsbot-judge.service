@@ -1,0 +1,16 @@
+[Unit]
+Description=sportsbot shadow LLM judgement recorder (data only, never trades)
+After=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+WorkingDirectory=/opt/sportsbot
+# needs ANTHROPIC_API_KEY in .env and `pip install -e .[judge]`
+EnvironmentFile=-/opt/sportsbot/.env
+ExecStart=/opt/sportsbot/.venv/bin/python -m sportsbot.signals.judge --db /opt/sportsbot/data/judge.sqlite --max-calls-per-day 100
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

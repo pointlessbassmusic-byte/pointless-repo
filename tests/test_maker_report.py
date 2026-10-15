@@ -231,3 +231,50 @@ def test_cli_maker_report_runs_offline(tmp_path):
     result = CliRunner().invoke(app, ["maker-report", "-c", str(cfg)])
     assert result.exit_code == 0, result.output
     assert "nothing posted yet" in result.output
+
+
+# ---------------------------------------------- fill bounds (Result 15 addendum 3)
+def test_tape_fill_bounds_upper_queue_and_strict():
+    from datetime import datetime, timedelta, timezone
+
+    from sportsbot.core.books import tape_fill_bounds
+    from sportsbot.core.types import Side, TapePrint
+    t0 = datetime(2026, 10, 15, tzinfo=timezone.utc)
+    prints = [TapePrint(ts=t0 + timedelta(seconds=s), price_yes=p, size=z)
+              for s, p, z in ((10, 0.45, 300), (20, 0.45, 200), (30, 0.44, 50), (40, 0.46, 999))]
+    b = tape_fill_bounds(prints, Side.YES, 0.45, after=t0, queue_ahead=400)
+    assert b["through"] == 550          # at or below our bid
+    assert b["strict"] == 50            # only the 0.44 print swept the level
+    assert b["queue"] == 150            # 550 at-or-through minus the 400 ahead
+    assert tape_fill_bounds(prints, Side.YES, 0.45, after=t0)["queue"] is None
+    # a NO bid at 0.54 is a YES ask at 0.46: only the 0.46 print touches it, none beyond
+    nb = tape_fill_bounds(prints, Side.NO, 0.54, after=t0, queue_ahead=0)
+    assert nb["through"] == 999 and nb["strict"] == 0 and nb["queue"] == 999
+
+
+def test_queue_ahead_reads_the_posted_book_in_the_right_frame():
+    from sportsbot.bot.executor import _queue_ahead
+    from sportsbot.core.types import Exchange, Order, Side
+    book = {"bid": 0.45, "ask": 0.47, "bid_size": 1200.0, "ask_size": 800.0}
+
+    def o(side, price):
+        return Order(client_id="c", exchange=Exchange.KALSHI, market_id="m", side=side,
+                     price=price, size=1.0, raw={"book": book})
+    assert _queue_ahead(o(Side.YES, 0.45)) == 1200.0      # joined the bid
+    assert _queue_ahead(o(Side.YES, 0.46)) == 0.0         # improved: first at a new price
+    assert _queue_ahead(o(Side.NO, 0.53)) == 800.0        # NO 0.53 = YES ask 0.47
+    assert _queue_ahead(o(Side.NO, 0.54)) == 0.0          # YES ask 0.46 improves the 0.47
+    assert _queue_ahead(Order(client_id="c", exchange=Exchange.KALSHI, market_id="m",
+                              side=Side.YES, price=0.45, size=1.0, raw={})) is None
+
+
+def test_report_places_real_fills_between_the_bounds():
+    from sportsbot.bot.maker_report import _bounds, _bounds_lines
+    shadowed = [{"filled": 1.0, "raw": {"tape_through": 1.0, "tape_queue": 1.0, "tape_strict": 0.0}},
+                {"filled": 0.0, "raw": {"tape_through": 1.0, "tape_queue": 0.0, "tape_strict": 0.0}},
+                {"filled": 0.0, "raw": {"tape_through": 1.0}}]          # pre-upgrade row
+    b = _bounds(shadowed)
+    assert b["through"]["orders"] == 3 and b["through"]["real_over_reference"] == pytest.approx(1 / 3)
+    assert b["queue"]["orders"] == 2 and b["queue"]["real_over_reference"] == pytest.approx(1.0)
+    assert b["strict"]["real_over_reference"] is None              # nothing swept: no reference
+    assert any("behind the queue" in line for line in _bounds_lines(b))

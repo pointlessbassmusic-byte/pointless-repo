@@ -271,6 +271,7 @@ def build_exchange(cfg: dict):
         # live gate below. The venue publishes no keyless trade tape, so in
         # paper mode resting orders here never fill (no tape, no fill).
         data_client = PolymarketUSClient()
+        exec_client = data_client
 
         def fee_fn(price, shares, market_id=None):
             """Taker 0.0695 x C x p x (1 - p) on every sport the client
@@ -285,6 +286,7 @@ def build_exchange(cfg: dict):
         from sportsbot.exchanges.polymarket import PolymarketClient, taker_fee
 
         data_client = PolymarketClient()
+        exec_client = data_client
 
         def fee_fn(price, shares, market_id=None):
             """Per-market rate from Gamma's feeSchedule (discovery fills it);
@@ -297,7 +299,7 @@ def build_exchange(cfg: dict):
             ignored here (conservative)."""
             return 0.0
     if mode == "live" and os.environ.get("SPORTSBOT_LIVE") == "1":
-        return (exec_client if venue == "kalshi" else data_client), data_client, fee_fn
+        return exec_client, data_client, fee_fn
     paper = PaperExchange(
         data_client=data_client,
         starting_balance=float(cfg.get("bankroll", {}).get("amount", 1000.0)),
@@ -417,10 +419,14 @@ class Runner:
             self.exchange, self.store, mode=self.mode,
             order_ttl_seconds=float(ex.get("order_ttl_seconds", 120.0)),
         )
-        try:
-            self.executor.sweep_orphans()
-        except Exception:
-            log.exception("orphan sweep failed; continuing")
+        # Every booked fill gets marked at +5 s/+60 s/+5 min/+30 min against
+        # the live book (bot/markout.py): the adverse-selection measurement
+        # the pilot exists to make. Data only; runs on paper fills too.
+        from sportsbot.bot.markout import MarkoutRecorder
+
+        self.markouts = MarkoutRecorder(self.store, self.data_client)
+        self.executor.on_fill = self.markouts.schedule
+        self._ratings_cache: tuple[float, dict, dict] | None = None
 
     # ------------------------------------------------------------------
     def maker_fee_fn(self, price: float, market_id: str = "") -> float:
@@ -435,7 +441,7 @@ class Runner:
             return 0.0          # Polymarket makers pay no taker fee
         from sportsbot.exchanges.kalshi import kalshi_maker_fee_per_share
 
-        return kalshi_maker_fee_per_share(market_id)
+        return kalshi_maker_fee_per_share(market_id, price=price)
 
     def decision_fee_fn(self, market_id: str):
         """Fee function for EDGE/SIZING/EXIT math on one market.
@@ -557,7 +563,7 @@ class Runner:
     def _settle_resolved(self) -> int:
         """Settle open bets whose markets have resolved. Returns count settled."""
         settled = 0
-        open_bets = self.store.open_bets()
+        open_bets = self.store.open_bets(mode=getattr(self, "mode", None))   # this book only
         by_market: dict[str, list[dict]] = {}
         for b in open_bets:
             by_market.setdefault(b["market_id"], []).append(b)
@@ -654,7 +660,9 @@ class Runner:
                                          "style_override": {
                                              s: "none" for s in SPORT_KEYS}})
 
-        settled = self.store.settled_bets()
+        # This book's bets only: a live book's drawdown and CLV must never
+        # be read off the paper sim's history, or vice versa.
+        settled = self.store.settled_bets(limit=1_000_000, mode=self.mode)
         if self.sharp_cfg.enabled and self.sharp_cfg.enforce_adaptive:
             # Benchmark the rolling CLV against Pinnacle where a sharp close
             # exists. `adaptive_overrides` is tighten-only, so this can only
@@ -693,6 +701,7 @@ class Runner:
                 strategy = StrategyConfig(**{**strategy.__dict__,
                                              "min_edge_override": edge_over,
                                              "max_stake_override": stake_over})
+
         return staking, strategy
 
     def _manage_positions(self, quoted: dict, strategy: StrategyConfig) -> int:
@@ -1031,7 +1040,7 @@ class Runner:
         self._record_scan_drops(drops)
         summary["sharp"] = self._sharp_tick(scanned)
 
-        exposure = self.store.exposure_by()
+        exposure = self.store.exposure_by(mode=self.mode)
         quoted: dict[str, tuple] = {}
         edge_seen: dict[str, dict] = {}
         for sm in scanned:
@@ -1085,7 +1094,7 @@ class Runner:
                 summary["orders"] += 1
                 self._record_decision(sm, "bet", mid, intent=intent, reason=why)
                 # keep exposure fresh within the cycle
-                exposure = self.store.exposure_by()
+                exposure = self.store.exposure_by(mode=self.mode)
             else:
                 self._record_decision(sm, "skip", mid, intent=intent,
                                       reason="order rejected by venue")
@@ -1174,6 +1183,22 @@ class Runner:
         interval = float(self.cfg.get("scan", {}).get("interval_seconds", 300))
         log.info("sportsbot runner starting: mode=%s venue=%s interval=%ss",
                  self.mode, self.exchange.exchange.value, interval)
+        # Orders left resting by a previous process: book what filled while
+        # we were away and cancel the rest on the venue, then close any row
+        # still shown resting (paper books die with their process). Done HERE,
+        # not in __init__, so a read-only `sportsbot scan` against a live
+        # config can never cancel the running book's orders.
+        try:
+            self.executor.restore_open_orders()
+        except Exception:
+            log.exception("restore of resting orders failed; continuing")
+        try:
+            self.executor.sweep_orphans()
+        except Exception:
+            log.exception("orphan sweep failed; continuing")
+        markouts = getattr(self, "markouts", None)
+        if markouts is not None:
+            markouts.start()
         self._stop = False
         try:
             signal.signal(signal.SIGTERM, self.request_stop)
@@ -1192,4 +1217,6 @@ class Runner:
             while not self._stop and time.time() < deadline:
                 time.sleep(min(1.0, max(0.0, deadline - time.time())))
         n = self.executor.cancel_all_resting("shutdown")
+        if markouts is not None:
+            markouts.stop()
         log.info("sportsbot runner stopping: %d resting order(s) cancelled with their tape shadow", n)

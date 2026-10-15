@@ -1,0 +1,107 @@
+# The real-money PILOT book: a COMPLETE standalone config for the first
+# $100-250 of live capital (`sportsbot run -c config/pilot.yaml`).
+#
+# What this book is for: measuring real fills, adverse selection and
+# closing-line value at the smallest size the venue allows. No strategy in
+# docs/research_ledger.json has passed yet, so every sleeve starts small and
+# the allocator can only GROW one on measured positive CLV (bot/allocation.py).
+# Losses shrink every sleeve at once; the kill switch ends the pilot.
+#
+# Venue: Kalshi. Polymarket's main CLOB is geoblocked for US order placement
+# (never evaded), and this repo has no Polymarket-US trading client yet; the
+# Kalshi client is the only US-legal live path that exists here today.
+#
+# Two switches, both deliberate, both on the host: `mode: live` below AND
+# `SPORTSBOT_LIVE=1` in the environment. `sportsbot doctor -c config/pilot.yaml`
+# must exit 0 first. Secrets NEVER go here — .env only.
+
+mode: live
+exchange: kalshi
+
+accounts:
+  sim:
+    starting_balance: 0.0
+  real:
+    starting_balance: 150.0   # set to what you ACTUALLY deposited; doctor FAILs on 0
+
+bankroll:
+  amount: 150.0             # the allocator divides min(this, current equity)
+  kelly_multiplier: 0.20    # fifth Kelly: the models' edges are unproven
+  min_edge: 0.04            # after fees + slippage; 1c above the sim's bar
+  min_stake: 1.0
+  max_stake_per_market: 6.0     # 4% of the book in one market
+  max_fraction_per_market: 0.04
+  max_fraction_per_sport: 0.25
+  max_total_exposure: 0.40      # at most $60 at risk at once
+  max_open_positions: 8
+
+allocation:
+  enabled: true
+  # Manual control (optional). Example:
+  #   manual: {tennis: 0.5, baseball: 0.5}
+  #   paused: [table_tennis]
+  # Evidence multipliers and the caps above still apply on top.
+
+blend:
+  model_weight: 0.30
+
+execution:
+  max_spread: 0.03
+  slippage_buffer: 0.005
+  order_ttl_seconds: 120
+  post_inside_spread: true  # maker-first: the pilot measures resting fills too
+  max_depth_fraction: 0.25
+  min_entry_price: 0.15
+  max_entry_price: 0.85
+
+positions:
+  manage: true
+  exit_edge: -0.05
+  stop_fraction: 0.5
+  min_hold_minutes: 30
+
+adaptive:
+  enabled: true
+  drawdown_stake_scaling: true
+  stake_floor: 0.25
+  clv_window: 50
+  clv_min_bets: 30
+  tighten_edge: 0.02
+  stake_cut: 0.5
+
+risk:
+  daily_loss_limit: 10.0         # ~7% of the book in a day: stop until tomorrow
+  max_daily_new_risk: 0.25
+  max_drawdown: 40.0             # ~27% peak-to-trough: kill switch, manual reset
+  stale_quote_seconds: 120
+  min_minutes_before_start: 20   # PINNACLE_TENNIS: in-play leaks start ~20 min out
+  max_pre_match_move: 0.08
+  calibration_min_bets: 50
+  calibration_max_brier: 0.26
+
+scan:
+  interval_seconds: 300
+  sports: [baseball, tennis]
+
+sports:
+  tennis:
+    enabled: true               # only sized once Sackmann ratings exist (allocator blocks bootstrap ratings)
+    best_of_default: 3
+    surface_weight: 0.50
+    min_matches: 10
+  baseball:
+    enabled: true
+    home_advantage_elo: 24.0
+    rest_advantage_elo: 2.3
+    sp_enabled: true
+    prob_shrink: 0.8
+  table_tennis:
+    enabled: false
+
+storage:
+  sqlite_path: data/pilot.sqlite   # its OWN file: never share a DB with the sim book
+  ratings_dir: data/ratings
+
+logging:
+  level: INFO
+  file: logs/pilot.log

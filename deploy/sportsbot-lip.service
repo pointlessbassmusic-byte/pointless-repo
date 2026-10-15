@@ -1,0 +1,15 @@
+[Unit]
+Description=sportsbot Kalshi LIP shadow recorder (data only, never trades)
+After=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+WorkingDirectory=/opt/sportsbot
+# public endpoints only; no keys are read, no orders are ever placed
+ExecStart=/opt/sportsbot/.venv/bin/python -m sportsbot.signals.lip --db /opt/sportsbot/data/lip.sqlite --panel 400 --rps 3
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

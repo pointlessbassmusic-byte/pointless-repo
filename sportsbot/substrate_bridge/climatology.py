@@ -13,7 +13,7 @@ settled.
 
 Station mapping is the NWS climate-report station Kalshi settles against
 (best-effort; verify against each series' rulebook before leaning on a city):
-Central Park (NY), O'Hare (CHI), Miami Intl (MIA), Camp Mabry (AUS),
+Central Park (NY), Midway (CHI), Miami Intl (MIA), Bergstrom (AUS),
 Denver Intl (DEN), LAX, Philadelphia Intl (PHIL).
 """
 
@@ -37,9 +37,9 @@ WINDOW_DAYS = 7
 
 STATIONS = {
     "KXHIGHNY": "USW00094728",    # NYC Central Park
-    "KXHIGHCHI": "USW00094846",   # Chicago O'Hare
+    "KXHIGHCHI": "USW00014819",   # Chicago Midway (rules: CLIMDW)
     "KXHIGHMIA": "USW00012839",   # Miami Intl
-    "KXHIGHAUS": "USW00013958",   # Austin Camp Mabry
+    "KXHIGHAUS": "USW00013904",   # Austin Bergstrom (rules: CLIAUS)
     "KXHIGHDEN": "USW00003017",   # Denver Intl
     "KXHIGHLAX": "USW00023174",   # Los Angeles Intl
     "KXHIGHPHIL": "USW00013739",  # Philadelphia Intl

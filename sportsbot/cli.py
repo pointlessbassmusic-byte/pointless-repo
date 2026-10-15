@@ -236,7 +236,7 @@ def scan(config: str = CONFIG_OPT):
             console.print(f"[red]{s} discovery failed: {exc}")
     scanned = runner.scanner.scan(markets)
     console.print(f"{len(markets)} markets, {len(scanned)} matched to models")
-    exposure = runner.store.exposure_by()
+    exposure = runner.store.exposure_by(mode=runner.mode)
     for sm in scanned:
         try:
             quote = runner.exchange.get_quote(sm.market)
@@ -266,14 +266,15 @@ def run(config: str = CONFIG_OPT):
     Runner(cfg).run_forever()
 
 
-def _category_report(cfg: dict, store) -> dict:
-    """Per-category performance + adaptive-layer state from config + store."""
+def _category_report(cfg: dict, store, mode: str | None = None) -> dict:
+    """Per-category performance + adaptive-layer state from config + store,
+    for one book when `mode` is given."""
     from sportsbot.bot.positions import category_report
 
     bank = cfg.get("bankroll", {})
     sports_cfg = cfg.get("sports", {})
     return category_report(
-        store.settled_bets(),
+        store.settled_bets(limit=1_000_000, mode=mode),
         cfg.get("adaptive", {}),
         float(bank.get("min_edge", 0.03)),
         float(bank.get("max_stake_per_market", 50.0)),
@@ -286,6 +287,64 @@ def _category_report(cfg: dict, store) -> dict:
     )
 
 
+def _effective_mode(cfg: dict) -> str:
+    """The book a config actually writes: live only with BOTH switches."""
+    import os
+    live = cfg.get("mode", "paper") == "live" and os.environ.get("SPORTSBOT_LIVE") == "1"
+    return "live" if live else "paper"
+
+
+@app.command()
+def allocation(config: str = CONFIG_OPT,
+               account: str = typer.Option("", help="sim | real (default: the book this config trades)")):
+    """Which strategy arms may risk money right now, how much, and why
+    (bot/portfolio.py). The operator's levers live in the file named by
+    `allocation.path` (config/allocation.yaml by default). Offline."""
+    cfg = _setup(config)
+    from sportsbot.bot.ledger import account_equity
+    from sportsbot.bot.portfolio import (
+        allocate_arms,
+        effective_bankroll,
+        load_allocation,
+        running_arms_for,
+        summarise_for_dashboard,
+    )
+    from sportsbot.dashboard import starting_balance
+    from sportsbot.data.store import Store
+
+    acct = account or ("real" if _effective_mode(cfg) == "live" else "sim")
+    mode = {"sim": "paper", "real": "live"}[acct]
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    path = str(cfg.get("allocation", {}).get("path", "config/allocation.yaml"))
+    alloc_cfg = load_allocation(path)
+    eq = account_equity(store, acct, starting_balance(cfg, acct))
+    bankroll = effective_bankroll(alloc_cfg, float(cfg.get("bankroll", {}).get("amount", 100.0)),
+                                  eq["equity"])
+    try:
+        running = running_arms_for(cfg)
+    except ValueError:
+        running = set()
+    fees = store.get_kv("fees_verified")
+    port = allocate_arms(bankroll, cfg, alloc_cfg,
+                         store.settled_bets(limit=1_000_000, mode=mode),
+                         running,
+                         fees_verified=isinstance(fees, dict) and bool(fees.get("verified")),
+                         mode=mode)
+    console.print(f"[{acct}] {path}: bankroll ${bankroll:.2f} ({alloc_cfg.bankroll_mode}); "
+                  f"allocated ${port['allocated']:.2f} of a ${port['total_cap']:.2f} cap")
+    table = Table(title="arms (funded first)")
+    for col in ("arm", "budget", "source", "running", "learn", "CLV n", "mean CLV"):
+        table.add_column(col)
+    for r in summarise_for_dashboard(port):
+        if not (r["budget"] > 0 or r["running"]):
+            continue
+        table.add_row(r["arm"], f"${r['budget']:.2f}", str(r["source"]),
+                      "yes" if r["running"] else "no", "yes" if r["learn"] else "no",
+                      str(r["n_clv"]),
+                      "—" if r["mean_clv"] is None else f"{r['mean_clv']:+.4f}")
+    console.print(table)
+
+
 @app.command()
 def status(config: str = CONFIG_OPT):
     """Exposure, PnL, calibration, per-category performance, kill switch."""
@@ -294,11 +353,16 @@ def status(config: str = CONFIG_OPT):
     from sportsbot.data.store import Store
 
     store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
-    exp = store.exposure_by()
-    console.print(f"open exposure: ${exp['total']:.2f} across "
+    # The book this config trades, not everything in the file: a live
+    # config's status must not mix in the paper book's rows.
+    mode = _effective_mode(cfg)
+    exp = store.exposure_by(mode=mode)
+    console.print(f"[{mode}] open exposure: ${exp['total']:.2f} across "
                   f"{exp['open_positions']} positions {exp['by_sport']}")
     tracker = PerformanceTracker()
-    for r in store.settled_bets():
+    # settled_bets() is newest first; drawdown is a path statistic and must
+    # be walked oldest first or peak-to-trough comes out of a reversed path.
+    for r in reversed(store.settled_bets(limit=1_000_000, mode=mode)):
         tracker.add(BetRecord(
             market_id=r["market_id"], side=r["side"], model_prob=r["model_prob"],
             entry_price=r["entry_price"], stake=r["stake"],
@@ -308,7 +372,7 @@ def status(config: str = CONFIG_OPT):
     console.print(tracker.summary())
     console.print(f"max drawdown: ${tracker.drawdown():.2f}")
 
-    rep = _category_report(cfg, store)
+    rep = _category_report(cfg, store, mode=mode)
     if rep["by_sport"]:
         table = Table(title="per category (adaptive layer state)")
         for col in ("sport", "bets", "PnL", "mean CLV", "hit", "state",
@@ -325,6 +389,19 @@ def status(config: str = CONFIG_OPT):
         console.print(table)
     console.print(f"effective Kelly multiplier: {rep['effective_kelly']:.4f} "
                   f"(drawdown ${rep['current_drawdown']:.2f} below peak)")
+    from sportsbot.bot.markout import markout_report
+
+    mk = markout_report(store, mode=mode)
+    if mk["by_sport"]:
+        t3 = Table(title=f"fill markouts (cents/share after our fills; {mk['n_fills']} fills)")
+        hs = sorted({h for v in mk["by_sport"].values() for h in v})
+        t3.add_column("sport")
+        for h in hs:
+            t3.add_column(f"+{h}s" if h < 60 else f"+{h // 60}m")
+        for sport, cells in sorted(mk["by_sport"].items()):
+            t3.add_row(sport, *["—" if not cells.get(h) or cells[h]["mean_cents"] is None
+                                else f"{cells[h]['mean_cents']:+.2f} (n {cells[h]['n']})" for h in hs])
+        console.print(t3)
     ks = store.get_kv("kill_switch_tripped", False)
     console.print(f"kill switch: {ks or 'clear'}")
 
@@ -813,8 +890,8 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
                     lead_hours: float = typer.Option(6.0, help="decision point, hours before the pre-match anchor"),
                     min_edge: float = typer.Option(0.03),
                     maker: bool = typer.Option(False, help="polymarket: enter at the bid, no fee"),
-                    fill_model: str = typer.Option("optimistic", help="polymarket maker fills: optimistic (every resting order fills) | strict (a later pre-start taker print must trade through the bid; uses the public trade tape)"),
-                    policy: str = typer.Option("backtest", help="polymarket: backtest (this harness's own rules) | live (the bot's evaluate_market_verbose under config/default.yaml — no drift possible)"),
+                    fill_model: str = typer.Option("", help="polymarket (default optimistic): optimistic (every resting order fills) | strict (a later pre-start taker print must trade through the bid). kalshi (default pessimistic): pessimistic (taker at ask) | optimistic (maker fills assumed)"),
+                    policy: str = typer.Option("", help="polymarket (default backtest): backtest (this harness's own rules) | live (the bot's evaluate_market_verbose). kalshi (default live): live = the bot's own strategy | legacy = pre-2026-10-08 taker rule"),
                     days: int = typer.Option(32, help="polymarket: resolved-market lookback (CLOB keeps ~30 days of prices)"),
                     max_pages: int = typer.Option(40, help="settled-market pages to pull")):
     """Walk-forward backtest against REAL exchange prices and outcomes.
@@ -823,6 +900,8 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
     calibrated" but "does it beat the price it would have paid". Price
     histories are cached, so repeat runs are offline."""
     if exchange == "polymarket":
+        fill_model = fill_model or "optimistic"
+        policy = policy or "backtest"
         _polymarket_market_backtest(sport, _setup(config), lead_hours, min_edge, maker, days,
                                     fill_model=fill_model, policy=policy)
         return
@@ -836,6 +915,8 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
     )
     from sportsbot.exchanges.kalshi import KalshiClient
 
+    fill_model = fill_model or "pessimistic"
+    policy = policy or "live"
     cfg = _setup(config)
     bank = cfg.get("bankroll", {})
     client = KalshiClient(env="prod")
@@ -855,6 +936,7 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
             max_stake=float(bank.get("max_stake_per_market", 8.0)),
             surface_weight=float(cfg["sports"]["tennis"].get("surface_weight", 0.5)),
             min_matches=int(cfg["sports"]["tennis"].get("min_matches", 10)),
+            policy=policy, fill_model=fill_model,
         )
         console.print(res.summary())
         return
@@ -875,6 +957,7 @@ def market_backtest(sport: str = typer.Argument("baseball", help="baseball | ten
         max_stake=float(bank.get("max_stake_per_market", 8.0)),
         home_advantage=float(cfg["sports"]["baseball"].get("home_advantage_elo", 24.0)),
         prob_shrink=float(cfg["sports"]["baseball"].get("prob_shrink", 0.8)),
+        policy=policy, fill_model=fill_model,
     )
     console.print(res.summary())
 
@@ -947,7 +1030,8 @@ def _write_ops_json(cfg: dict, store, path: str) -> None:
 
     tracker = PerformanceTracker()
     cum, cum_pnl = 0.0, []
-    for r in store.settled_bets():
+    mode = _effective_mode(cfg)
+    for r in reversed(store.settled_bets(limit=1_000_000, mode=mode)):   # oldest first
         tracker.add(BetRecord(
             market_id=r["market_id"], side=r["side"], model_prob=r["model_prob"],
             entry_price=r["entry_price"], stake=r["stake"],
@@ -960,12 +1044,12 @@ def _write_ops_json(cfg: dict, store, path: str) -> None:
         "generated": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
         "mode": f"{cfg.get('mode', 'paper')}/{cfg.get('exchange', 'polymarket')}",
         "bankroll": cfg.get("bankroll", {}).get("amount"),
-        "exposure": store.exposure_by(),
+        "exposure": store.exposure_by(mode=mode),
         "summary": tracker.summary(),
         "max_drawdown": tracker.drawdown(),
         "kill_switch": bool(store.get_kv("kill_switch_tripped", False)),
         "cum_pnl": cum_pnl,
-        "categories": _category_report(cfg, store),
+        "categories": _category_report(cfg, store, mode=mode),
     }
     with open(path, "w") as fh:
         json.dump(ops, fh, indent=1)
@@ -1024,6 +1108,44 @@ def dashboard(config: str = CONFIG_OPT,
     console.print((proc.stdout + proc.stderr).strip())
     if proc.returncode != 0:
         raise typer.Exit(proc.returncode)
+
+
+@app.command("reddit-watch")
+def reddit_watch(db: str = typer.Option("data/reddit.sqlite"),
+                 subreddits: str = typer.Option(",".join(("baseball", "hockey", "nfl", "fantasybaseball",
+                                                          "fantasyhockey", "fantasyfootball"))),
+                 interval: float = typer.Option(120.0, help="seconds between polls"),
+                 once: bool = typer.Option(False, help="one poll, then exit")):
+    """Record team-news post titles from Reddit's official API (DATA ONLY;
+    needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in .env). Feeds the
+    pre-registered news-veto test; never touches trading."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from sportsbot.signals.reddit import NewsRecorder, RedditClient
+
+    rec = NewsRecorder(db, RedditClient(), [s.strip() for s in subreddits.split(",") if s.strip()],
+                       interval=interval)
+    if once:
+        console.print(f"{rec.poll_once()} new posts recorded in {db}")
+        return
+    rec.run_forever()
+
+
+@app.command("news-veto-report")
+def news_veto_report(config: str = CONFIG_OPT,
+                     reddit_db: str = typer.Option("data/reddit.sqlite"),
+                     mode: str = typer.Option("live", help="live | paper: which book's touch fills")):
+    """Pre-registered news-veto test (docs/NEWS_VETO_PREREG_2026-10-13.md):
+    do touch-maker fills shortly after team news lose more at the close?
+    Offline; read-only."""
+    cfg = _setup(config)
+    from sportsbot.data.store import Store
+    from sportsbot.signals.reddit import format_news_veto, news_veto_test
+
+    store = Store(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite"))
+    console.print(format_news_veto(news_veto_test(store, reddit_db, mode=mode)))
 
 
 @app.command("signals-scan")

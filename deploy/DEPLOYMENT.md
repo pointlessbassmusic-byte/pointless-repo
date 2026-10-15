@@ -49,11 +49,15 @@ directory, and the service user cannot read `/root`.
 | go-live preflight | `... sportsbot doctor` — config/gate/DB/ratings age/keys/venues/clock; exits non-zero on FAIL |
 | trading dashboard (sim/real) | `... sportsbot board` → `/opt/sportsbot/data/board.html`; runs every minute as `sportsbot-board.service` |
 | $100 sim book | runs as `sportsbot-sim.service` (paper mode, live market data); logs via `journalctl -u sportsbot-sim` |
+| Kalshi LIP shadow recorder | `sportsbot-lip.service` → `/opt/sportsbot/data/lip.sqlite` (data only: incentive programs, books, trades, results; never trades) |
+| shadow LLM judge | `sportsbot-judge.service` → `/opt/sportsbot/data/judge.sqlite`; needs `pip install -e .[judge]` + `ANTHROPIC_API_KEY` in `.env`; ≤100 calls/day; score with `python -m sportsbot.signals.judge --evaluate` (data only, never trades) |
 | record fee verification | `... sportsbot verify-fees --note "bought 1 share, fee $0.02"` |
 | fresh-wallet fade forward test | `sportsbot-freshwatch.service` (installed and started by the daily `update.sh` the first time it sees the unit; public reads, a paper record in `data/fresh_watch.sqlite`, no orders); read it with `sportsbot fresh-watch --report --db /opt/sportsbot/data/fresh_watch.sqlite` (EDGE_VERDICT Result 21b) |
 | Polymarket US keys | `POLYMARKET_US_KEY_ID` / `POLYMARKET_US_SECRET_KEY` in `.env` (polymarket.us/developer); `sportsbot doctor -c config/maker_test.yaml` with `exchange: polymarket_us` checks them and pings the gateway |
 | live maker fill-share test | `config/maker_test.yaml` + the runbook in `docs/MAKER_TEST.md` (inert until `mode: live`, `SPORTSBOT_LIVE=1`, keys, and a learning budget in `config/allocation.yaml`) |
 | substrate dashboard (HTML) | `... sportsbot dashboard` → `/opt/sportsbot/data/dashboard.html` |
+| deploy new code | `bash /opt/sportsbot/deploy/update_sportsbot.sh [branch]` — pulls, reinstalls, installs units, restarts the data-only recorders, runs the pilot preflights, copies the v3 logs |
+| pre-match quote recorder | `sportsbot-prematch.service` → `/opt/sportsbot/data/prematch.sqlite` (keyless; both venues; `python -m sportsbot.signals.prematch --report` scores the pre-registered T−30 forward test) |
 | deploy new code (paper units) | automatic: `sportsbot-update.timer` runs `deploy/update.sh` daily at 14:17 UTC (pull `--ff-only`, venv refresh, `fit baseball`, restart sim/board/boardserve/weather); by hand: `bash /opt/sportsbot/deploy/update.sh` |
 | deploy new code (LIVE unit) | never automatic: read the change, then `systemctl restart sportsbot` yourself |
 | fix `insufficient permission ... .git/objects` | `chown -R sportsbot:sportsbot /opt/sportsbot` (a root-run `git pull` left root-owned objects; `update.sh` now does this itself) |

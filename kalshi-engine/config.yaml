@@ -12,6 +12,10 @@ markets:
   # /events discovery (used when whitelist is empty); high cap = full feed
   max_events_per_scan: 20000
   categories: []             # e.g. [Sports, Crypto, Economics]; empty = all
+  # venue split: sports trade on Polymarket (sportsbot / polymarket-edge);
+  # Kalshi is for event markets (weather, economics, ...). Skipped even when
+  # `categories` is empty. Has no effect on an explicit series_whitelist.
+  exclude_categories: [Sports]
   # ticker prefixes to skip (auto-generated multivariate shard markets)
   series_blacklist: [KXMVE]
   max_markets_per_scan: 1500  # keep the most liquid after filters

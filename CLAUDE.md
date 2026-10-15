@@ -19,12 +19,16 @@ mode; Kalshi client implements the same interface for the US-legal path.
   and The Odds API full names resolve to one form, ambiguity -> None).
   Basketball/football/hockey have NO rating model: `signal: sharp` is
   required and the Pinnacle line prices them (in season when MLB and
-  tennis are not). Kalshi tickers for them carry no time, so start_time
-  is None there and the risk layer refuses entries until one is known.
+  tennis are not). Kalshi tickers for them carry no time; NHL/NFL/NBA
+  start_time is derived as occurrence_datetime − 3.5 h (the scheduled
+  end is start + 3.0 h on every game checked, so the estimate runs half
+  an hour early, never late). Elsewhere a missing start stays None and
+  the risk layer refuses the entry.
 - `sportsbot/exchanges/` — `polymarket.py` (Gamma discovery + CLOB;
   trading via the `polymarket-client` py-sdk — the old `py-clob-client` is
   archived/dead, never reintroduce it), `kalshi.py` (2026 API: dollar-string
-  prices, Create Order V2 bid/ask semantics, RSA-PSS signing),
+  prices, Create Order V2 bid/ask semantics, RSA-PSS signing — the key must be RSA; `doctor`
+  FAILs any other type),
   `polymarket_us.py` (the CFTC-regulated US exchange: public gateway for
   events/books/settlement, Ed25519-signed orders, prices in YES terms,
   post-only via `participateDontInitiate`, makers pay nothing; no keyless
@@ -43,7 +47,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   `docs/MAKER_TEST.md`), `portfolio.py` (strategy ARMS `sport/signal/style`,
   per-arm evidence + gate, capital from manual weights → evidence → a
   bounded learning budget, tighten-only; operator file
-  `config/allocation.yaml`; see `docs/ALLOCATION.md`).
+  `config/allocation.yaml`; see `docs/ALLOCATION.md`), `markout.py`
+  (every booked fill marked at +5 s/+60 s/+5 min/+30 min against the live
+  book — adverse selection, data only). Resting orders a previous process
+  left are restored (fills booked, the rest cancelled) at `run` start,
+  never in `__init__`, so a read-only `scan` cannot touch a running book.
 - `sportsbot/backtest/` — walk-forward with side randomization.
 - `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
   (bot-log export, Kalshi weather snapshots) and venue measurements
@@ -60,11 +68,19 @@ mode; Kalshi client implements the same interface for the US-legal path.
   wired into trading without backtest/CLV evidence): `nws.py` (NWS point
   forecasts -> weather-arm baseline, lead-aware sigma, no-backfill rule),
   `chatter.py` (Bluesky public search chatter counts + correlation report;
-  Reddit deliberately not used — it refuses datacenter clients),
+  Reddit's public `.json` endpoints are not used — they refuse datacenter
+  clients), `reddit.py` (team-news post titles via Reddit's OFFICIAL OAuth
+  API, app-only/read-only, `sportsbot reddit-watch`; feeds only the
+  pre-registered news-VETO test on touch-maker fills,
+  `docs/NEWS_VETO_PREREG_2026-10-13.md` — a veto can only remove trades,
+  and even a PASS goes to a paper shadow first),
   `sharp.py` (sharp-line CLV harness: budgeted The Odds API snapshots,
   Shin de-vig, grades every decision/bet against the Pinnacle close with a
   pre-registered pass criterion — see `docs/SHARP_CLV.md`; its only
   trading-path effect is tighten-only via the adaptive layer).
+  `prematch.py` (keyless top-of-book recorder for both venues' match-winner
+  markets + the pre-registered T−30 forward test; the forward dataset for
+  any later test, so verdicts stop depending on venue price-history feeds).
 - `maker/` — standalone paper-only maker research scripts (L2 capture bot
   + replay optimizer), kept as verbatim consolidations with self-tests
   (`python3 maker/<file>.py --self-test`).
@@ -78,6 +94,13 @@ mode; Kalshi client implements the same interface for the US-legal path.
   config files or logs.
 - Paper mode is the default; live requires BOTH `mode: live` in config and
   `SPORTSBOT_LIVE=1` in the environment. Don't weaken this.
+- A live book trades its OWN sqlite file (`config/pilot.yaml` →
+  `data/pilot.sqlite`); `sportsbot doctor` FAILs a live config on the sim DB
+  or with `accounts.real.starting_balance` 0. Store/risk/runner queries are
+  per-mode — keep new queries that way.
+- `docs/research_ledger.json` is the record of every pre-registered test and
+  its verdict (the board renders it). Never edit a verdict; add a row.
+  Nothing with a FAIL there gets funded.
 - Risk checks fail closed — keep it that way when editing `bot/risk.py`.
 - Loss response only ever REDUCES risk: exits/stops close positions,
   drawdown scales stakes down, negative CLV tightens thresholds
@@ -93,8 +116,12 @@ mode; Kalshi client implements the same interface for the US-legal path.
 
 - `pytest -q` — full suite (fast, no network).
 - `ruff check sportsbot tests` — lint.
-- `sportsbot fit|backtest|scan|run|status|dashboard` — CLI (network needed
-  except `dashboard`, which is offline unless `--resolve`).
+- `sportsbot fit|backtest|scan|run|status|board|dashboard` — CLI (network
+  needed except `board` and `dashboard`, which are offline unless
+  `--resolve`).
+- Live pilot: `docs/LIVE_PILOT_PLAN_2026-10-08.md`; `config/pilot.yaml`
+  (Kalshi) and `config/pilot_pmus.yaml` (Polymarket US) are twins so the
+  venues can be compared on real fills.
 - Live smoke (reads only, safe): `sportsbot scan`.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).

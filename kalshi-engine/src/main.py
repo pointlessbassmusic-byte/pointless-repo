@@ -85,6 +85,7 @@ def run_cycle(cfg, client: KalshiClient, ensemble: Ensemble, executor: Executor,
         markets = client.markets_via_events(
             max_events=int(mcfg.get("max_events_per_scan", 20000)),
             categories=mcfg.get("categories") or None,
+            exclude_categories=mcfg.get("exclude_categories") or None,
         )
 
     # filters

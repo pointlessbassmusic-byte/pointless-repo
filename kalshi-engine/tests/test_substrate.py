@@ -379,6 +379,32 @@ def test_station_bias_correction_shifts_probabilities(tmp_path):
     assert station_bias(db) == [("KXHIGHMIA", 1, 7.6)]
 
 
+def test_events_discovery_excludes_categories():
+    from src.client import KalshiClient
+
+    def ev(cat, ticker):
+        return {"category": cat, "markets": [{"ticker": ticker, "yes_bid_dollars": "0.40",
+                                              "yes_ask_dollars": "0.42", "status": "active"}]}
+
+    c = KalshiClient(demo=True, read_prod=True)
+    c._request = lambda *a, **k: {"events": [ev("Sports", "KXMLBGAME-X"),
+                                             ev("Climate and Weather", "KXHIGHNY-X")],
+                                  "cursor": None}
+    got = [m.ticker for m in c.markets_via_events(max_events=10, exclude_categories=["Sports"])]
+    assert got == ["KXHIGHNY-X"]
+    assert len(c.markets_via_events(max_events=10)) == 2
+
+
+def test_config_keeps_sports_off_kalshi():
+    import yaml
+    from pathlib import Path
+
+    cfg = yaml.safe_load((Path(__file__).parent.parent / "config.yaml").read_text())
+    assert "Sports" in cfg["markets"]["exclude_categories"]
+    assert not any(s.startswith(("KXMLB", "KXNBA", "KXNFL", "KXATP", "KXWTA"))
+                   for s in cfg["markets"]["series_whitelist"])
+
+
 def _cache_at_local_hour(gen, prefix, hour, forecast_f=77.5, day_delta=0):
     """Seed gen's cache with a UTC offset that puts the station's local clock at
     `hour` today, and a forecast for that local date shifted by day_delta.
