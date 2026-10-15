@@ -295,6 +295,21 @@ the outcome and fabricates longshot edge.
   showed a +122%/$1 edge that was a one-hour look-ahead from candle
   timestamps (see the landmine below): a result that good against a liquid
   market is a leak until the leak is found.
+- Kalshi's hourly ladders are not slow to their own underlying either. The
+  sixth non-member is BTC/ETH (KXBTCD/KXETHD) against Coinbase spot, with
+  328 events each (EDGE_VERDICT 21d). The seventh is S&P 500 / Nasdaq-100
+  (KXINXU/KXNASDAQ100U) against the index (EDGE_VERDICT Result 22,
+  `kalshi-engine/src/index_hourly_study.py`). The index study was
+  pre-registered and covers 5,597 settled events back to each series'
+  start. Thirty minutes out, the book's Brier beats a lognormal on the
+  index by t ≈ 8, and taking the model's side loses 3.6 points per
+  contract. Both halves and both indices agree. Kalshi serves events
+  settled before its historical cutoff (about two months back) only
+  through `/historical/markets` and per-ticker
+  `/historical/markets/{t}/candlesticks`. Those candles carry `close`
+  rather than `close_dollars`. Yahoo stamps intraday bars by OPEN time,
+  and a zero-length bar at 16:00 ET is the closing print, i.e. the
+  settlement itself.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on

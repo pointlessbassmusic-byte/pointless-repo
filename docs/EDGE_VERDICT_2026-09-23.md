@@ -1894,7 +1894,91 @@ So there is no return above the market. This is the stock market's
 - **The touch-maker's fill-share test:** a measurement of real queue
   position (addendum 3).
 - **The Fed and G10 recorders:** forward records.
-- **One new lead to register forward:** fading new-wallet long-shot
-  buys in non-sports markets.
+- **The fresh-wallet fade:** no longer a lead. It failed its holdout
+  (21b), and its server record continues only as free evidence.
 
 Everything else measured on 2026-10-13/14 loses to its own costs.
+
+## Result 22 (2026-10-15): Kalshi's hourly S&P 500 and Nasdaq-100 ladders against the index — the seventh non-member
+
+KXINXU and KXNASDAQ100U list a ladder of "index ≥ K at H:00" binaries
+for every hour from 11:00 to 16:00 ET. They settle on the index value
+at that hour (the official close at 16:00). The index is priced by the
+deepest markets there are — futures, options, ETFs — against a thin
+Kalshi crowd. On paper that is the Fed rule's property. Crypto had
+already failed the same test (21d), and it had never been measured for
+indices.
+
+The study (`kalshi-engine/src/index_hourly_study.py`) was
+pre-registered and committed before the first fetch. The bar and the
+model were not changed afterwards; the fetch was fixed three times, all
+before any analysis:
+
+- it reads Kalshi's archive (`/historical/markets`) so the universe
+  reaches each series' start, as registered;
+- it is resumable;
+- it reads an event's archived rungs in parallel.
+
+Construction:
+
+- **Data:** every settled event on both series: 5,597 events, 2,806
+  S&P and 2,791 Nasdaq-100. Two events failed to fetch.
+- **Index:** Yahoo 60-minute bars, re-keyed from open to close.
+  Sessions open on the half hour, so a bar closes 30 minutes before
+  each settlement. The zero-length closing-print bar is dropped.
+- **Strikes:** the 8 nearest the index at the decision time, within
+  0.6%, never chosen by volume or result.
+- **Book:** Kalshi 1-minute candles, the latest one that ended by the
+  decision time.
+- **Model:** driftless lognormal for a point settlement. Sigma comes
+  from the previous 35 hourly bars' intraday returns, with no fitted
+  parameter.
+- **The bar (primary, 30 minutes out, both series pooled):** the model
+  must beat the book's Brier with t ≤ −2, AND the taker rule at margin
+  0.02 must net > 0 with t ≥ 2 on ≥ 100 trades in ≥ 40 events.
+
+| arm | rows / events | Brier model | Brier book | diff ± se | beta ± se | taker, margin 0.02 |
+|---|---|---|---|---|---|---|
+| **30 min, primary** | 33,285 / 5,540 | 0.1799 | **0.1756** | **+0.0042 ± 0.0005** | +0.14 ± 0.04 | **−3.64 ± 0.45 pt** (12,466) |
+| first half | 16,595 / 3,056 | 0.1760 | 0.1705 | +0.0055 ± 0.0007 | +0.01 ± 0.06 | −3.72 ± 0.66 |
+| second half | 16,690 / 2,484 | 0.1837 | 0.1807 | +0.0030 ± 0.0007 | +0.26 ± 0.06 | −3.58 ± 0.60 |
+| S&P only | 15,133 / 2,558 | 0.1517 | 0.1480 | +0.0037 ± 0.0006 | +0.17 ± 0.05 | −3.23 ± 0.51 |
+| Nasdaq-100 only | 17,330 / 2,526 | 0.2056 | 0.2009 | +0.0047 ± 0.0008 | +0.12 ± 0.06 | −4.13 ± 0.76 |
+| 90 min (context) | 7,806 / 2,000 | 0.1918 | 0.1947 | −0.0029 ± 0.0018 | +0.62 ± 0.07 | −1.12 ± 1.22 |
+| VIX model, 30 min (context) | 32,484 / 5,096 | 0.1928 | 0.1762 | +0.0166 ± 0.0007 | −0.03 ± 0.02 | −4.14 ± 0.32 |
+
+**Not a member.** Thirty minutes out, the book's Brier beats the index
+model by t ≈ 8. Taking the model's side loses 3.6 points per contract
+(t ≈ −8). The result is the same in both halves of the sample and on
+both indices.
+
+The regression beta is positive (+0.14), so the model carries a sliver
+the mid lacks. It is a fraction of the ~1.7-point taker fee and the
+spread: a maker-side question at most, not a trade.
+
+At 90 minutes the model's Brier is a little better (t −1.6) and the
+beta larger. The taker still loses 1.1 ± 1.2 points. This arm was
+context only and cannot pass. A forward look at it would need its own
+registration.
+
+The VIX-scaled model is far worse. VIX overstates the intraday variance
+left in the session.
+
+That makes seven measured non-members:
+
+1. NWS forecasts on weather;
+2. sportsbook consensus on soccer;
+3. Polymarket against Kalshi;
+4. the CPI nowcast;
+5. Deribit on Polymarket crypto digitals;
+6. Kalshi crypto hourlies against spot;
+7. these index hourlies against the index.
+
+The Fed reference is still the only member. A deep reference is not
+enough on its own. The reading here is that these books are quoted by
+people watching the same index tick by tick: a thin crowd is not a slow
+one.
+
+Rerun: `cd kalshi-engine && PYTHONPATH=. python -m src.index_hourly_study`
+(resumable; about two hours of public reads on a fresh cache), then
+`--analyse`.
