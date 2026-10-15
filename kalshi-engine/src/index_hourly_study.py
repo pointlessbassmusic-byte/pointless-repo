@@ -55,6 +55,7 @@ import statistics
 import time
 from bisect import bisect_right
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from .crypto_hourly_study import KALSHI, Fetcher, _clustered, _quote, _ts, phi, taker_fee
@@ -208,7 +209,7 @@ def _paths(series: str, cache_dir: str) -> tuple[str, str]:
 
 
 def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None, now: Optional[float] = None,
-          cache_dir: str = CACHE) -> str:
+          cache_dir: str = CACHE, workers: int = 4) -> str:
     """Resumable: each event is appended as it is fetched and skipped on a rerun
     (the archive reaches ~3,000 events a series, hours of candle reads)."""
     f = fetcher or IndexFetcher()
@@ -221,9 +222,18 @@ def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None
         json.dump({"series": series, "fetched": now, "bars": bars_raw, "vix": vix_raw}, fh)
     bars = IndexBars(bars_raw["t"], bars_raw["open"], bars_raw["close"])
     done = {r["event"] for r in _read_jsonl(ev_path)}
-    events = [e for e in f.events(series, days, now) if e.get("markets")]
-    live = {e["event_ticker"] for e in events}
-    events += [dict(e, historical=True) for e in f.historical_events(series) if e["event_ticker"] not in live]
+    listing = os.path.join(cache_dir, f"{series}.listing.json")
+    if os.path.exists(listing):              # the listing takes ~11 minutes; settled events do not change
+        with open(listing) as fh:
+            events = json.load(fh)
+    else:
+        events = [e for e in f.events(series, days, now) if e.get("markets")]
+        live = {e["event_ticker"] for e in events}
+        events += [dict(e, historical=True) for e in f.historical_events(series) if e["event_ticker"] not in live]
+        events = [_slim(e) for e in events]
+        with open(listing + ".tmp", "w") as fh:  # atomic: a killed run must not leave half a listing
+            json.dump(events, fh)
+        os.replace(listing + ".tmp", listing)
     todo = [e for e in events if e["event_ticker"] not in done]
     log.info("%s: %d events, %d already cached, %d to fetch", series, len(events), len(events) - len(todo), len(todo))
     with open(ev_path, "a") as out:
@@ -235,7 +245,10 @@ def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None
                 continue
             try:
                 if e.get("historical"):
-                    candles = {m["ticker"]: f.historical_candles(m["ticker"], close) for m in chosen}
+                    # one archived request per ticker: read an event's rungs side by side
+                    with ThreadPoolExecutor(max_workers=workers) as pool:
+                        got = list(pool.map(lambda m: f.historical_candles(m["ticker"], close), chosen))
+                    candles = {m["ticker"]: c for m, c in zip(chosen, got)}
                 else:
                     candles = f.batch_candles([m["ticker"] for m in chosen], close)
             except Exception as exc:  # noqa: BLE001 — a missing event is a missing row (retried next run)
@@ -249,6 +262,16 @@ def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None
             if i % 100 == 0:
                 log.info("%s: %d/%d to fetch", series, i + 1, len(todo))
     return ev_path
+
+
+MARKET_FIELDS = ("ticker", "close_time", "strike_type", "floor_strike", "result", "expiration_value")
+
+
+def _slim(e: dict) -> dict:
+    out = {"event_ticker": e["event_ticker"], "markets": [{k: m.get(k) for k in MARKET_FIELDS} for m in e["markets"]]}
+    if e.get("historical"):
+        out["historical"] = True
+    return out
 
 
 def _read_jsonl(path: str) -> list[dict]:
