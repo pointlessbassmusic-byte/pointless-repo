@@ -121,10 +121,20 @@ def test_fetch_adds_archived_events_once():
         def historical_candles(self, ticker, close, span_s=6000):
             return [{"src": "hist"}]
 
-    import json
     import tempfile
     with tempfile.TemporaryDirectory() as d:
-        with open(ix.fetch("KXINXU", fetcher=F(), now=1.0, cache_dir=d)) as fh:
-            dump = json.load(fh)
+        ix.fetch("KXINXU", fetcher=F(), now=1.0, cache_dir=d)
+        calls = []
+
+        class G(F):
+            def historical_candles(self, ticker, close, span_s=6000):
+                calls.append(ticker)
+                return [{"src": "hist"}]
+
+        ix.fetch("KXINXU", fetcher=G(), now=2.0, cache_dir=d)       # a rerun resumes, fetches nothing
+        with open(ix._paths("KXINXU", d)[1], "a") as fh:
+            fh.write('{"event": "CUT')                                # a line cut short by a killed run
+        dump = ix.load("KXINXU", d)
+    assert calls == []
     got = {e["event"]: e["markets"][0]["candles"][0]["src"] for e in dump["events"]}
     assert got == {"LIVE": "live", "OLD": "hist"}

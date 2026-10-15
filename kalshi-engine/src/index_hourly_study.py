@@ -203,44 +203,80 @@ def select_strikes(markets: list[dict], spot: float, band: float = 0.006, cap: i
     return [m for _, m in rows[:cap]]
 
 
+def _paths(series: str, cache_dir: str) -> tuple[str, str]:
+    return (os.path.join(cache_dir, f"{series}.meta.json"), os.path.join(cache_dir, f"{series}.events.jsonl"))
+
+
 def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None, now: Optional[float] = None,
           cache_dir: str = CACHE) -> str:
+    """Resumable: each event is appended as it is fetched and skipped on a rerun
+    (the archive reaches ~3,000 events a series, hours of candle reads)."""
     f = fetcher or IndexFetcher()
     now = now or time.time()
     os.makedirs(cache_dir, exist_ok=True)
+    meta_path, ev_path = _paths(series, cache_dir)
     bars_raw = f.yahoo(INDEX[series], "60m", "730d")
     vix_raw = f.yahoo("^VIX", "1d", "2y")
+    with open(meta_path, "w") as fh:
+        json.dump({"series": series, "fetched": now, "bars": bars_raw, "vix": vix_raw}, fh)
     bars = IndexBars(bars_raw["t"], bars_raw["open"], bars_raw["close"])
+    done = {r["event"] for r in _read_jsonl(ev_path)}
     events = [e for e in f.events(series, days, now) if e.get("markets")]
     live = {e["event_ticker"] for e in events}
     events += [dict(e, historical=True) for e in f.historical_events(series) if e["event_ticker"] not in live]
-    dump = {"series": series, "fetched": now, "bars": bars_raw, "vix": vix_raw, "events": []}
-    for i, e in enumerate(events):
-        close = max(_ts(m["close_time"]) or 0 for m in e["markets"])
-        s0 = bars.at(close - PRIMARY_TAU * 60)
-        if s0 is None:
-            continue
-        chosen = select_strikes(e["markets"], s0)
-        if not chosen:
-            continue
-        try:
-            if e.get("historical"):
-                candles = {m["ticker"]: f.historical_candles(m["ticker"], close) for m in chosen}
-            else:
-                candles = f.batch_candles([m["ticker"] for m in chosen], close)
-        except Exception as exc:  # noqa: BLE001 — a missing event is a missing row
-            log.warning("candles failed %s: %s", e["event_ticker"], exc)
-            continue
-        dump["events"].append({"event": e["event_ticker"], "close": close, "markets": [
-            {"ticker": m["ticker"], "strike": float(m["floor_strike"]), "result": m["result"],
-             "settle_value": m.get("expiration_value"), "candles": candles.get(m["ticker"]) or []}
-            for m in chosen]})
-        if i % 100 == 0:
-            log.info("%s: %d/%d events", series, i + 1, len(events))
-    path = os.path.join(cache_dir, f"{series}_{int(now)}.json")
-    with open(path, "w") as fh:
-        json.dump(dump, fh)
-    return path
+    todo = [e for e in events if e["event_ticker"] not in done]
+    log.info("%s: %d events, %d already cached, %d to fetch", series, len(events), len(events) - len(todo), len(todo))
+    with open(ev_path, "a") as out:
+        for i, e in enumerate(todo):
+            close = max(_ts(m["close_time"]) or 0 for m in e["markets"])
+            s0 = bars.at(close - PRIMARY_TAU * 60)
+            chosen = select_strikes(e["markets"], s0) if s0 is not None else []
+            if not chosen:
+                continue
+            try:
+                if e.get("historical"):
+                    candles = {m["ticker"]: f.historical_candles(m["ticker"], close) for m in chosen}
+                else:
+                    candles = f.batch_candles([m["ticker"] for m in chosen], close)
+            except Exception as exc:  # noqa: BLE001 — a missing event is a missing row (retried next run)
+                log.warning("candles failed %s: %s", e["event_ticker"], exc)
+                continue
+            out.write(json.dumps({"event": e["event_ticker"], "close": close, "markets": [
+                {"ticker": m["ticker"], "strike": float(m["floor_strike"]), "result": m["result"],
+                 "settle_value": m.get("expiration_value"), "candles": candles.get(m["ticker"]) or []}
+                for m in chosen]}) + "\n")
+            out.flush()
+            if i % 100 == 0:
+                log.info("%s: %d/%d to fetch", series, i + 1, len(todo))
+    return ev_path
+
+
+def _read_jsonl(path: str) -> list[dict]:
+    if not os.path.exists(path):
+        return []
+    rows = []
+    with open(path) as fh:
+        for line in fh:
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue            # a line cut short by a killed run
+    return rows
+
+
+def load(series: str, cache_dir: str = CACHE) -> Optional[dict]:
+    meta_path, ev_path = _paths(series, cache_dir)
+    if not os.path.exists(meta_path):
+        return None
+    with open(meta_path) as fh:
+        dump = json.load(fh)
+    seen, events = set(), []
+    for r in _read_jsonl(ev_path):
+        if r["event"] not in seen:
+            seen.add(r["event"])
+            events.append(r)
+    dump["events"] = events
+    return dump
 
 
 # ------------------------------------------------------------------ analyse
@@ -353,28 +389,17 @@ def format_analysis(a: dict) -> str:
     return "\n".join(lines)
 
 
-def _latest(series: str) -> Optional[str]:
-    if not os.path.isdir(CACHE):
-        return None
-    files = sorted(f for f in os.listdir(CACHE) if f.startswith(series + "_"))
-    return os.path.join(CACHE, files[-1]) if files else None
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--series", nargs="+", default=sorted(INDEX), choices=sorted(INDEX))
     ap.add_argument("--days", type=float, default=400)
-    ap.add_argument("--analyse", action="store_true", help="analyse the newest cached fetch of each series")
+    ap.add_argument("--analyse", action="store_true", help="analyse the cached fetch of each series")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if args.analyse:
-        paths = [p for p in (_latest(s) for s in args.series) if p]
-        if not paths:
+        dumps = [d for d in (load(s) for s in args.series) if d]
+        if not dumps:
             raise SystemExit("nothing cached; run without --analyse first")
-        dumps = []
-        for p in paths:
-            with open(p) as fh:
-                dumps.append(json.load(fh))
         print(format_analysis(analyse(dumps)))
         return
     for s in args.series:
