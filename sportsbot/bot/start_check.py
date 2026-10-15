@@ -7,7 +7,7 @@ hours LATE (rescheduled doubleheader games, a postseason game set at
 17:00 ET whose ticker says 20:00). With the ticker as the clock the risk
 layer's pre-start cutoff and the touch arm's quoting window point hours
 into a live game, which is where a resting quote is picked off
-(EDGE_VERDICT Result 22).
+(EDGE_VERDICT Result 23).
 
 Rule: a baseball market's start becomes the EARLIER of the venue's time
 and the matched game's scheduled first pitch (a game already Live counts

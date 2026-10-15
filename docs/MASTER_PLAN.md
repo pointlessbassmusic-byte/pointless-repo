@@ -340,7 +340,19 @@ Pipeline per cycle:
       fading fresh-wallet long-shot buys, pre-registered as
       `sportsbot fresh-watch` (`sportsbot-freshwatch.service`, which
       update.sh installs). The bar is >= 200 fades across >= 60 markets
-      with t >= 2.
+      with t >= 2. The same day the fade FAILED its retrospective holdout
+      (t 1.5; five markets carry 96%). The server record continues only
+      as free evidence.
+- [x] 2026-10-15: Kalshi hourly S&P 500 / Nasdaq-100 ladders vs the index
+      (EDGE_VERDICT Result 22, kalshi-engine `index_hourly_study`).
+      Pre-registered; 5,597 settled events, reaching back through Kalshi's
+      `/historical` archive. Thirty minutes out, the book beats the index
+      model (Brier +0.0042, t ≈ 8), and the taker loses 3.6 pt. This is
+      the seventh reference-price non-member. Kalshi's other hourly
+      financial ladders (EUR/USD, GBP/USD, USD/JPY, Treasury yields, Dow,
+      Nikkei, KOSPI) are the same construction against an even deeper
+      reference. Measure them only with a new registration, and expect
+      the same answer.
 - [ ] Game-vs-series consistency monitor (MLB postseason): checked 2026-10-09
       on Gamma — the only live series-winner market (`mlb-playoffs-who-will-
       win-series-guardians-vs-white-sox`, 0.56/0.44) traded $101 in 24h against
@@ -498,7 +510,7 @@ item names the measurement that would move it, and the standing rules apply
    the MLB season; soccer is the promising unknown (a point of CLV on 21
    outcome markets, sample growing in paper daily); esports are excluded on
    realised returns; NBA is a December re-measurement. Kalshi measured
-   2026-10-13 (EDGE_VERDICT Result 23, 396 MLB games): +0.80 to +0.93c per
+   2026-10-13 (EDGE_VERDICT Result 24, 396 MLB games): +0.80 to +0.93c per
    fill net of its maker fee at the front of the queue, zero on strict
    through-fills, so the live test can run there with a working
    fill-share denominator today. Also
@@ -545,7 +557,7 @@ item names the measurement that would move it, and the standing rules apply
      offer's terms, cap, lock date and realised conversion, so the harvest is
      accounted like any other arm.
 4. **Score-feed latency measurement** before any in-play code. **Closed
-   for MLB, 2026-10-13 (EDGE_VERDICT Result 22):** on 873 scoring plays in
+   for MLB, 2026-10-13 (EDGE_VERDICT Result 23):** on 873 scoring plays in
    200 games the venue's price covers half the move a median 6 s after the
    pitch and 8 s before the official feed stamps the play (97% of home runs
    are priced before the stamp). A taker reading the feed instantly nets

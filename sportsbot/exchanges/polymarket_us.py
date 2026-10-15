@@ -387,7 +387,7 @@ class PolymarketUSClient(ExchangeClient):
             "participateDontInitiate": bool(getattr(order, "post_only", False)),
             "manualOrderIndicator": "MANUAL_ORDER_INDICATOR_AUTOMATIC",
         }
-        # Venue-enforced expiry (EDGE_VERDICT Result 22): GTD + goodTillTime.
+        # Venue-enforced expiry (EDGE_VERDICT Result 23): GTD + goodTillTime.
         # The docs type it only as a string (date-time on responses); sent as
         # RFC 3339 UTC, to be confirmed on the first live order.
         if order.order_type == OrderType.LIMIT_GTD and order.expires_at is not None:

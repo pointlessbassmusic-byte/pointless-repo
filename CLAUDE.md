@@ -98,8 +98,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Live smoke (reads only, safe): `sportsbot scan`.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
-- In-play feed latency (MLB): `sportsbot score-latency` (network; Result 22).
-- Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 23).
+- In-play feed latency (MLB): `sportsbot score-latency` (network; Result 23).
+- Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 24).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Venue queue study: `sportsbot queue-log` (public reads, no keys) then
@@ -270,6 +270,21 @@ the outcome and fabricates longshot edge.
   showed a +122%/$1 edge that was a one-hour look-ahead from candle
   timestamps (see the landmine below): a result that good against a liquid
   market is a leak until the leak is found.
+- Kalshi's hourly ladders are not slow to their own underlying either. The
+  sixth non-member is BTC/ETH (KXBTCD/KXETHD) against Coinbase spot, with
+  328 events each (EDGE_VERDICT 21d). The seventh is S&P 500 / Nasdaq-100
+  (KXINXU/KXNASDAQ100U) against the index (EDGE_VERDICT Result 22,
+  `kalshi-engine/src/index_hourly_study.py`). The index study was
+  pre-registered and covers 5,597 settled events back to each series'
+  start. Thirty minutes out, the book's Brier beats a lognormal on the
+  index by t ≈ 8, and taking the model's side loses 3.6 points per
+  contract. Both halves and both indices agree. Kalshi serves events
+  settled before its historical cutoff (about two months back) only
+  through `/historical/markets` and per-ticker
+  `/historical/markets/{t}/candlesticks`. Those candles carry `close`
+  rather than `close_dollars`. Yahoo stamps intraday bars by OPEN time,
+  and a zero-length bar at 16:00 ET is the closing print, i.e. the
+  settlement itself.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on
@@ -322,12 +337,12 @@ the outcome and fabricates longshot edge.
   Up/Down windows lose in every configuration: the leg left unpaired is the
   loser by construction (0 of 701 won).
 - In-play MLB is not a feed race anyone outside the stadium wins
-  (EDGE_VERDICT Result 22, `sportsbot score-latency`): on 873 scoring plays
+  (EDGE_VERDICT Result 23, `sportsbot score-latency`): on 873 scoring plays
   Polymarket's price covers half the move 6 s after the pitch, 8 s before
   MLB's own feed stamps the play, and a taker reading the feed at zero
   delay nets -0.16c per $1 (CI spans zero), going negative within 5 s.
   Write no in-play taker code; NBA is unmeasured.
-- The touch edge holds on Kalshi too, as an upper bound (EDGE_VERDICT Result 23,
+- The touch edge holds on Kalshi too, as an upper bound (EDGE_VERDICT Result 24,
   `sportsbot kalshi-touch`): on 396 settled MLB games a bid one tick under
   each pre-start print earns +0.80 to +0.93c per fill net of the maker fee
   at the front of the queue, and zero (+-0.3c) on strict through-fills, the

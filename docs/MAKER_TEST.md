@@ -35,13 +35,13 @@ is 3 minutes), Polymarket US `TIME_IN_FORCE_GOOD_TILL_DATE` +
 `goodTillTime` (sent as RFC 3339 UTC; the docs give no request format, so
 confirm it on the first order with the others). A crash, a host reboot or
 a failed cancel therefore cannot leave a quote resting into the game,
-where Result 22 shows the price moves seconds after each pitch and a
+where Result 23 shows the price moves seconds after each pitch and a
 resting order is what gets picked off. An order whose expiry could not
 fall a minute before the start is refused locally.
 
 Venue: **Polymarket US** (preferred since 2026-10-13) or **Kalshi**, both
 US-legal. Kalshi's own tape now carries the same measurement (EDGE_VERDICT
-Result 23, 396 MLB games): +0.80 to +0.93c per fill net of its maker fee
+Result 24, 396 MLB games): +0.80 to +0.93c per fill net of its maker fee
 at the front of the queue, zero on strict through-fills. These are bounds
 only: counting the queue in front removes the NHL edge (Result 15
 addendum 3), so nothing here sizes the test. Kalshi has the
