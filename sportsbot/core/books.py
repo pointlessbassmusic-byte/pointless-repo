@@ -88,3 +88,38 @@ def tape_fill_size(prints: Iterable[TapePrint], side: Side, limit: float,
         if print_crosses(side, limit, pr.price_yes):
             total += max(0.0, float(pr.size))
     return total
+
+
+def print_strictly_through(side: Side, limit: float, price_yes: float) -> bool:
+    """Did a print trade strictly BEYOND a resting bid for `side` at
+    `limit`? Then the whole level, our order included, was consumed: the
+    pessimistic fill bound, true at any queue position."""
+    if side == Side.YES:
+        return price_yes < limit - 1e-9
+    return price_yes > (1.0 - limit) + 1e-9
+
+
+def tape_fill_bounds(prints: Iterable[TapePrint], side: Side, limit: float,
+                     after: datetime, before: Optional[datetime] = None,
+                     queue_ahead: Optional[float] = None) -> dict:
+    """The three fill references a resting order is judged against:
+
+    - `through`: size printed at or through the level (front of the
+      queue assumed; the paper venue's rule, an upper bound);
+    - `strict`: size printed strictly beyond the level (the whole queue
+      consumed; a lower bound);
+    - `queue`: at-or-through size left over after the `queue_ahead` that
+      sat in front at posting (cancellations ahead ignored, so it is
+      conservative). None when the queue in front is unknown.
+    """
+    through = strict = 0.0
+    for pr in prints:
+        if pr.ts <= after or (before is not None and pr.ts >= before):
+            continue
+        size = max(0.0, float(pr.size))
+        if print_crosses(side, limit, pr.price_yes):
+            through += size
+        if print_strictly_through(side, limit, pr.price_yes):
+            strict += size
+    queue = None if queue_ahead is None else max(0.0, through - max(0.0, float(queue_ahead)))
+    return {"through": through, "strict": strict, "queue": queue}

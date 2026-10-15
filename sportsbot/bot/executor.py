@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sportsbot.bot.portfolio import arm_of_intent
-from sportsbot.core.books import tape_fill_size
+from sportsbot.core.books import tape_fill_bounds
 from sportsbot.core.types import (
     BetIntent,
     MarketInfo,
@@ -52,6 +52,27 @@ def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
     return {"bid": quote.bid, "ask": quote.ask,
             "bid_size": quote.bids[0].size if quote.bids else None,
             "ask_size": quote.asks[0].size if quote.asks else None}
+
+
+def _queue_ahead(order: Order) -> Optional[float]:
+    """Contracts resting at our price when we posted, from the book stored
+    on the order (YES frame: a NO bid at L sits behind the YES ask at
+    1 - L). 0 when we posted at a new best price; None when unknown."""
+    book = (order.raw or {}).get("book") or {}
+    if order.side == Side.YES:
+        level, size = book.get("bid"), book.get("bid_size")
+        if level is None:
+            return None
+        if order.price > level + 1e-9:
+            return 0.0
+        return float(size) if size is not None and abs(order.price - level) < 1e-9 else None
+    level, size = book.get("ask"), book.get("ask_size")
+    if level is None:
+        return None
+    yes_price = 1.0 - order.price
+    if yes_price < level - 1e-9:
+        return 0.0
+    return float(size) if size is not None and abs(yes_price - level) < 1e-9 else None
 
 
 class Executor:
@@ -209,9 +230,14 @@ class Executor:
         except Exception:
             log.exception("tape shadow failed for %s", order.market_id)
             return
-        through = tape_fill_size(prints, order.side, order.price,
-                                 after=tracked.placed_at, before=before)
-        order.raw = {**order.raw, "tape_through": round(min(order.size, through), 6),
+        bounds = tape_fill_bounds(prints, order.side, order.price,
+                                  after=tracked.placed_at, before=before,
+                                  queue_ahead=_queue_ahead(order))
+        extra = {"tape_strict": round(min(order.size, bounds["strict"]), 6)}
+        if bounds["queue"] is not None:
+            extra["tape_queue"] = round(min(order.size, bounds["queue"]), 6)
+        order.raw = {**order.raw, "tape_through": round(min(order.size, bounds["through"]), 6),
+                     **extra,
                      "tape_prints": len(prints),
                      "rested_seconds": order.raw.get(
                          "rested_seconds",
