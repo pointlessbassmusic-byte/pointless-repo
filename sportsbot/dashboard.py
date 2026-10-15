@@ -506,6 +506,14 @@ def _edge_bar(rows: list[dict]) -> str:
               'mean the bar is binding and the fee floor decides.</div>')
 
 
+def _forward(lines: list[str]) -> str:
+    """Pre-registered forward tests and their progress (data only)."""
+    if not lines:
+        return ('<div class="foot">No forward-test record on this host yet '
+                '(sportsbot-freshwatch.service writes data/fresh_watch.sqlite).</div>')
+    return "".join(f'<p>{_e(x)}</p>' for x in lines)
+
+
 def _results() -> str:
     rows = "".join(
         f'<tr><td class="num">{_e(n)}</td><td><strong>{_e(t)}</strong></td>'
@@ -590,10 +598,15 @@ def collect(cfg: dict, store) -> dict:
     counts = rated_counts(cfg)
     ratings = {k: v > 0 for k, v in counts.items()}
     provisional = ratings_provenance(cfg)
+    import os
+
+    from sportsbot.substrate_bridge.fresh_watch import status_line
+    data_dir = os.path.dirname(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite")) or "."
+    forward = [x for x in (status_line(os.path.join(data_dir, "fresh_watch.sqlite")),) if x]
     out = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "mode": f'{cfg.get("mode", "paper")}/{cfg.get("exchange", "polymarket")}',
            "categories": cat, "rated": counts, "provisional": provisional,
-           "accounts": {}}
+           "forward": forward, "accounts": {}}
     from sportsbot.bot.markout import markout_report
 
     for acct, mode in ACCOUNTS.items():
@@ -653,7 +666,9 @@ def render(data: dict, refresh: int = 60, fragment: bool = False) -> str:
             f'<div class="card"><h2>Distance to the bar</h2>{_edge_bar(a.get("edge_bar", []))}</div>'
             f'<div class="card"><h2>Go-live gate (account)</h2>{_gate(a["gate"])}</div>'
             f'<div class="card"><h2>Research ledger</h2>{_ledger(data.get("ledger", []))}</div>'
-            f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
+            + (f'<div class="card"><h2>Forward tests</h2>{_forward(data.get("forward") or [])}</div>'
+               if acct == "sim" else "")
+            + f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
             f'</section>')
     body = f"""<div class="wrap">
 <header><div><h1>sportsbot</h1>

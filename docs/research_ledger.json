@@ -112,6 +112,13 @@
       "verdict": "PASS",
       "result": "NHL PASS: +0.67c CLV/fill [+0.61, +0.71], return +2.0% on 41 test games. MLB/NFL/soccer CLV +0.65 to +1.12c with intervals above zero but realised return inconclusive; NCAAF spans zero. Queue-priority caveat stands: only the live $1 test measures fill share. A PASS here funds nothing by itself.",
       "doc": "docs/KALSHI_TOUCH_RESULT_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-15",
+      "test": "Correction to the Kalshi touch-maker PASS: queue-adjusted reading (main's Result 15 addendum 3, #82)",
+      "verdict": "FAIL",
+      "result": "The 2026-10-14 NHL PASS is the front-of-queue upper bound (+0.67c, matching #82's +0.66c). Counting the queue in front on Kalshi NHL: joining the existing queue fills 22% at -0.24c, first-at-new-price +0.07c (41 times in 16 games). No fundable maker edge at realistic queue positions; the $1 live test stays a measurement.",
+      "doc": "docs/KALSHI_TOUCH_RESULT_2026-10-14.md"
     }
   ]
 }

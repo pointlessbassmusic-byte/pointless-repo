@@ -1424,6 +1424,162 @@ unchanged everywhere: every fill here is a queue-priority fill at the
 existing bid; tonight's NHL touch sizes of 8,000–48,000 contracts say
 how far behind a new $1 order sits.
 
+### Result 15, addendum 3 (2026-10-14): the live venue — Polymarket US, main and Kalshi on the same 16 NHL games
+
+_2026-10-13 16:27Z to 10-14 03:00Z. The question came from the venue
+client (PR #79): Polymarket US carries market-maker queues of 10^5
+contracts at the NHL touch, so does a $1 order there ever fill, and is
+it worse than main (where Result 15 was measured) or Kalshi (the other
+US-legal venue)? `sportsbot queue-log` sampled every US moneyline
+starting within 12 h, every 30 s. Each pass read the US bbo and book,
+main's CLOB book and Kalshi's book for the same game; main is matched
+by names and start, Kalshi by names and a close within 12 h of the US
+start, since its NHL tickers carry no time. Main's and Kalshi's public
+taker tapes were stored as well. That gave 46,898 / 45,395 / 39,173 book
+samples and 5,009 / 28,650 tape prints. All 16 NHL games had started by
+03:00Z. Only pre-start samples are used. Re-read with
+`sportsbot queue-report`._
+
+Each 30-second interval is judged against the touch sampled at its
+start, on two fill bounds:
+
+- **Strict**: a print strictly through the touch, so the whole level in
+  front was consumed. This is the lower bound.
+- **At-or-through**: the paper venue's rule (`core.books.print_crosses`),
+  which implies the order was at the front of the queue. This is the
+  upper bound, and the rule Result 15 was measured on.
+
+Polymarket US publishes no keyless tape, so its rule reads the last
+print per interval from the `/bbo` trade counter. Main and Kalshi are
+shown on the exact rule; their coarse (last-print) rule agrees to within
+the errors. CLV is the mid at the last pre-start sample minus the fill
+price, in probability points, with standard errors clustered by game.
+
+| NHL, 16 games, pre-start | Polymarket US | Polymarket main | Kalshi |
+|---|---|---|---|
+| market-hours sampled | 110.8 | 110.8 | 108.9 |
+| touch queue, median contracts | 127,567 | 79,750 | 81,973 |
+| volume per hour | 27,056 | 13,767 | 8,640 |
+| queue turnover per hour | **0.21** | 0.17 | 0.11 |
+| strict sweeps per market-hour | 0.04 | 0.09 | 0.28 |
+| CLV per strict fill | −0.75 ± 0.54 (4) | +0.00 ± 0.14 (10) | +0.42 ± 0.07 (30) |
+| at-or-through per market-hour | 33.4 | 11.0 | 44.5 |
+| CLV per at-or-through fill | +0.45 ± 0.05 (3,699) | +0.33 ± 0.10 (1,216) | +0.66 ± 0.13 (4,850) |
+| maker fee per contract | 0 (rebate ≈ 0.31 at 50c until 10-19) | 0 (rebate) | 0.25 |
+| **net CLV, at-or-through** | **+0.45** (+0.76 with the rebate) | +0.33 | +0.41 |
+
+1. **The queue is not a US problem.** Every venue's NHL touch is
+   80,000-130,000 contracts deep, so a $1 order joins behind a large
+   queue everywhere. Polymarket US trades the most of the three and turns
+   its queue over fastest.
+2. **The upper bound pays on all three venues**, by +0.3 to +0.7 points
+   per fill. That has the same sign and size as Result 15's +0.6 on main,
+   now on two more venues. Net of fees the three are within each other's
+   errors: US +0.45 (no fee), Kalshi +0.41, main +0.33.
+3. **The lower bound is rare everywhere before the start.** It runs at
+   0.04-0.28 strict sweeps per market-hour, which is one per 4-25 hours
+   of a game's book.
+   - On Polymarket US the few sweeps lost (n = 4).
+   - On Kalshi they made +0.42 gross and +0.17 net (n = 30, 16 games).
+
+   Kalshi's touch gets swept more often, and on this night its sweeps
+   were not adverse.
+4. **Real fills lie between the bounds.** Where they land depends on
+   queue position, which only live orders measure. That is the
+   pre-registered test (`docs/MAKER_TEST.md`).
+
+**Queue-position check (2026-10-14, same data; main and Kalshi only, since
+they have full tapes).** The front-of-queue row above credits a fill on
+every print at the touch. Here instead each fill must work through the
+queue first. A $1 bid (or ask) joins the touch and fills only once tape
+prints at or through its price exceed the size that sat in front of it
+at the sample where it joined. Cancellations ahead of it are ignored,
+which is conservative. Two ways of joining:
+
+| NHL, 16 games | joins | filled | CLV per fill |
+|---|---|---|---|
+| main: first at each new best price | 29 | 45% | −0.04 ± 0.12 pt |
+| main: join the existing queue | 1,234 | 22% | −0.64 ± 0.23 pt |
+| Kalshi: first at each new best price | 41 | 68% | +0.07 ± 0.12 pt |
+| Kalshi: join the existing queue | 1,214 | 22% | −0.24 ± 0.31 pt |
+
+Once the queue in front is counted, the +0.3 to +0.7 points disappears:
+- **Joining behind the queue** fills about one time in five, and those
+  fills lose. They come when the price moves through the order.
+- **Being first at a new price** fills more often and breaks even. It is
+  also rare: NHL books moved to a new best price only 29-41 times across
+  16 games' pre-game windows.
+
+This is Result 15's own caveat measured directly ("≈ 0 under strict
+fills, positive only at the front of the queue"). At realistic queue
+positions there is no NHL maker edge on this night. The $1 live test
+stays a measurement and must not be scaled on the paper rule's numbers.
+Script: `data/ratings/joinlevel.py` against `data/queue.sqlite`.
+
+**Taker retest with book signals (2026-10-14, same data).** The question
+was whether the order-book state the study records gives a taker an edge
+that average taker CLV hides. A taker pays the far touch and the venue
+fee, and is marked to that venue's closing mid. Six rules were screened
+on each venue's own 30-second samples, with a 5-minute cooldown per game
+and direction and errors clustered by game:
+
+- trading every 10 minutes (the baseline);
+- queue imbalance above 4:1, buying the side about to run out;
+- following a new best price;
+- fading a new best price;
+- following a level pulled without a trade;
+- following another venue's mid when it moved at least 1c while this one
+  did not.
+
+Every rule loses on every venue, net of fee and spread. On NHL the
+baseline loses −1.7 to −2.2 points and the other five −1.0 to −2.6.
+Across all sports the best rule is main's queue imbalance at −0.06 ±
+0.56, and main is geoblocked for US users.
+
+Gross, before fee and spread, two signals do carry information:
+
+| signal | NHL | all sports |
+|---|---|---|
+| queue imbalance | +0.6 to +0.8 pt (t 2.2-2.9) | +0.2 to +1.6 |
+| another venue's lead | +0.1 to +0.5 | +0.7 to +1.3 (t 2.5-3.4) |
+
+The cost of taking is about 2.2 points at even money on Polymarket US
+and Kalshi: half a cent of spread plus a fee of about 1.7c. That is
+three times the information the signals carry. This was one night, with
+36 rule-venue-sport cells screened, so t-values of 2-3 here are a lead
+to watch, not a finding.
+
+The same imbalance signal does not rescue the maker arm either. Here a
+$1 order rests only when imbalance is above 4:1 and must trade through
+the queue in front of it (NHL):
+
+| resting side | fills | CLV per fill |
+|---|---|---|
+| side the imbalance favours | 0.5-2% | n/a (9 and 20 fills) |
+| side it disfavours | 54-57% | −0.5 to −0.6 pt |
+
+A maker on the favoured side almost never fills, and the other side is
+the adverse-selection trade. No taker strategy and no signal-gated maker
+strategy clears costs on this data. Scripts: `data/ratings/taker_screen.py`
+(net), `taker_gross.py` (gross) and `joinlevel_imb.py`.
+
+**Verdict: Polymarket US stays the first venue for the live test.** It
+charges no maker fee, carries start times without `ODDS_API_KEY`, and
+turns its queue over fastest. Kalshi is a close second: its CLV per fill
+is best on both bounds, but it charges a 0.25-point NHL maker fee and
+needs `ODDS_API_KEY` for start times.
+
+Limits of this read:
+- **One night, 16 games.** The at-or-through counts are not independent
+  fills: the same resting touch counts again in every interval it trades.
+- **The US rule is coarser** than the other two venues' rules.
+- **Other sports are not read:**
+  - MLB had 1 game, college football 2, and NBA 5 preseason games.
+  - Tennis had 23 matches start. At-or-through CLV was US −0.19 ± 0.17
+    (82 fills), main +0.38 ± 0.07 (114) and Kalshi −0.19 ± 0.44 (110).
+    Tennis is a main-book product: the US touch queue (5,800) is 3.6
+    times main's.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
@@ -1565,3 +1721,180 @@ recorded as `single_venue`, with a 1.5-day lead floor because of the late
 `endDate`, and scored separately. A bank whose Kalshi read fails is skipped
 for that cycle rather than treated as single-venue. This builds the
 out-of-sample record about seven times faster than the Fed alone.
+
+## Result 21 (2026-10-14): wallets, big moves and the crypto reference: five more non-members, one lead to test forward
+
+The user asked for a sweep of everything not yet measured: variations,
+opposites and combinations, wallets worth copying in any category, and
+the crypto and stock side. Each test below was specified before its run.
+All are public reads and none places an order.
+
+### 21a. Leaderboard wallets in every category: no copyable skill (`sportsbot wallet-scan`)
+
+The pool was the public leaderboard's top wallets by P&L in all ten
+categories, all time and this month: 47 wallets, 36 usable. Overall,
+politics, sports, crypto, economics, finance, culture, weather, tech and
+mentions were all covered. Each wallet's latest 3,000 rows were split in
+time:
+
+- the older half ranks the wallets;
+- the newer half is graded by its 24 h mark-out;
+- a copier enters 10 minutes later at the then-current price plus a
+  half-spread and the taker fee, and holds to settlement.
+
+| measure | value |
+|---|---|
+| rank correlation, older vs newer mark-out | **+0.12** |
+| top quarter by older mark-out (9 wallets), newer-half copy | **+0.0 ± 7.1 pt** per share (2,454 copies) |
+| top quarter, newer-half mark-out | +2.3 pt |
+| the rest (27 wallets), newer-half copy | +15.7 ± 4.8 pt |
+
+The rest's copy result is a few concentrated election and event
+outcomes (Theo4 +51, Fredi9999 +44), not a measured skill. Mark-outs are
+±1-2 points almost everywhere and barely persist.
+
+The one category lead, weather wallets with positive copies, dissolved
+on inspection. gopfan2's latest 2,642 trades include one weather market;
+its copy P&L came from political markets. ColdMath's mark-out was
+−0.0.
+
+The largest sports wallets (swisstony: $18M on $1.85B of volume, 30%
+two-sided) are makers. Leaderboard P&L is a survivorship list, as
+Results 14 and 18 found for MLB.
+
+### 21b. Brand-new wallets buying long shots in size lose; the fade is a lead (`sportsbot fresh-wallets`)
+
+Pre-registered in `sportsbot/backtest/fresh_wallet.py` before the first
+run:
+
+- **Universe:** 1,371 resolved non-sports, non-crypto markets with
+  volume ≥ $50k, scheduled end in the last 120 days.
+- **Trades:** taker buys ≥ $1,000 at ≤ 0.35, the first per (wallet,
+  market, outcome).
+- **Signal:** the wallet's first-ever activity ≤ 14 days before the
+  trade.
+
+| | n / markets | surplus (outcome − price) | copy +10 min | copy +1 h |
+|---|---|---|---|---|
+| fresh wallets | 659 / 176 | **−9.7 ± 2.7 pt** (t −3.6) | −10.2 ± 2.7 (t −3.8) | −10.7 ± 2.6 (t −4.1) |
+| established wallets | 2,365 / 361 | −5.1 ± 2.5 (t −2.0) | −5.8 ± 2.7 (copied on a 1,500 sample) | −5.7 ± 2.7 |
+
+The pre-registered bar (copy > 0) fails decisively. New wallets with
+real money on long shots are not, on average, informed. They lose
+almost twice what other large long-shot buyers lose.
+
+The inversion, buying the other side 10 minutes later, would have made
+roughly +8 points per share after a half-spread and fee. That is a
+post-hoc inversion on 176 clustered markets. It also buys the favourite
+in news and politics markets, where this repo's resolved-market study
+found favourites overpriced at fixed horizons. It is therefore a lead
+for a pre-registered forward test, not a trade.
+
+**21b holdout (2026-10-14, the same rule on an earlier window).** The
+rule was run unchanged on markets whose scheduled end fell 121-300 days
+ago: 2,325 markets, a window the discovery never saw. The bar, written
+before the run, was a fade P&L at +10 min > 0 with t ≥ 2 clustered by
+market.
+
+| fade +10 min | fades / markets | P&L per share | top-5 markets' share | without the top 5 | mean per market |
+|---|---|---|---|---|---|
+| discovery (rerun) | 648 / 169 | +7.2 ± 3.0 (t 2.4) | 22% | +7.05 | +3.73 |
+| **holdout** | 867 / 183 | **+4.6 ± 3.0 (t 1.5)** | **96%** | **+0.26** | **−2.43** |
+| established wallets, holdout | 1,477 / 309 | +0.3 ± 3.5 | — | — | — |
+
+The holdout fails the bar. Its positive mean is five markets: without
+them it is +0.26 per share, and the per-market average is negative
+(139 of 183 markets win, a few lose big). This is the profile of
+selling long shots: short volatility, like the Fed rule, but without a
+reference market behind it.
+
+The discovery effect was that window's. The forward test stays on the
+server as a data-only record (it costs nothing), but it is expected to
+fail, and nothing is built on it.
+
+### 21c. Big pre-game moves, followed or faded: both lose the costs (`data/ratings/move_study.py`)
+
+This was the "fade large open-to-close moves" item from the 2026-09
+research ranking, never built until now. Both directions were tested.
+
+- **Move:** the price at T−60 min minus the price at T−12 to T−24 h.
+- **Entry:** the far side at T−60 min, plus a half-spread and the 0.05
+  taker fee.
+- **Grading:** against the close and against settlement.
+
+| sport | moves ≥ 3c | follow, CLV | fade, CLV | settlement |
+|---|---|---|---|---|
+| MLB | 102 | −1.89 ± 0.09 | −1.52 ± 0.10 | spans zero |
+| Tennis | 328 | −1.80 ± 0.20 | −1.39 ± 0.20 | spans zero |
+| College football | 15 | −1.70 | −1.58 | spans zero |
+
+NHL and NFL had 3-6 such moves each. Fading is 0.3-0.4 points less bad
+than following: a trace of reversal, a fifth of the cost.
+
+### 21d. Kalshi's hourly BTC ladder against spot: the book already has it (`kalshi-engine/src/crypto_hourly_study.py`)
+
+KXBTCD settles on the 60-second average of CF Benchmarks' BRTI before
+each hour. Coinbase and Kraken spot are among its inputs: the "deep
+market, identical event" property the Fed rule has.
+
+Construction:
+
+- **Data:** 14 days, 328 settled events.
+- **Strikes:** chosen from spot at T−60, never by volume or result.
+- **Book:** Kalshi per-minute candles, stamped by candle end.
+- **Spot:** Coinbase 1-minute closes, re-keyed from open to close time.
+- **Model:** a driftless lognormal for the final-minute average, sigma
+  from the previous hour.
+
+| minutes out | rows | Brier model | Brier book | diff ± se | taker, margin 0 |
+|---|---|---|---|---|---|
+| 30 | 1,943 | 0.1300 | 0.1281 | +0.0018 ± 0.0010 | −0.09 ± 0.80 pt |
+| 15 | 1,303 | 0.1185 | 0.1154 | +0.0030 ± 0.0012 | −1.87 ± 0.82 |
+| 10 | 992 | 0.1224 | 0.1175 | +0.0049 ± 0.0014 | −2.57 ± 0.93 |
+| 5 | 633 | 0.1219 | 0.1161 | +0.0058 ± 0.0020 | −2.63 ± 0.99 |
+| 2 | 318 | 0.1247 | 0.1129 | +0.0118 ± 0.0038 | −2.01 ± 1.34 |
+
+The residual regression's beta is −0.31 to +0.12 with a se of ~0.21 at
+every horizon. The book beats the spot model at every decision time, and
+the model carries nothing the price lacks. This agrees independently
+with the crypto desk's addendum 26 (polymarket-arbitrage, a different
+model). It is the sixth measured non-member of the reference-price
+class.
+
+ETH (KXETHD, the same 14 days, 328 events) gives the same answer. The
+book's Brier is better at every horizon by +0.0011 to +0.0083. The
+residual beta runs −0.21 to +0.32 with a se of ~0.2. The taker rule
+loses 1.3-3.0 points from 15 minutes in; its one positive, at 30
+minutes, is +0.12 ± 0.83.
+
+A forward recorder (`crypto_hourly_recorder.py`) logs the final 20
+minutes of each hour every 5 s with live Kraken and Coinbase prices, so
+the stale 1-minute spot cannot be the excuse. Its first two hours
+(12:00 and 13:00Z, 16 markets) are too few to read. With the book ahead
+from 30 minutes out on both coins, it is kept as a tool, not run
+continuously.
+
+### 21e. The stock desk's Form 4 study (polymarket-arbitrage `insider-purchases`)
+
+This was built in the crypto/stock desk's own registry, pre-registered
+before collection (polymarket-arbitrage PR #3). It covers officer and
+director open-market purchases ≥ $25k, 28,706 priced events from 2016
+to 2026. The result is inconclusive:
+
+- **Against the same name a quarter later:** +1.21% per trade-month,
+  with a PSR of 0.91 against the 0.95 bar.
+- **Against SPY:** the window after the filing earns +0.00%. The names
+  fall about 3% into the buy, then pause.
+
+So there is no return above the market. This is the stock market's
+"public wallets" answer.
+
+### What this leaves
+
+- **The touch-maker's fill-share test:** a measurement of real queue
+  position (addendum 3).
+- **The Fed and G10 recorders:** forward records.
+- **One new lead to register forward:** fading new-wallet long-shot
+  buys in non-sports markets.
+
+Everything else measured on 2026-10-13/14 loses to its own costs.

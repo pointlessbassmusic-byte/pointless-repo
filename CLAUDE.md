@@ -54,8 +54,11 @@ mode; Kalshi client implements the same interface for the US-legal path.
   never in `__init__`, so a read-only `scan` cannot touch a running book.
 - `sportsbot/backtest/` — walk-forward with side randomization.
 - `sportsbot/substrate_bridge/` — data adapters feeding `substrate/`
-  (bot-log export, Kalshi weather snapshots). Data only; never wires
-  substrate output into trading.
+  (bot-log export, Kalshi weather snapshots) and venue measurements
+  (`twobook.py` lead-lag, `queue_study.py`: touch queue, strict fills per
+  market-hour and CLV per fill on Polymarket US vs main vs Kalshi for the
+  same games, US side from its public `/bbo` trade counter). Data only;
+  never wires substrate output into trading.
 - `substrate/` — Substrate/Echo certification engine, consolidated
   VERBATIM from its own handoff. Read `substrate/HANDOFF.md` before
   touching it. `substrate/PROTOCOL_v1.md` is FROZEN (hash-committed):
@@ -124,6 +127,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
+- Venue queue study: `sportsbot queue-log` (public reads, no keys) then
+  `sportsbot queue-report` (offline).
 - Operator: `sportsbot digest [--post]` (daily lines, Discord webhook via
   `SPORTSBOT_DISCORD_WEBHOOK`), `sportsbot board-serve` (board on localhost
   for Tailscale Serve; whitelisted pages only).

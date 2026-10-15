@@ -81,3 +81,27 @@ The train-half pattern was noise: out of sample the favourite side is the
 worse half, not the better one. The touch arm keeps resting on both
 sides, as the live config already does. No refinement is adopted from
 this data.
+
+## Correction (2026-10-15): this is the front-of-queue upper bound; queue-adjusted, NHL goes
+
+The construction above credits a fill whenever a later print trades at
+or through the order's level. That is the at-or-through rule, which
+assumes the order was **first** in the queue. Main's Result 15 addendum
+3 (#82) measured the queue directly on 16 NHL games with Kalshi's book
+depth. Its front-of-queue Kalshi number, +0.66¢ per fill, matches this
+document's +0.67¢. Counting the queue in front changes the picture:
+
+| | joins | fill rate | CLV per fill |
+|---|---|---|---|
+| Kalshi: join the existing queue | 1,214 | 22% | −0.24 ± 0.31¢ |
+| Kalshi: first at each new best price | 41 | 68% | +0.07 ± 0.12¢ |
+
+This dataset has no book depth, so it cannot run that check. The
+pre-registered NHL PASS above therefore stands **as recorded, for the
+upper bound only**. It is not evidence of a fundable edge.
+
+The same caution applies to MLB, NFL and soccer's positive CLV: every
+row here is the same front-of-queue bound. Real fills lie between that
+bound and the queue-adjusted numbers, and only the $1 live test
+measures where. Per the ledger's rule the PASS row is not edited; a
+correction row is added.
