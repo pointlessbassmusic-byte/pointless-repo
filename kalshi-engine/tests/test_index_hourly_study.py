@@ -89,3 +89,42 @@ def test_the_bar_needs_both_brier_and_a_taker_profit():
     assert ix.verdict(few) == "not a member"
     weak = dict(good, brier_diff_se=0.006)
     assert ix.verdict(weak) == "not a member"
+
+
+def test_historical_candles_read_like_live_ones():
+    c = ix.normalise_candle({"end_period_ts": 60, "yes_bid": {"close": "0.4000"}, "yes_ask": {"close": "0.4200"}})
+    assert ix._quote([c], 60) == (0.40, 0.42)
+
+
+def test_fetch_adds_archived_events_once():
+    class F(ix.IndexFetcher):
+        def __init__(self):
+            pass
+
+        def yahoo(self, symbol, interval, rng):
+            d = _dump(0.5, 0.52, "yes")
+            return d["bars"] if interval == "60m" else d["vix"]
+
+        def events(self, series, days, now):
+            return [{"event_ticker": "LIVE", "markets": [self._m("LIVE")]}, {"event_ticker": "EMPTY", "markets": []}]
+
+        def historical_events(self, series):
+            return [{"event_ticker": "LIVE", "markets": [self._m("LIVE")]}, {"event_ticker": "OLD", "markets": [self._m("OLD")]}]
+
+        def _m(self, ev):
+            return {"ticker": ev + "-T", "event_ticker": ev, "close_time": "1970-01-06T20:00:00Z",
+                    "strike_type": "greater_or_equal", "floor_strike": 100.0, "result": "yes"}
+
+        def batch_candles(self, tickers, close, span_s=6000):
+            return {t: [{"src": "live"}] for t in tickers}
+
+        def historical_candles(self, ticker, close, span_s=6000):
+            return [{"src": "hist"}]
+
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with open(ix.fetch("KXINXU", fetcher=F(), now=1.0, cache_dir=d)) as fh:
+            dump = json.load(fh)
+    got = {e["event"]: e["markets"][0]["candles"][0]["src"] for e in dump["events"]}
+    assert got == {"LIVE": "live", "OLD": "hist"}

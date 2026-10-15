@@ -157,6 +157,37 @@ class IndexFetcher(Fetcher):
                           "end_ts": int(close), "period_interval": 1}) or {}
         return {m.get("market_ticker"): m.get("candlesticks") or [] for m in data.get("markets") or []}
 
+    def historical_events(self, series: str) -> list[dict]:
+        """Markets settled before Kalshi's historical cutoff (about two months
+        back) leave /events; /historical/markets still serves them, by page."""
+        by: dict[str, list] = defaultdict(list)
+        cursor = None
+        while True:
+            params = {"series_ticker": series, "limit": 1000}
+            if cursor:
+                params["cursor"] = cursor
+            data = self._get(f"{KALSHI}/historical/markets", params) or {}
+            for m in data.get("markets") or []:
+                by[m["event_ticker"]].append(m)
+            cursor = data.get("cursor")
+            if not cursor or not data.get("markets"):
+                return [{"event_ticker": k, "markets": v} for k, v in by.items()]
+
+    def historical_candles(self, ticker: str, close: float, span_s: int = 6000) -> list[dict]:
+        data = self._get(f"{KALSHI}/historical/markets/{ticker}/candlesticks",
+                         {"start_ts": int(close - span_s), "end_ts": int(close), "period_interval": 1}) or {}
+        return [normalise_candle(c) for c in data.get("candlesticks") or []]
+
+
+def normalise_candle(c: dict) -> dict:
+    """Historical candles carry `close`; live ones `close_dollars`. Same dollars."""
+    out = dict(c)
+    for side in ("yes_bid", "yes_ask"):
+        v = c.get(side) or {}
+        if "close_dollars" not in v and "close" in v:
+            out[side] = {"close_dollars": v["close"]}
+    return out
+
 
 def select_strikes(markets: list[dict], spot: float, band: float = 0.006, cap: int = 8) -> list[dict]:
     rows = []
@@ -180,11 +211,11 @@ def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None
     bars_raw = f.yahoo(INDEX[series], "60m", "730d")
     vix_raw = f.yahoo("^VIX", "1d", "2y")
     bars = IndexBars(bars_raw["t"], bars_raw["open"], bars_raw["close"])
-    events = f.events(series, days, now)
+    events = [e for e in f.events(series, days, now) if e.get("markets")]
+    live = {e["event_ticker"] for e in events}
+    events += [dict(e, historical=True) for e in f.historical_events(series) if e["event_ticker"] not in live]
     dump = {"series": series, "fetched": now, "bars": bars_raw, "vix": vix_raw, "events": []}
     for i, e in enumerate(events):
-        if not e.get("markets"):
-            continue
         close = max(_ts(m["close_time"]) or 0 for m in e["markets"])
         s0 = bars.at(close - PRIMARY_TAU * 60)
         if s0 is None:
@@ -193,7 +224,10 @@ def fetch(series: str, days: float = 400, fetcher: Optional[IndexFetcher] = None
         if not chosen:
             continue
         try:
-            candles = f.batch_candles([m["ticker"] for m in chosen], close)
+            if e.get("historical"):
+                candles = {m["ticker"]: f.historical_candles(m["ticker"], close) for m in chosen}
+            else:
+                candles = f.batch_candles([m["ticker"] for m in chosen], close)
         except Exception as exc:  # noqa: BLE001 — a missing event is a missing row
             log.warning("candles failed %s: %s", e["event_ticker"], exc)
             continue
