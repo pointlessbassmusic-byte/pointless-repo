@@ -377,7 +377,7 @@ class PolymarketUSClient(ExchangeClient):
             intent, yes_price = "ORDER_INTENT_BUY_LONG", float(order.price)
         else:
             intent, yes_price = "ORDER_INTENT_BUY_SHORT", round(1.0 - float(order.price), 4)
-        return {
+        body = {
             "marketSlug": order.market_id,
             "intent": intent,
             "type": "ORDER_TYPE_LIMIT",
@@ -387,6 +387,14 @@ class PolymarketUSClient(ExchangeClient):
             "participateDontInitiate": bool(getattr(order, "post_only", False)),
             "manualOrderIndicator": "MANUAL_ORDER_INDICATOR_AUTOMATIC",
         }
+        # Venue-enforced expiry (EDGE_VERDICT Result 23): GTD + goodTillTime.
+        # The docs type it only as a string (date-time on responses); sent as
+        # RFC 3339 UTC, to be confirmed on the first live order.
+        if order.order_type == OrderType.LIMIT_GTD and order.expires_at is not None:
+            body["tif"] = "TIME_IN_FORCE_GOOD_TILL_DATE"
+            body["goodTillTime"] = order.expires_at.astimezone(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ")
+        return body
 
     def place_order(self, order: Order) -> Order:
         if not self.has_credentials:
