@@ -535,6 +535,18 @@ def score_latency(days: int = typer.Option(45, help="resolved-market lookback"),
                                for x in sl.LAGS if x in r["resid"]}})
 
 
+@app.command("nfl-latency")
+def nfl_latency(days: int = typer.Option(45, help="resolved-market lookback"),
+                max_games: int = typer.Option(200, help="highest-volume games kept")):
+    """How fast Polymarket prices an NFL score against ESPN's play-by-play
+    snap stamps, and what a taker reading the feed could still earn. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import nfl_latency as nl
+
+    games, tapes, plays = nl.collect(days=days, max_games=max_games)
+    console.print(nl.format_report(nl.run(games, tapes, plays), len(plays)))
+
+
 @app.command("kalshi-touch")
 def kalshi_touch(games: int = typer.Option(400, help="most recent settled KXMLBGAME games"),
                  sample: int = typer.Option(80_000, help="pre-start prints sampled")):

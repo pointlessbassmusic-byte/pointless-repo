@@ -93,7 +93,7 @@ def _side(t: Trade, sign: int) -> float:
 
 
 def reaction(trades: list[Trade], play: ScoringPlay, sign: int, min_jump: float = 0.04,
-             fee_rate: float = 0.05) -> Optional[dict]:
+             fee_rate: float = 0.05, lags: tuple = LAGS) -> Optional[dict]:
     """One play's venue reaction. ``sign`` = +1 when the scorer is the
     tape's home frame (outcomes[0]). None when the tape is too thin or the
     price did not move ``min_jump`` toward the scorer."""
@@ -112,7 +112,7 @@ def reaction(trades: list[Trade], play: ScoringPlay, sign: int, min_jump: float 
     if half is None or half > play.t_feed + POST_WINDOW[1]:
         return None
     resid = {}
-    for lag in LAGS:
+    for lag in lags:
         q = next((_side(t, sign) for t in trades
                   if t.ts >= play.t_feed + lag and t.direction == sign), None)
         if q is not None and q < 1.0:
@@ -202,7 +202,7 @@ def run(games: list[PMGame], tapes: dict[str, list[Trade]], feeds: dict[str, dic
     return rows
 
 
-def summarise(rows: list[dict]) -> dict:
+def summarise(rows: list[dict], lags: tuple = LAGS) -> dict:
     if not rows:
         return {"n": 0}
     d = [r["half_vs_feed"] for r in rows]
@@ -213,7 +213,7 @@ def summarise(rows: list[dict]) -> dict:
            "half_vs_feed_med": statistics.median(d),
            "venue_first": sum(x < 0 for x in d) / len(d),
            "venue_first_5s": sum(x <= -5 for x in d) / len(d), "resid": {}}
-    for lag in LAGS:
+    for lag in lags:
         have = [r for r in rows if lag in r["resid"]]
         if len(have) >= 5:
             out["resid"][lag] = cluster_bootstrap_mean(

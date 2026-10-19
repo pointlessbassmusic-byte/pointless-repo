@@ -2133,3 +2133,55 @@ remains the measurement and must not be scaled on it.
 **What changes.** No order logic changes. `docs/MAKER_TEST.md` cites the
 Kalshi number with that caveat, and `bot/start_check.py` (above) is the
 one live-path fix.
+
+## Result 25 (Polymarket NFL in-play): the price moves while the play is still running; a feed-driven taker loses
+
+_2026-10-19. `sportsbot/backtest/nfl_latency.py` (`sportsbot nfl-latency`).
+The NFL counterpart of Result 23._
+
+**Method.** Every resolved Polymarket NFL moneyline of the last 45 days
+was used: 89 games, $1–7M volume each. Each was matched to its ESPN event
+on both nicknames and the nearest kickoff, and all 89 matched.
+
+Scoring plays come from the cumulative score on each play of ESPN's
+drive play-by-play: 795 plays, with touchdowns and extra points counted
+separately.
+- ESPN stamps each play with a `wallclock`. On the DAL@GB game of
+  2026-10-19 the stamps run a median ~40 s apart, and the price reacts
+  6–12 s after the stamp of a 9-yard touchdown pass. The stamp is
+  therefore the **snap**, not the moment the score is known or
+  published.
+- Prices follow Result 23's rule: the median of the 3 minutes of prints
+  before the snap, against 1–4 minutes after.
+- A play counts if it moved the price at least 4c toward the scorer.
+- The residual is read at snap + L: the first scoring-side print after it,
+  minus NFL's 0.03 taker fee, against the post-price.
+
+**Result.** 254 scoring plays in 82 games moved the price at least 4c:
+221 touchdowns, 29 field goals and 4 defensive scores. The median move
+was 7c.
+
+| | snap + 5 s | + 10 s | + 15 s | + 20 s | + 30 s | + 60 s |
+|---|---|---|---|---|---|---|
+| half the move already printed | 2% | 50% | 82% | 90% | 94% | 96% |
+| left for a taker, per $1 (95% CI, clustered by game) | | +2.53c [+1.85, +3.29] | | −0.32c [−0.66, −0.00] | −0.57c [−0.96, −0.19] | −0.85c [−1.23, −0.47] |
+
+**Reading.**
+1. **The book prices a touchdown while the ball is still live or just
+   dead.** The median is 10 s after the snap, about the length of the play
+   itself. This is the MLB picture (Result 23) on the higher-volume
+   sport.
+2. **Only sub-10-second information is paid.** The +2.5c at snap + 10 s
+   is available only to someone who knows the result within seconds of
+   the whistle: a seat in the stadium, or a near-zero-delay broadcast.
+   Broadcast and streaming delays run several seconds to tens of seconds,
+   and ESPN's play-by-play is later still.
+3. **By snap + 20 s the remainder is negative and falling.** That is the
+   earliest any feed reader could act, and the cost is net of the fee. The
+   +10 s cell is also selected on the post-price it is measured against,
+   which biases it upward.
+4. **Candidate-queue item 4 is closed for the NFL too.** Write no in-play
+   taker code for MLB or the NFL; NBA remains unmeasured. A maker resting
+   through a drive is what the faster watcher picks off.
+
+**What changes.** Nothing trades. CLAUDE.md and the plan record it.
