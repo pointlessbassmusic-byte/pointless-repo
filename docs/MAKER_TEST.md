@@ -79,12 +79,19 @@ Why Polymarket US first, from its own fee schedule and gateway
   Where real fills fall between those bounds is the fill-share question
   this test exists to answer.
 
-Two caveats specific to it. (1) It publishes no keyless trade tape (trades
-stream only over the authenticated markets websocket), so the paper venue
-cannot fill orders there and the live test's fill-share denominator
-(`tape_through`) needs a websocket tape collector, to be built and tested
-once keys exist; until then the read-out reports live fills and CLV per
-fill without the shadow. (2) Order prices are always in YES terms (buying
+Two caveats specific to it. (1) It publishes no keyless trade tape: trades
+stream only over the authenticated markets websocket. The recorder
+`sportsbot us-tape` (`exchanges/polymarket_us_tape.py`, unit
+`sportsbot-ustape.service`, built 2026-10-19) subscribes every moneyline
+starting within 24 h and writes `data/us_tape.sqlite`. Its sessions say
+which windows are covered. The paper venue and the live test's
+fill-share denominator (`tape_through`) read that file. A window it does
+not cover is a `TapeGap`, and the order then carries no shadow rather
+than a zero. Without the recorder the read-out reports live fills and CLV
+per fill with no shadow. The handshake was checked against the live
+endpoint with a dummy key (401 "API key not found"). The first session
+with a real key should read `raw_samples` in the tape file to confirm the
+documented field names and the YES price frame. (2) Order prices are always in YES terms (buying
 NO at 0.40 is sent as a short at 0.60) and `participateDontInitiate` makes
 every maker order post-only; confirm both on the first order by hand, as
 step 4 below says.
@@ -175,7 +182,15 @@ preflight and exits non-zero on any FAIL.
    Those are the only lines that change. The per-sport cap
    (`max_fraction_per_sport`, 20% of the bankroll) still applies, so a
    $100 bankroll caps each sport at $20 whatever the budget says.
-4. **Run it.** On the server, as a second unit beside the sim:
+4. **Start the tape first** (Polymarket US only): once the keys are in
+   `.env`, run `sudo systemctl restart sportsbot-ustape`. `update.sh`
+   installs the unit, which exits cleanly while the keys are missing. Then
+   check it with `sudo -u sportsbot .venv/bin/sportsbot us-tape --status`.
+   The doctor FAILs a live `polymarket_us` config whose tape is missing or
+   silent, because the test would then measure nothing. Let the recorder
+   run for at least a few minutes before the first order, since an order
+   placed before a market's subscription has no shadow.
+5. **Run it.** On the server, as a second unit beside the sim:
    ```bash
    cd /opt/sportsbot && sudo -u sportsbot .venv/bin/sportsbot doctor -c config/maker_test.yaml
    sudo systemctl edit sportsbot      # add under [Service]:
@@ -190,7 +205,7 @@ preflight and exits non-zero on any FAIL.
    the app that a NO order shows the price the log printed (the venue
    books it in YES terms) and that a maker order resting at the touch was
    not executed against on arrival (post-only).
-5. **Read it out** with `sportsbot maker-report -c config/maker_test.yaml
+6. **Read it out** with `sportsbot maker-report -c config/maker_test.yaml
    --mode live` at 200 fills or 30 days, per the section above; the board
    shows the real book beside the sim's. **Stop it** with
    `systemctl stop sportsbot`, or `touch data/KILL_SWITCH` for an

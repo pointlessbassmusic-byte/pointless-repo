@@ -28,10 +28,10 @@ nothing installed):
   $10M a month). Here the maker fee is modelled as 0 and the rebate
   ignored -- conservative.
 * No public trade tape: trades stream only over the authenticated
-  markets websocket. `recent_trades` returns [], so in PAPER mode a resting
-  order on this venue never fills (no tape, no fill) and the live maker
-  test's fill-share denominator needs a websocket tape collector, which
-  can only be built and tested once keys exist.
+  markets websocket. `polymarket_us_tape` records it (`sportsbot us-tape`,
+  keys needed). `recent_trades` reads that record and raises `TapeGap` for
+  a window it does not cover. With no record it returns [], so a resting
+  paper order here never fills (no tape, no fill).
 * Rate limit: 25 requests/s per IP; a 429 means wait >= 1 s. GETs retry
   with backoff on 429/5xx; order placement never retries.
 """
@@ -59,9 +59,10 @@ from sportsbot.core.types import (
     Position,
     Side,
     Sport,
+    TapePrint,
 )
 from sportsbot.data.teams import canonical, is_team_sport
-from sportsbot.exchanges.base import ExchangeClient
+from sportsbot.exchanges.base import ExchangeClient, TapeGap
 
 log = logging.getLogger(__name__)
 
@@ -178,13 +179,14 @@ class PolymarketUSClient(ExchangeClient):
     exchange = Exchange.POLYMARKET_US
 
     def __init__(self, key_id: Optional[str] = None, secret_key: Optional[str] = None,
-                 http: Optional[httpx.Client] = None, timeout: float = 30.0) -> None:
+                 http: Optional[httpx.Client] = None, timeout: float = 30.0, tape: Any = None) -> None:
         self.key_id = key_id if key_id is not None else os.environ.get(ENV_KEY_ID, "")
         self.secret_key = secret_key if secret_key is not None else os.environ.get(ENV_SECRET, "")
         self.http = http or httpx.Client(timeout=timeout, headers={
             "User-Agent": "sportsbot/1.0", "Accept": "application/json"})
         self._series: Optional[dict[str, dict]] = None
         self._slug_by_order: dict[str, str] = {}
+        self._tape_store: Any = tape if tape is not None else False   # False = look it up on first use
 
     # ------------------------------------------------------------------ http
     @property
@@ -351,6 +353,27 @@ class PolymarketUSClient(ExchangeClient):
                 "open_interest": _px(d.get("openInterest")),
                 "last_ts": _dt((d.get("lastPriceSample") or {}).get("ts")),
                 "state": d.get("state")}
+
+    def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
+        """Prints from the recorded websocket tape (`polymarket_us_tape`), YES
+        frame, newest first. With no tape recorded this is [] as before (no
+        tape, no fill). With one, a window it does not fully cover raises
+        `TapeGap`: callers then record nothing rather than read a gap as
+        "no prints"."""
+        store = self._tape()
+        if store is None:
+            return []
+        t0 = since.timestamp()
+        if not store.covered(market.market_id, t0):
+            raise TapeGap(f"no complete Polymarket US tape for {market.market_id} since {since.isoformat()}")
+        return store.prints(market.market_id, t0)
+
+    def _tape(self):
+        if self._tape_store is False:
+            from sportsbot.exchanges.polymarket_us_tape import default_store
+
+            self._tape_store = default_store()
+        return self._tape_store
 
     def get_resolution(self, market_id: str) -> Optional[bool]:
         try:

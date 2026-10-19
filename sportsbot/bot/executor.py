@@ -26,7 +26,7 @@ from sportsbot.core.types import (
     Side,
 )
 from sportsbot.data.store import Store
-from sportsbot.exchanges.base import ExchangeClient
+from sportsbot.exchanges.base import ExchangeClient, TapeGap
 from sportsbot.exchanges.paper import PaperExchange
 
 log = logging.getLogger(__name__)
@@ -199,6 +199,9 @@ class Executor:
             return
         try:
             prints = client.recent_trades(market, tracked.placed_at)
+        except TapeGap as exc:
+            log.info("tape shadow skipped: %s", exc)
+            return
         except Exception:
             log.exception("tape shadow failed for %s", order.market_id)
             return

@@ -28,7 +28,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
   `polymarket_us.py` (the CFTC-regulated US exchange: public gateway for
   events/books/settlement, Ed25519-signed orders, prices in YES terms,
   post-only via `participateDontInitiate`, makers pay nothing; no keyless
-  trade tape, so paper orders there never fill), `paper.py`
+  trade tape: `polymarket_us_tape.py` records it from the authenticated
+  markets websocket (`sportsbot us-tape`, `sportsbot-ustape.service`), and
+  `recent_trades` raises `TapeGap` for a window the record does not cover;
+  with no record paper orders there never fill), `paper.py`
   (book-walk fills at placement; a resting order fills only when the
   venue's public taker tape prints through it, for the size printed —
   no tape, no fill; maker fee charged).
@@ -102,6 +105,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 24).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
+- Polymarket US tape: `sportsbot us-tape` (needs the US keys; data only),
+  `sportsbot us-tape --status`.
 - Venue queue study: `sportsbot queue-log` (public reads, no keys) then
   `sportsbot queue-report` (offline).
 - Operator: `sportsbot digest [--post]` (daily lines, Discord webhook via

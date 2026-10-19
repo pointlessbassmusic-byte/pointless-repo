@@ -20,6 +20,11 @@ from sportsbot.core.types import (
 )
 
 
+class TapeGap(RuntimeError):
+    """A venue's recorded tape does not cover the window asked for. Callers
+    record nothing rather than read the gap as "no prints"."""
+
+
 class ExchangeClient(abc.ABC):
     exchange: Exchange
 
