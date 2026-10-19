@@ -98,10 +98,14 @@ def test_client_reads_the_tape_and_refuses_a_window_it_does_not_cover(tmp_path):
         c.recent_trades(_market("other"), t0)
 
 
-def test_client_without_a_tape_keeps_no_tape_no_fill(tmp_path, monkeypatch):
+def test_client_without_a_tape_reports_a_gap_not_an_empty_tape(tmp_path, monkeypatch):
+    """Regression (rehearsal 2026-10-19): returning [] with no record made the
+    executor's shadow store tape_through 0.0 on every US order -- a guess
+    written as data. No record is a gap like any other."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(ust.ENV_DB, raising=False)
-    assert PolymarketUSClient(key_id="", secret_key="").recent_trades(_market(), datetime.now(timezone.utc)) == []
+    with pytest.raises(TapeGap):
+        PolymarketUSClient(key_id="", secret_key="").recent_trades(_market(), datetime.now(timezone.utc))
 
 
 class FakeWS:

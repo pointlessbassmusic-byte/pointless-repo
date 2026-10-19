@@ -145,6 +145,26 @@ passes the gate on its own fills. Either failing closes rank 2 as a
 standalone arm; informed-flow direction (queue item 2) is then its only
 remaining form, data-logged.
 
+## Rehearsal on Polymarket US (2026-10-19, paper, no keys)
+
+`config/maker_test.yaml` was run for one cycle in paper, with `exchange:
+polymarket_us` and a scratch store. Results:
+
+- **Discovery and quoting:** 46 markets; the touch arm posted 6 orders
+  (NHL 4, MLB 1, NFL 1); `still_resting` 0.
+- **Order bodies:** in YES terms (a NO at 0.58 is a `BUY_SHORT` at 0.42),
+  with `participateDontInitiate: true`.
+- **Ticks and sizes:** prices sit on each market's tick (MLB 0.005, NFL
+  0.0025, NHL 0.01). Every listed moneyline has `minimumTradeQty` 0.01,
+  so the 2-decimal quantity a $1 stake gives is accepted.
+- **Doctor:** in paper, WARN only (keys, tape). On a live copy without
+  `SPORTSBOT_LIVE`: FAIL on both keys and on the missing tape.
+
+The rehearsal found one measurement bug. With no tape recorded, every
+order's shadow read `tape_through: 0.0`, a guess that a live run would
+have reported as "the tape never reached us". No record is now a
+`TapeGap`, and the shadow stays absent; a regression test covers it.
+
 ## Starting it (operator runbook)
 
 Everything below is the operator's: nothing in the repository turns this
