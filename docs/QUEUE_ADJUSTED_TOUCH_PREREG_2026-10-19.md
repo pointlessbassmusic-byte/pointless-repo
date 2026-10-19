@@ -59,3 +59,10 @@ actually does)
 NEW-PRICE and the per-sport rows are descriptive. The front-of-queue
 version of the same joins (fill on any print at or through) is reported
 alongside, as a check against Result 24.
+
+## Amendment 1 (22:14Z, before any data is read)
+
+The recording runs **120 minutes**, not 240: the session's background
+jobs are capped at 2 h. It still spans the pre-start window of the NHL
+slate (23:00–00:00Z starts) and Monday Night Football (00:15Z). The
+bar is unchanged: 15 games with fills.
