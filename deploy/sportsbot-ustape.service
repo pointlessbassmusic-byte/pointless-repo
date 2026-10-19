@@ -1,0 +1,28 @@
+[Unit]
+Description=sportsbot Polymarket US trade-tape recorder (authenticated markets websocket; reads only, no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+# Records every trade on the US moneylines starting within 24 h into
+# data/us_tape.sqlite, the tape the paper venue and the live maker test's
+# shadow read (polymarket_us_tape.py). Without POLYMARKET_US_KEY_ID /
+# POLYMARKET_US_SECRET_KEY in .env it exits 0 and stays stopped; after adding
+# them: `systemctl restart sportsbot-ustape`.
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot us-tape --db /opt/sportsbot/data/us_tape.sqlite
+Restart=on-failure
+RestartSec=60
+MemoryMax=300M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

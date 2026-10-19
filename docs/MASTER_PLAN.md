@@ -318,6 +318,20 @@ Pipeline per cycle:
       live test's tape shadow there needs a websocket collector, buildable
       once keys exist. `docs/MAKER_TEST.md` now prefers this venue. Soccer is
       not mapped (UCL events carry no moneyline type there).
+- [x] Polymarket US trade tape (2026-10-19, `exchanges/polymarket_us_tape.py`,
+      `sportsbot us-tape`, `sportsbot-ustape.service`). This is the live maker
+      test's fill-share denominator, built ahead of the keys from the
+      documented markets websocket (TRADE subscription, REST signing on the
+      handshake, 100 slugs per subscription, heartbeats).
+      * Coverage: the recorder logs every connection and subscription, so
+        the client's `recent_trades` serves only windows it covered. Any
+        other window raises `TapeGap`, and the executor's shadow and the
+        paper fill rule then record nothing rather than zero.
+      * Checked: the live endpoint refused a dummy key with 401 "API key
+        not found", so the handshake format reaches the key lookup.
+      * Doctor: it FAILs a live `polymarket_us` config with no live tape.
+      * Deploy: `update.sh` installs the unit, which exits cleanly until
+        the keys are in `.env`.
 - [x] Venue queue study (2026-10-14, `substrate_bridge/queue_study.py`,
       `sportsbot queue-log` / `queue-report`, EDGE_VERDICT Result 15
       addendum 3). Polymarket US, main and Kalshi were sampled on the same

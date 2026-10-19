@@ -36,6 +36,10 @@ maker = [
     "requests>=2.31",
     "websockets>=14",
 ]
+polymarket_us = [
+    "cryptography>=42.0",   # Ed25519 request signing
+    "websockets>=14",       # the trade tape (exchanges/polymarket_us_tape.py)
+]
 substrate = [
     "matplotlib>=3.8",   # substrate/backtest.py plots
 ]
@@ -45,7 +49,7 @@ dev = [
     "mypy>=1.9",
 ]
 all = [
-    "sportsbot[polymarket,kalshi,mlb,dev]",
+    "sportsbot[polymarket,kalshi,mlb,polymarket_us,dev]",
 ]
 
 [project.scripts]

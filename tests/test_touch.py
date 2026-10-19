@@ -256,6 +256,56 @@ def test_runner_drain_lets_resting_orders_live_out_the_ttl_then_shadows_them(tmp
     assert r.store.all_bets("paper")[0]["arm"] == "baseball/touch/maker"
 
 
+def test_a_tape_gap_fills_nothing_and_leaves_the_shadow_absent(tmp_path):
+    """A recorded tape that does not cover the order's window (the Polymarket
+    US collector was down) must not read as "no prints": the paper venue
+    fills nothing and the shadow records no tape_through at all."""
+    from sportsbot.bot.runner import Runner
+    from sportsbot.exchanges.base import ExchangeClient, TapeGap
+
+    class Gappy(ExchangeClient):
+        exchange = Exchange.POLYMARKET
+
+        def list_sports_markets(self, s):
+            return []
+
+        def get_quote(self, m):
+            raise RuntimeError
+
+        def place_order(self, o):
+            raise RuntimeError
+
+        def cancel_order(self, i):
+            return True
+
+        def get_open_orders(self):
+            return []
+
+        def get_positions(self):
+            return []
+
+        def get_balance(self):
+            return 0.0
+
+        def recent_trades(self, market, since):
+            raise TapeGap("collector down")
+
+    r = Runner.__new__(Runner)
+    r.store = Store(str(tmp_path / "t.sqlite"))
+    r.mode = "paper"
+    r.executor = Executor(PaperExchange(data_client=Gappy(), starting_balance=100.0), r.store,
+                          mode="paper", order_ttl_seconds=0.2)
+    soon = datetime.now(timezone.utc) + timedelta(hours=3)
+    intent, _ = evaluate_touch(_market(start_time=soon), _quote(0.44, 0.47), _cfg(), EMPTY, [],
+                               NO_FEE, now=datetime.now(timezone.utc))
+    r.executor.submit(intent, quote=_quote(0.44, 0.47))
+    out = r.drain_resting(poll_seconds=0.05)
+    (o,) = r.store.all_orders()
+    assert out["fills_booked"] == 0 and out["still_resting"] == 0
+    assert o["status"] == "canceled" and not o["filled"]
+    assert "tape_through" not in o["raw"]
+
+
 def test_touch_arm_quotes_unpriced_markets_in_its_sports_only(tmp_path):
     """NHL/NFL without a sharp line: the scanner drops them, the touch arm
     (no model) still rests at their touch; other drop reasons stay dropped

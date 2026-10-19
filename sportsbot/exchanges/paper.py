@@ -35,7 +35,7 @@ from sportsbot.core.types import (
     Position,
     Side,
 )
-from sportsbot.exchanges.base import ExchangeClient
+from sportsbot.exchanges.base import ExchangeClient, TapeGap
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +168,9 @@ class PaperExchange(ExchangeClient):
             if market.market_id not in tapes:
                 try:
                     tapes[market.market_id] = self.data_client.recent_trades(market, placed_at)
+                except TapeGap as exc:
+                    log.info("paper: no fill check, %s", exc)
+                    tapes[market.market_id] = None
                 except Exception:
                     log.exception("paper: tape read failed for %s", market.market_id)
                     tapes[market.market_id] = None
