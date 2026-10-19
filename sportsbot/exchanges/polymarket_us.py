@@ -30,8 +30,9 @@ nothing installed):
 * No public trade tape: trades stream only over the authenticated
   markets websocket. `polymarket_us_tape` records it (`sportsbot us-tape`,
   keys needed). `recent_trades` reads that record and raises `TapeGap` for
-  a window it does not cover. With no record it returns [], so a resting
-  paper order here never fills (no tape, no fill).
+  a window it does not cover, and with no record at all, so a resting paper
+  order here never fills (no tape, no fill) and the live shadow stays absent
+  instead of reading zero.
 * Rate limit: 25 requests/s per IP; a 429 means wait >= 1 s. GETs retry
   with backoff on 429/5xx; order placement never retries.
 """
@@ -356,13 +357,14 @@ class PolymarketUSClient(ExchangeClient):
 
     def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
         """Prints from the recorded websocket tape (`polymarket_us_tape`), YES
-        frame, newest first. With no tape recorded this is [] as before (no
-        tape, no fill). With one, a window it does not fully cover raises
-        `TapeGap`: callers then record nothing rather than read a gap as
-        "no prints"."""
+        frame, newest first. No record, or a window the record does not fully
+        cover, raises `TapeGap`: callers then record nothing (the paper venue
+        fills nothing, the live shadow stays absent) rather than read a
+        missing tape as "no prints". Returning [] here once wrote
+        `tape_through: 0.0` on every order, a guess stored as data."""
         store = self._tape()
         if store is None:
-            return []
+            raise TapeGap("no Polymarket US tape recorded (run `sportsbot us-tape`)")
         t0 = since.timestamp()
         if not store.covered(market.market_id, t0):
             raise TapeGap(f"no complete Polymarket US tape for {market.market_id} since {since.isoformat()}")

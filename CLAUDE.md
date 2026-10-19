@@ -31,7 +31,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
   trade tape: `polymarket_us_tape.py` records it from the authenticated
   markets websocket (`sportsbot us-tape`, `sportsbot-ustape.service`), and
   `recent_trades` raises `TapeGap` for a window the record does not cover;
-  with no record paper orders there never fill), `paper.py`
+  also with no record, so paper orders there never fill and the live
+  shadow is absent, never a guessed zero), `paper.py`
   (book-walk fills at placement; a resting order fills only when the
   venue's public taker tape prints through it, for the size printed —
   no tape, no fill; maker fee charged).
