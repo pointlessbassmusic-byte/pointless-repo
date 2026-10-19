@@ -517,11 +517,17 @@ class PolymarketClient(ExchangeClient):
                     order_type="FOK" if order.order_type == OrderType.FOK else "FAK",
                 )
             else:
+                kwargs: dict[str, Any] = {}
+                if order.expires_at is not None:
+                    kwargs["expiration"] = int(order.expires_at.timestamp())
+                if order.post_only:
+                    kwargs["post_only"] = True
                 resp = sdk.place_limit_order(
                     token_id=order.token_id,
                     side="BUY",
                     price=order.price,
                     size=order.size,
+                    **kwargs,
                 )
             data = resp if isinstance(resp, dict) else getattr(resp, "__dict__", {"resp": str(resp)})
             order.order_id = str(

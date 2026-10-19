@@ -519,6 +519,23 @@ class Runner:
             return 0
 
     # ------------------------------------------------------------------
+    def _mlb_start_check(self, markets):
+        """Pull baseball starts earlier to MLB's scheduled first pitch where
+        the venue's clock is late (`bot/start_check.py`). The schedule window
+        opens yesterday so a game started late on the previous UTC date is
+        still seen as Live. A failed read keeps the venue's times."""
+        from datetime import datetime, timezone
+
+        from sportsbot.bot.start_check import earliest_starts
+        from sportsbot.data.mlb_data import MLBStatsClient
+
+        try:
+            games = MLBStatsClient().upcoming(days=2, back_days=1)
+        except Exception as exc:  # noqa: BLE001 — the venue clock still stands
+            log.warning("MLB schedule unavailable for the start check: %s", exc)
+            return markets, 0
+        return earliest_starts(markets, games, datetime.now(timezone.utc))
+
     def _mlb_context(self) -> dict[str, dict]:
         """Probable pitchers + rest-day differential for MLB markets.
 
@@ -1012,6 +1029,8 @@ class Runner:
                 log.exception("market discovery failed for %s", sport_key)
                 self._record_discovery_failure(sport_key, exc)
         summary["markets"] = len(markets)
+        if any(m.sport == Sport.BASEBALL for m in markets):
+            markets, summary["starts_moved"] = self._mlb_start_check(markets)
 
         # Attach MLB probable-pitcher context by fuzzy-pairing team names.
         extra_context: dict[str, dict] = {}

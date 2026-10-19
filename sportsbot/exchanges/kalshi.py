@@ -705,6 +705,8 @@ class KalshiClient(ExchangeClient):
             "client_order_id": order.client_id,
             "self_trade_prevention_type": "maker",
         }
+        if order.expires_at is not None and tif == "good_till_canceled":
+            body["expiration_time"] = int(order.expires_at.timestamp())
         if order.post_only:
             # A maker intent was priced to rest: Create Order V2 rejects it
             # instead of crossing, so it can never become a taker fill at a

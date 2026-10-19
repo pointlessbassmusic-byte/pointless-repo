@@ -125,6 +125,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Live smoke (reads only, safe): `sportsbot scan`.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
+- In-play feed latency (MLB): `sportsbot score-latency` (network; Result 23).
+- Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 24).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Venue queue study: `sportsbot queue-log` (public reads, no keys) then
@@ -361,6 +363,21 @@ the outcome and fabricates longshot edge.
   source (the sharp-line harness) instead. Maker paired positions on crypto
   Up/Down windows lose in every configuration: the leg left unpaired is the
   loser by construction (0 of 701 won).
+- In-play MLB is not a feed race anyone outside the stadium wins
+  (EDGE_VERDICT Result 23, `sportsbot score-latency`): on 873 scoring plays
+  Polymarket's price covers half the move 6 s after the pitch, 8 s before
+  MLB's own feed stamps the play, and a taker reading the feed at zero
+  delay nets -0.16c per $1 (CI spans zero), going negative within 5 s.
+  Write no in-play taker code; NBA is unmeasured.
+- The touch edge holds on Kalshi too, as an upper bound (EDGE_VERDICT Result 24,
+  `sportsbot kalshi-touch`): on 396 settled MLB games a bid one tick under
+  each pre-start print earns +0.80 to +0.93c per fill net of the maker fee
+  at the front of the queue, and zero (+-0.3c) on strict through-fills, the
+  same bracket as Result 15; Result 15 addendum 3 counts the queue in front
+  on NHL and the edge goes, so this is an upper bound, never a sizing
+  input. Kalshi's MLB tickers are not first pitch: 7 of
+  398 ran 0.6-3.5 h late, so baseball starts are pulled to the earlier of
+  the venue's time and MLB's schedule (`bot/start_check.py`), never later.
 - PnL from hundreds of bets cannot settle an edge claim: per-bet return SD on
   50c binaries is ~1.0, so 2% ROI needs ~10,000 bets (PR #22's power
   analysis). Closing-line value needs ~80-500 observations. Judge strategies

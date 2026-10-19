@@ -105,3 +105,21 @@ row here is the same front-of-queue bound. Real fills lie between that
 bound and the queue-adjusted numbers, and only the $1 live test
 measures where. Per the ledger's rule the PASS row is not edited; a
 correction row is added.
+
+## Note (2026-10-19): MLB start anchor, and the independent replication
+
+Main's Result 24 (`sportsbot kalshi-touch`, 396 MLB games) found that 7
+of 398 `KXMLBGAME` tickers ran 0.6–3.5 h **late** against MLB's
+scheduled first pitch (rescheduled and postseason games). This
+document's MLB cut used the ticker time, so a few games may carry
+in-play prints in their "pre-game" window. The NHL, NFL, NCAAF and
+soccer cut (occurrence − 4 h) is not affected.
+
+With the anchor corrected, Result 24 reproduces the same bracket:
+- **front of the queue:** +0.80¢ net [+0.70, +0.92] at 120 s;
+- **strict, level swept:** +0.14¢ [−0.18, +0.47].
+
+The MLB conclusion here does not change: the positive number is the
+upper bound, and the queue decides. The live bot is protected by main's
+`bot/start_check.py`, which pulls every baseball start to the earlier of
+the venue's time and MLB's schedule.

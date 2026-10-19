@@ -1982,3 +1982,154 @@ one.
 Rerun: `cd kalshi-engine && PYTHONPATH=. python -m src.index_hourly_study`
 (resumable; about two hours of public reads on a fresh cache), then
 `--analyse`.
+## Result 23 (Polymarket MLB in-play): the venue moves before the official feed; a feed-driven taker earns nothing
+
+_2026-10-13. `sportsbot/backtest/score_latency.py` (`sportsbot score-latency
+--days 45 --max-games 200 --out ...`); rows in
+`docs/SCORE_LATENCY_ROWS_2026-10-13.csv`. Candidate queue item 4._
+
+**Question.** Does Polymarket's in-play MLB price react to a run before
+MLB's official feed records it? If the feed comes first, a bot reading it
+could lift stale asks. If the venue comes first, in-play is a maker game
+at best.
+
+**Method.** The 200 highest-volume resolved Polymarket MLB moneylines of
+the last 45 days (regular-season close and the 2026 postseason, $0.47M to
+$2.9M volume each), matched to MLB gamePks on both team names and the
+nearest first pitch. Every run-scoring play from the GUMBO feed:
+- `t_pitch` is the start of the play's last pitch.
+- `t_feed` is the play's `endTime`. The archive's `feed/live/timestamps`
+  first carries the new score at exactly this stamp. I checked this on three
+  plays of the 2026-10-07 LAD@ATL game. It is the earliest any feed
+  consumer could know. Real delivery (CDN, polling) is later, so this choice
+  favours the feed.
+
+Prices come from the public taker tape, in the scoring team's frame:
+- pre-price is the median of the last 5 prints in the 3 minutes before the
+  pitch;
+- post-price is the median of the prints 1–4 minutes after `t_feed`;
+- a play counts if it moved the price at least 4c toward the scorer.
+
+The venue's reaction is the first print after the pitch that covers half
+the move. The taker residual at lag L is the post-price minus the first
+scoring-side print (a lifted ask) L seconds after `t_feed`, minus the
+0.05·p·(1−p) fee.
+
+The tape's timestamps are settlement times, a few seconds after the
+match, so venue times are late if anything.
+
+**Result.** 873 scoring plays in 198 games; the median move is 12c.
+
+| | plays | feed stamp after pitch | half-move after pitch | half-move vs feed | venue first |
+|---|---|---|---|---|---|
+| all | 873 | 14 s | 6 s | −8 s | 81% (67% by ≥ 5 s) |
+| home runs | 308 | 26 s | 5 s | −21 s | 97% |
+| other scoring plays | 565 | 12 s | 7 s | −5 s | 73% |
+| postseason only | 85 | 12 s | 6 s | −7 s | 88% |
+
+Left for a taker reading the feed, per $1 of price, net of fee, with a
+95% CI clustered by game:
+
+| lag after the feed stamp | all plays | jump ≥ 10c (selected on the outcome) |
+|---|---|---|
+| 0 s | −0.16c [−0.53, +0.20] | +0.65c [+0.15, +1.15] |
+| 5 s | −0.34c [−0.68, +0.01] | +0.37c [−0.09, +0.85] |
+| 30 s | −0.36c [−0.67, −0.03] | — |
+
+The postseason alone is worse for the taker: −1.6c at 0 s, with the CI
+excluding zero.
+
+**Reading.**
+1. **The venue moves first.** Half the move is in the tape a median 6 s
+   after the pitch, before the play is even stamped in the official record.
+   Home runs are stamped last (26 s, after the trot), and the venue
+   precedes the stamp on 97% of them. Someone watching the game (the TV
+   feed, or being in the stadium) is the price-setter.
+2. **Nothing is left for a feed reader.** At zero latency the
+   all-plays residual is zero within ±0.5c, and it is negative by 5–30 s.
+   The only positive cell is the ≥ 10c subset at 0 s. That subset is
+   selected on the post-price it is measured against, which biases it
+   upward, and it already needs a delivery delay no real feed achieves.
+   By 5 s it is gone.
+3. **Item 4 closes for MLB.** In-play is a maker game at best: a resting
+   quote is what gets picked off by the faster watcher. No in-play taker
+   code should be written. NBA is unmeasured, but the same mechanism
+   (TV-speed viewers ahead of the stat feed) applies; measure it with the
+   same script pattern before assuming otherwise.
+
+**What changes.** Nothing trades. The candidate queue's item 4 is closed.
+CLAUDE.md records the finding.
+
+## Result 24 (Kalshi MLB): the touch edge is there on the US-legal venue too, and the same queue caveat decides it
+
+_2026-10-13. `sportsbot/backtest/kalshi_touch.py` (`sportsbot kalshi-touch`).
+Result 15's construction on Kalshi's public tape, which the live maker
+test can actually use (Polymarket US publishes no keyless tape)._
+
+**Method.** This uses the 400 most recent settled `KXMLBGAME` games
+(2026-09 to the 2026-10-12 postseason). 398 matched MLB's schedule and
+396 had a tape, with a median of about 11,600 prints per game.
+- A maker rests a bid one tick under each pre-start taker print, on the
+  taker's side. 80,000 of these prints were sampled.
+- **Front of queue** (the paper venue's rule): a later print at or through
+  the rest fills it.
+- **Strict**: only a print strictly through the rest fills it, so the
+  level was swept and queue position cannot matter.
+- CLV is the side's close (the last pre-start print, refused at the rail)
+  minus the rest price. It is shown gross and net of
+  `kalshi_maker_fee_per_share`, the repo's deliberately non-zero default.
+- 95% intervals are clustered by game.
+
+**A leak found on the way.** The first run used the event ticker's time
+as first pitch and showed +3 to +4.5c per fill. One game carried +0.23
+per fill. The 2026-10-12 LAD@MIL ticker says 20:00 ET, but the game
+started at 21:00 UTC, so in-play prints were scored as the close. 7 of
+398 tickers ran 0.6–3.5 h late against MLB's scheduled first pitch
+(rescheduled doubleheader games and postseason times). The study now
+anchors on the earlier of the two. The live bot had the same exposure:
+the risk layer's pre-start cutoff and the touch arm's quoting window used
+the ticker. `bot/start_check.py` now pulls every baseball start to the
+earlier of the venue's time and MLB's schedule, and never later.
+
+**Result** (396 games):
+
+| deadline | fill rule | fill rate | CLV per fill, net of maker fee |
+|---|---|---|---|
+| 120 s | front of queue | 37.0% | **+0.80c [+0.70, +0.92]** |
+| 120 s | strict | 0.7% | +0.14c [−0.18, +0.47] |
+| 30 min | front of queue | 82.7% | **+0.91c [+0.77, +1.07]** |
+| 30 min | strict | 5.5% | +0.00c [−0.22, +0.23] |
+| to start | front of queue | 96.1% | **+0.93c [+0.80, +1.09]** |
+| to start | strict | 23.5% | −0.17c [−0.34, +0.01] |
+
+The gross figures are about 0.13c higher.
+
+**Reading.**
+1. **Kalshi pays the touch at least as well as Polymarket's main CLOB.**
+   At the front of the queue a resting order earns about +0.9c per fill
+   after the maker fee, against Result 15's +0.6c gross on Polymarket.
+   Kalshi's 1c MLB spread is the spread a maker collects.
+2. **The bracket is the same.** On fills that only a swept level
+   guarantees, the edge is zero within ±0.3c, and strict fills come only
+   once the price has moved through (adverse selection). The truth lies
+   between the two rows. Where it lies depends on the share of the touch
+   queue a new $1 order gets, which no tape can show.
+3. **The live test is worth running on Kalshi as well as Polymarket US.**
+   Kalshi has a public tape, so the fill-share denominator (`tape_through`)
+   works there today. Polymarket US needs a websocket tape collector
+   first. A 1c-spread book pays a maker about 1c gross, and the fee takes
+   about 0.13c of it.
+
+**Read with Result 15 addendum 3's queue check.** On 16 NHL games, once
+the size already queued in front of a new $1 order is counted, the same
++0.3 to +0.7 points disappears on main and on Kalshi. Joining an existing
+queue fills about one time in five, and those fills lose. Being first at a
+new best price breaks even. The table above shows only the two bounds and
+does not count the queue in front. Kalshi's historical tape carries no
+book, so the queue-counted version of this MLB number cannot be rebuilt
+from it. Treat the +0.9c as the upper bound it is. The live $1 test
+remains the measurement and must not be scaled on it.
+
+**What changes.** No order logic changes. `docs/MAKER_TEST.md` cites the
+Kalshi number with that caveat, and `bot/start_check.py` (above) is the
+one live-path fix.
