@@ -2185,3 +2185,84 @@ was 7c.
    through a drive is what the faster watcher picks off.
 
 **What changes.** Nothing trades. CLAUDE.md and the plan record it.
+
+## Result 26 (2026-10-20): the US sportsbook close against Polymarket on NFL, NBA, NHL and MLB — not a member, the nearest miss yet
+
+CLAUDE.md left this open: the sportsbook consensus was measured on soccer
+and found nothing, but "US sports are unmeasured". ESPN's keyless core API
+carries DraftKings' (or ESPN BET's) opening and closing moneyline for every
+finished US game. That is enough to answer the question without an
+odds-API key.
+
+The study (`sportsbot/backtest/espn_line_study.py`, `sportsbot
+espn-lines`) was pre-registered and committed before the first fetch.
+One plumbing fix went in before any analysis: MLB outcomes are full team
+names and Utah's NHL team is "utah", so teams now match on any of ESPN's
+name forms, and both teams must still match.
+
+Construction:
+
+- **Games:** resolved Polymarket moneylines over 400 days (Sep 2025 – Oct
+  2026), 6,471 games in all. 6,130 matched an ESPN event with both a close
+  and a Polymarket print.
+- **The book:** the close, de-vigged proportionally.
+- **Polymarket (A):** the last minute print in the 15 minutes before the
+  start.
+- **The trade (B):** at T−15, buy Polymarket toward the book at a 2c
+  margin, paying a 0.5c half-spread and each sport's taker fee.
+- **The bar:** (A) the book's Brier better with t ≤ −2, AND (B) at least
+  100 trades netting > 0 with t ≥ 2.
+- **A caveat in the book's favour:** its close is stamped at kickoff,
+  after both Polymarket prices.
+
+| | games | Brier book | Brier PM | book − PM | β (outcome − PM on book − PM) | median gap | trades | net per $1 |
+|---|---|---|---|---|---|---|---|---|
+| NFL | 391 | 0.2253 | 0.2259 | −0.0006 ± 0.0007 | +1.75 ± 1.41 | 0.90c | 54 | +12.4 ± 6.0 |
+| NBA | 1,445 | 0.1992 | 0.2006 | **−0.0014 ± 0.0006** | **+1.26 ± 0.22** | 0.80c | 143 | +0.1 ± 3.7 |
+| NHL | 1,605 | 0.2429 | 0.2430 | −0.0001 ± 0.0006 | +0.59 ± 0.51 | 0.64c | 91 | +5.7 ± 5.1 |
+| MLB | 2,689 | 0.2428 | 0.2431 | −0.0003 ± 0.0002 | +2.02 ± 0.85 | 0.53c | 77 | +4.2 ± 5.9 |
+| **pooled** | 6,130 | 0.2314 | 0.2320 | **−0.0005 ± 0.0002** | **+1.11 ± 0.24** | 0.62c | **365** | **+4.2 ± 2.5** |
+
+**Not a member** by the bar written first, in every sport and pooled. Part
+(A) passes pooled (t −2.5) and on NBA (t −2.3): the book's close scores a
+hair better than Polymarket's last print, and the residual regression puts
+weight on it (β ≈ 1). Part (B) fails: the trade toward the book makes
++4.2 ± 2.5 per $1 pooled (t 1.7). NFL's +12.4 (t 2.05) rests on 54 trades,
+and NBA, where (A) is strongest, nets +0.1 ± 3.7.
+
+**Reading.** This is the nearest miss in the reference-price search, and
+three things temper it:
+
+1. **The look-ahead.** The close is the line at kickoff, so part of (A) is
+   the book seeing up to 15 minutes more than the print it is scored
+   against.
+2. **β ≈ 1 is what bid-ask bounce in Polymarket's last print produces.**
+   If the print is the true price plus noise of a tick or so, the book's
+   deviation from it predicts the outcome one-for-one without leading
+   anything. Taking toward it still pays the ask, which is why (B) is
+   where any edge would have to show, and it does not clear its bar.
+3. **The gaps are tiny.** The median is 0.53–0.90c; only 365 of 6,130
+   games cross a 2c margin, about 6%.
+
+Eight measured non-members now: NWS weather forecasts, sportsbook consensus
+on soccer, Polymarket against Kalshi, the CPI nowcast, Deribit on
+Polymarket crypto, Kalshi crypto hourlies, Kalshi index hourlies, and the
+US sportsbook close on US sports. The Fed reference is still the only
+member.
+
+**What changes.** Nothing trades, and `ODDS_API_KEY` is still not an
+unlock for US sports. The pre-registration ties a forward recorder to a
+pass, so none is built.
+
+A forward test would be the honest way to settle the one positive sign,
+and it would have to be registered on its own:
+
+- record live DraftKings lines from ESPN's `current` odds every few minutes
+  before each game, with no look-ahead;
+- trade toward them on Polymarket's real ask;
+- start with NFL and NBA.
+
+That is a separate decision for the user. It is not implied by this result.
+
+Rerun: `sportsbot espn-lines --days 400` (resumable, about 25 minutes on a
+fresh cache), then `sportsbot espn-lines --report`.

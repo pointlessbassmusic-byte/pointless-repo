@@ -881,6 +881,26 @@ def fresh_watch(hours: float = typer.Option(0.0, help="how long to watch; 0 = un
     fwt.Watch(db).run(hours=hours, poll=poll)
 
 
+@app.command("espn-lines")
+def espn_lines(days: int = typer.Option(400, help="resolved games whose start fell in the last N days"),
+               sports: str = typer.Option("nfl,nba,nhl,mlb"),
+               max_games: int = typer.Option(0, help="newest N games per sport (0 = all)"),
+               report: bool = typer.Option(False, "--report", help="analyse the cache instead of fetching")):
+    """Pre-registered study: does the US sportsbook close (DraftKings via
+    ESPN, keyless) lead Polymarket on NFL/NBA/NHL/MLB? Public reads only."""
+    import logging
+
+    from sportsbot.backtest import espn_line_study as els
+
+    keys = tuple(s.strip() for s in sports.split(",") if s.strip())
+    if report:
+        console.print(els.format_report(els.report(keys)), soft_wrap=True)
+        return
+    logging.getLogger("sportsbot.backtest.espn_line_study").setLevel(logging.INFO)
+    for k in keys:
+        console.print(els.collect(k, days=days, max_games=max_games))
+
+
 @app.command("us-tape")
 def us_tape(sports: str = typer.Option("baseball,hockey,football,basketball,college_football,tennis",
                                        help="sport keys whose moneylines to subscribe"),
