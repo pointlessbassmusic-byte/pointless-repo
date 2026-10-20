@@ -231,3 +231,46 @@ def test_cli_maker_report_runs_offline(tmp_path):
     result = CliRunner().invoke(app, ["maker-report", "-c", str(cfg)])
     assert result.exit_code == 0, result.output
     assert "nothing posted yet" in result.output
+
+
+def test_report_splits_fill_share_by_whether_the_tape_cleared_the_queue(tmp_path):
+    """Result 15 addendum 3's question, per order: did real fills come only
+    when the printed size covered the queue ahead at entry plus our size?"""
+    store = Store(str(tmp_path / "t.sqlite"))
+    # (queue_ahead, tape_printed, filled): size 2 each
+    specs = [(10.0, 15.0, 2.0),     # 15 >= 10 + 2: cleared, filled
+             (10.0, 12.0, 0.0),     # 12 >= 12: cleared, not filled
+             (100.0, 5.0, 1.0),     # not cleared, filled anyway (front of queue / cancels ahead)
+             (100.0, 5.0, 0.0),     # not cleared, not filled
+             (None, 5.0, 0.0),      # no queue recorded: left out
+             (10.0, 0.0, 0.0)]      # nothing printed through: left out
+    for i, (qa, printed, filled) in enumerate(specs):
+        raw = {"arm": "hockey/touch/maker", "placed_at": T0.isoformat(),
+               "tape_through": min(2.0, printed), "tape_printed": printed, "queue_ahead": qa}
+        store.record_order(client_id=f"c{i}", order_id=f"o{i}", market_id=f"m{i}", side="yes",
+                           price=0.44, size=2.0, filled=filled, status="filled" if filled else "canceled",
+                           raw=raw)
+    q = maker_report(store)["by_queue"]
+    assert q["cleared"] == {"orders": 2, "filled": 1, "share": 0.5}
+    assert q["not_cleared"] == {"orders": 2, "filled": 1, "share": 0.5}
+    assert "queue cleared 1/2 (50%), not cleared 1/2 (50%)" in format_maker_report(maker_report(store))
+
+
+def test_the_shadow_keeps_the_uncapped_printed_size(tmp_path, monkeypatch):
+    from sportsbot.bot import executor as exmod
+
+    store = Store(str(tmp_path / "t.sqlite"))
+    ex = Executor(PaperExchange(data_client=Tape([_pr(5, 0.44, 30.0)]), starting_balance=100.0), store,
+                  mode="paper", order_ttl_seconds=120)
+    m = MarketInfo(exchange=Exchange.POLYMARKET, market_id="m1", sport=Sport.BASEBALL, home="A", away="B",
+                   start_time=T0 + timedelta(hours=3))
+    q = MarketQuote(market_id="m1", bid=0.44, ask=0.47, ts=T0, bids=[BookLevel(price=0.44, size=50.0)],
+                    asks=[BookLevel(price=0.47, size=50.0)])
+    monkeypatch.setattr(exmod, "datetime", type("D", (), {"now": staticmethod(lambda tz=None: T0),
+                                                          "fromisoformat": datetime.fromisoformat}))
+    ex.submit(BetIntent(market=m, side=Side.YES, prob=0.5, price=0.44, size=2.0, edge=0.0,
+                        kelly_fraction=0.0, reason="touch join bid=0.44 maker"), quote=q)
+    (tracked,) = ex._open.values()
+    ex._tape_shadow(tracked, now=T0 + timedelta(seconds=60))
+    raw = tracked.order.raw
+    assert raw["queue_ahead"] == 50.0 and raw["tape_through"] == 2.0 and raw["tape_printed"] == 30.0
