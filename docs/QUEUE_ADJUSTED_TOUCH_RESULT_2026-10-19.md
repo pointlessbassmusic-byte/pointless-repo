@@ -67,3 +67,19 @@ makes a new $1 order into the front of the queue.
   games is a description, not a test.
 - **Nothing is scaled.** The ledger row is INCONCLUSIVE, so it funds
   nothing.
+
+## Descriptive follow-up: by queue depth at entry (not pre-registered; after the read)
+
+The thin-queue question was suggested by a peer research session. The
+same JOIN-QUEUE joins, cut by the displayed size at the touch when the
+order joined:
+
+| queue at entry | joins | fills | fill rate | games | net CLV per fill |
+|---|---|---|---|---|---|
+| under 50 | 64 | 1 | 1.6% | 1 | — |
+| 50–500 | 575 | 7 | 1.2% | 2 | +0.05¢ [+0.00, +0.07] |
+| over 500 | 995 | 9 | 0.9% | 3 | −0.39¢ [−1.31, +0.00] |
+
+Fill rates are about 1% at every depth, and a thin touch is rare on
+Kalshi's pre-game books. There is no thin-queue arm worth
+pre-registering from this.
