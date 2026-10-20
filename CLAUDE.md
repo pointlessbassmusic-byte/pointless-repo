@@ -103,6 +103,7 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Sharp-line harness: `sportsbot sharp-snapshot` (needs `ODDS_API_KEY`),
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
 - In-play feed latency (MLB): `sportsbot score-latency` (network; Result 23).
+- In-play latency (NFL, vs ESPN snap stamps): `sportsbot nfl-latency` (network; Result 25).
 - Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 24).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
@@ -347,7 +348,11 @@ the outcome and fabricates longshot edge.
   Polymarket's price covers half the move 6 s after the pitch, 8 s before
   MLB's own feed stamps the play, and a taker reading the feed at zero
   delay nets -0.16c per $1 (CI spans zero), going negative within 5 s.
-  Write no in-play taker code; NBA is unmeasured.
+  The NFL is the same (Result 25, `sportsbot nfl-latency`): on 254 scoring
+  plays in 82 games, half the move prints 10 s after the snap (90% by
+  20 s). A taker at snap + 20 s nets -0.32c, falling to -0.85c by 60 s;
+  only sub-10-second information (the stadium) is paid. Write no in-play
+  taker code for MLB or the NFL; NBA is unmeasured.
 - The touch edge holds on Kalshi too, as an upper bound (EDGE_VERDICT Result 24,
   `sportsbot kalshi-touch`): on 396 settled MLB games a bid one tick under
   each pre-start print earns +0.80 to +0.93c per fill net of the maker fee

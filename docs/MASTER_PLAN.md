@@ -576,8 +576,11 @@ item names the measurement that would move it, and the standing rules apply
    pitch and 8 s before the official feed stamps the play (97% of home runs
    are priced before the stamp). A taker reading the feed instantly nets
    −0.16c [−0.53, +0.20] per $1, and it is negative by 5–30 s. In-play is a
-   maker game at best; write no in-play taker code. NBA is unmeasured
-   (`sportsbot score-latency` is the template).
+   maker game at best; write no in-play taker code. **Closed for the NFL
+   too, 2026-10-19 (Result 25):** half the move prints 10 s after the
+   snap, and a taker at snap + 20 s nets −0.32c, worse later. NBA is
+   unmeasured (`sportsbot score-latency` / `nfl-latency` are the
+   templates).
 5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
    October, see the roadmap item above ($101/24h series volume this year).
 6. **Weather arm**: stays excluded (beats climatology, loses to the market,
