@@ -61,7 +61,8 @@ def joins_for_game(samples, prints, start, ticker):
             prev_level = level
             for kind, queue in kinds:
                 filled = _fills(prints, ts, min(ts + DEADLINE_S, start), side, level, queue)
-                row = {"kind": kind, "filled": filled, "clv": None}
+                row = {"kind": kind, "filled": filled, "clv": None,
+                       "ts": ts, "side": side, "level": level, "queue": queue}
                 if filled:
                     if side == "bid":            # long the US-long side at `level`
                         price = level
