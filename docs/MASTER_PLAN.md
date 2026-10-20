@@ -318,6 +318,15 @@ Pipeline per cycle:
       live test's tape shadow there needs a websocket collector, buildable
       once keys exist. `docs/MAKER_TEST.md` now prefers this venue. Soccer is
       not mapped (UCL events carry no moneyline type there).
+- [x] 2026-10-20: US sportsbook close vs Polymarket (EDGE_VERDICT Result 26,
+      `sportsbot espn-lines`). Pre-registered, keyless (DraftKings / ESPN BET
+      closes from ESPN's core API), 6,130 NFL/NBA/NHL/MLB games.
+      * Not a member, but the nearest miss so far: the Brier is a hair better
+        pooled (t -2.5), with look-ahead in the book's favour.
+      * The T-15 taker toward the book nets +4.2 +- 2.5 per $1 (t 1.7),
+        under its bar.
+      * Next step, only with the user's go-ahead: a separately registered
+        forward record of live lines.
 - [x] Polymarket US trade tape (2026-10-19, `exchanges/polymarket_us_tape.py`,
       `sportsbot us-tape`, `sportsbot-ustape.service`). This is the live maker
       test's fill-share denominator, built ahead of the keys from the
