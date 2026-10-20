@@ -119,6 +119,13 @@
       "verdict": "FAIL",
       "result": "The 2026-10-14 NHL PASS is the front-of-queue upper bound (+0.67c, matching #82's +0.66c). Counting the queue in front on Kalshi NHL: joining the existing queue fills 22% at -0.24c, first-at-new-price +0.07c (41 times in 16 games). No fundable maker edge at realistic queue positions; the $1 live test stays a measurement.",
       "doc": "docs/KALSHI_TOUCH_RESULT_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-19",
+      "test": "Touch-maker with the queue counted, second night (Kalshi; tennis, NHL, NFL, MLB; scripts/queue_join.py)",
+      "verdict": "INCONCLUSIVE",
+      "result": "Behind a real queue (median 988 contracts) a $1 order filled 17 of 1,634 joins (1.0%) at -0.19c [-1.01, +0.04] net; first-at-new-price 8 of 56 at +0.14c; front-of-queue bound +0.28c [+0.12, +0.44]. 5 games with fills < 15. The touch edge belongs to whoever is first in line, not a new $1 order.",
+      "doc": "docs/QUEUE_ADJUSTED_TOUCH_RESULT_2026-10-19.md"
     }
   ]
 }
