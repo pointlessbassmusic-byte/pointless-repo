@@ -27,7 +27,7 @@ from sportsbot.core.types import (
     Side,
 )
 from sportsbot.data.store import Store
-from sportsbot.exchanges.base import ExchangeClient
+from sportsbot.exchanges.base import ExchangeClient, TapeGap
 from sportsbot.exchanges.paper import PaperExchange
 
 log = logging.getLogger(__name__)
@@ -52,6 +52,25 @@ def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
     return {"bid": quote.bid, "ask": quote.ask,
             "bid_size": quote.bids[0].size if quote.bids else None,
             "ask_size": quote.asks[0].size if quote.asks else None}
+
+
+def queue_ahead(quote: Optional[MarketQuote], side: Side, price: float) -> Optional[float]:
+    """Contracts resting on OUR side at our price or better when the order
+    goes in: the queue a maker order joins (it fills only after those trade).
+    YES buys rest among the YES bids; a NO buy at q rests among the YES asks
+    at 1 - q. None without a book. Recorded per order so fill share can be
+    read against queue depth."""
+    if quote is None:
+        return None
+    eps = 1e-9
+    if side == Side.YES:
+        levels = [lv for lv in quote.bids if lv.price >= price - eps]
+    else:
+        yes_px = 1.0 - price
+        levels = [lv for lv in quote.asks if lv.price <= yes_px + eps]
+    if not quote.bids and not quote.asks:
+        return None
+    return round(sum(float(lv.size) for lv in levels), 6)
 
 
 # Venue-side order lifetime: the local TTL cancels resting orders each
@@ -136,6 +155,7 @@ class Executor:
             "placed_at": placed_at.isoformat(),
             "start_time": market.start_time.isoformat() if market.start_time else None,
             "book": _book_snapshot(quote),
+            "queue_ahead": queue_ahead(quote, intent.side, float(intent.price)),
         }
         # Post-only if the intent was priced to rest OR the arm is a maker
         # arm: either reason alone forbids crossing, and the flag can only
@@ -256,16 +276,21 @@ class Executor:
             return
         try:
             prints = client.recent_trades(market, tracked.placed_at)
+        except TapeGap as exc:
+            log.info("tape shadow skipped: %s", exc)
+            return
         except Exception:
             log.exception("tape shadow failed for %s", order.market_id)
             return
+        qa = (order.raw or {}).get("queue_ahead")
         bounds = tape_fill_bounds(prints, order.side, order.price,
                                   after=tracked.placed_at, before=before,
-                                  queue_ahead=_queue_ahead(order))
+                                  queue_ahead=qa if qa is not None else _queue_ahead(order))
         extra = {"tape_strict": round(min(order.size, bounds["strict"]), 6)}
         if bounds["queue"] is not None:
             extra["tape_queue"] = round(min(order.size, bounds["queue"]), 6)
         order.raw = {**order.raw, "tape_through": round(min(order.size, bounds["through"]), 6),
+                     "tape_printed": round(bounds["through"], 6),   # uncapped: read against queue_ahead
                      **extra,
                      "tape_prints": len(prints),
                      "rested_seconds": order.raw.get(

@@ -29,10 +29,6 @@ polymarket = [
 kalshi = [
     "cryptography>=42.0",
 ]
-polymarket_us = [
-    # Ed25519 request signing for api.polymarket.us (public reads need nothing)
-    "cryptography>=42.0",
-]
 judge = [
     # shadow LLM judgement recorder (sportsbot/signals/judge.py); data only
     "anthropic>=1.11",
@@ -44,6 +40,10 @@ maker = [
     "requests>=2.31",
     "websockets>=14",
 ]
+polymarket_us = [
+    "cryptography>=42.0",   # Ed25519 request signing
+    "websockets>=14",       # the trade tape (exchanges/polymarket_us_tape.py)
+]
 substrate = [
     "matplotlib>=3.8",   # substrate/backtest.py plots
 ]
@@ -53,7 +53,7 @@ dev = [
     "mypy>=1.9",
 ]
 all = [
-    "sportsbot[polymarket,kalshi,mlb,dev]",
+    "sportsbot[polymarket,kalshi,mlb,polymarket_us,dev]",
 ]
 
 [project.scripts]

@@ -235,7 +235,7 @@ def test_venue_orders_and_positions_map_to_engine_terms():
     assert all(g[2].get("X-PM-Signature") for g in http.gets)       # authenticated reads are signed
 
 
-def test_build_exchange_wires_the_venue_in_paper_with_its_fees(monkeypatch):
+def test_build_exchange_wires_the_venue_in_paper_with_its_fees(monkeypatch, tmp_path):
     from sportsbot.bot.runner import build_exchange
     from sportsbot.exchanges.paper import PaperExchange
 
@@ -245,8 +245,12 @@ def test_build_exchange_wires_the_venue_in_paper_with_its_fees(monkeypatch):
     assert isinstance(ex, PaperExchange) and isinstance(data, PolymarketUSClient)  # live config, no env: paper
     assert fee_fn(0.5, 100) == pytest.approx(1.7375)
     assert ex.maker_fee_fn(0.5, 100) == 0.0
-    assert data.recent_trades(MarketInfo(exchange=Exchange.POLYMARKET_US, market_id="m"),
-                              datetime.now(timezone.utc)) == []                     # no keyless tape
+    from sportsbot.exchanges.base import TapeGap
+
+    monkeypatch.delenv("SPORTSBOT_US_TAPE_DB", raising=False)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(TapeGap):                     # no keyless tape, none recorded: a gap, never []
+        data.recent_trades(MarketInfo(exchange=Exchange.POLYMARKET_US, market_id="m"), datetime.now(timezone.utc))
 
 
 def test_executor_marks_maker_arms_post_only(tmp_path):

@@ -290,6 +290,28 @@ def _check_kalshi_key_type(key_path: str, bad_level: str) -> Check:
                  "RSA key from its API-keys page (this one cannot sign Kalshi requests)")
 
 
+def check_tape(cfg: dict) -> list[Check]:
+    """Polymarket US only: the recorded trade tape (`sportsbot us-tape`) is
+    the live maker test's fill-share denominator and the paper venue's fill
+    rule. Missing or silent: WARN in paper, FAIL in live (a live test with no
+    denominator measures nothing)."""
+    if cfg.get("exchange") != "polymarket_us":
+        return []
+    from sportsbot.exchanges.polymarket_us_tape import DEFAULT_DB, ENV_DB, TapeStore
+
+    path = os.environ.get(ENV_DB) or DEFAULT_DB
+    bad = FAIL if cfg.get("mode", "paper") == "live" else WARN
+    if not os.path.exists(path):
+        return [Check("tape.polymarket_us", bad,
+                      f"no tape at {path} — start the recorder (systemctl restart sportsbot-ustape)")]
+    st = TapeStore(path).status()
+    if not st["alive"]:
+        return [Check("tape.polymarket_us", bad,
+                      f"recorder silent (last message {st['last_seen']}) — check journalctl -u sportsbot-ustape")]
+    return [Check("tape.polymarket_us", PASS,
+                  f"recording: {st['slugs_subscribed']} slugs subscribed, {st['prints']} prints")]
+
+
 # ---------------------------------------------------------------- network
 
 def _ping(url: str, timeout: float = 6.0):
@@ -375,7 +397,7 @@ def _check_kalshi_auth() -> Check:
 
 def run_checks(cfg: dict, offline: bool = False) -> list[Check]:
     checks = (check_mode(cfg) + check_params(cfg) + check_storage(cfg)
-              + check_ratings(cfg) + check_secrets(cfg))
+              + check_ratings(cfg) + check_secrets(cfg) + check_tape(cfg))
     if not offline:
         checks += check_network(cfg)
     return checks

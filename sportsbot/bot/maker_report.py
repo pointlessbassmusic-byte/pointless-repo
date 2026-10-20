@@ -152,6 +152,7 @@ def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> di
     })
     for o in orders:
         rep["by_status"][o["status"]] = rep["by_status"].get(o["status"], 0) + 1
+    rep["by_queue"] = queue_split(shadowed)
 
     # CLV per filled order, by close, with wait buckets
     rows = _fill_rows(orders, closes)
@@ -174,6 +175,28 @@ def maker_report(store, signal: str = "touch", mode: Optional[str] = None) -> di
     rep["realised_pnl"] = round(sum(float(b["pnl"] or 0) for b in bets if b.get("pnl") is not None), 2)
     rep["bets"] = len(bets)
     return rep
+
+
+def queue_split(shadowed: list[dict]) -> dict:
+    """Fill share against the queue in front (Result 15 addendum 3's question):
+    among orders the tape printed through, those whose printed size covered
+    the queue ahead at entry plus the order itself (a strict FIFO fill was
+    possible) against those it did not (only a front-of-queue fill could
+    have happened). Needs `queue_ahead` and the uncapped `tape_printed`."""
+    out = {}
+    for key in ("cleared", "not_cleared"):
+        out[key] = {"orders": 0, "filled": 0}
+    for o in shadowed:
+        raw = o.get("raw") or {}
+        qa, printed = raw.get("queue_ahead"), raw.get("tape_printed")
+        if qa is None or printed is None or float(printed) <= 0:
+            continue
+        key = "cleared" if float(printed) >= float(qa) + float(o["size"] or 0) else "not_cleared"
+        out[key]["orders"] += 1
+        out[key]["filled"] += 1 if (o["filled"] or 0) > 0 else 0
+    for d in out.values():
+        d["share"] = d["filled"] / d["orders"] if d["orders"] else None
+    return out
 
 
 def locked_pairs(orders: list[dict]) -> dict:
@@ -236,6 +259,15 @@ def _bounds_lines(b: dict) -> list[str]:
     return out
 
 
+def _fmt_queue(q: dict) -> str:
+    def one(d):
+        if not d or not d.get("orders"):
+            return "—"
+        return f"{d['filled']}/{d['orders']} ({d['share']:.0%})"
+    return (f"  by queue at entry (tape printed through): queue cleared {one(q.get('cleared'))}, "
+            f"not cleared {one(q.get('not_cleared'))}")
+
+
 def format_maker_report(rep: dict) -> str:
     lines = [f"maker fill-share test, arm signal '{rep['signal']}': {rep['orders']} orders"]
     if not rep["orders"]:
@@ -254,6 +286,7 @@ def format_maker_report(rep: dict) -> str:
         f"  fill share: orders {'—' if share_o is None else f'{share_o:.1%}'}, "
         f"contracts {'—' if share_c is None else f'{share_c:.1%}'}"
         f"  (paper self-check mismatches: {rep['paper_self_check_mismatches']})",
+        _fmt_queue(rep.get("by_queue") or {}),
         *_bounds_lines(rep.get("bounds") or {}),
         f"  CLV per fill vs venue close: {_fmt_ci(rep['clv_venue'])}",
         f"  CLV per fill vs sharp close: {_fmt_ci(rep['clv_sharp'])}",

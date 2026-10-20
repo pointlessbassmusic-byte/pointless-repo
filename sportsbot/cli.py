@@ -612,6 +612,18 @@ def score_latency(days: int = typer.Option(45, help="resolved-market lookback"),
                                for x in sl.LAGS if x in r["resid"]}})
 
 
+@app.command("nfl-latency")
+def nfl_latency(days: int = typer.Option(45, help="resolved-market lookback"),
+                max_games: int = typer.Option(200, help="highest-volume games kept")):
+    """How fast Polymarket prices an NFL score against ESPN's play-by-play
+    snap stamps, and what a taker reading the feed could still earn. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import nfl_latency as nl
+
+    games, tapes, plays = nl.collect(days=days, max_games=max_games)
+    console.print(nl.format_report(nl.run(games, tapes, plays), len(plays)))
+
+
 @app.command("kalshi-touch")
 def kalshi_touch(games: int = typer.Option(400, help="most recent settled KXMLBGAME games"),
                  sample: int = typer.Option(80_000, help="pre-start prints sampled")):
@@ -867,6 +879,39 @@ def fresh_watch(hours: float = typer.Option(0.0, help="how long to watch; 0 = un
         return
     logging.getLogger("sportsbot.substrate_bridge.fresh_watch").setLevel(logging.INFO)
     fwt.Watch(db).run(hours=hours, poll=poll)
+
+
+@app.command("us-tape")
+def us_tape(sports: str = typer.Option("baseball,hockey,football,basketball,college_football,tennis",
+                                       help="sport keys whose moneylines to subscribe"),
+            window_h: float = typer.Option(24.0, help="subscribe games starting within this many hours"),
+            hours: float = typer.Option(0.0, help="how long to record; 0 = until stopped"),
+            db: str = typer.Option("", help="tape database (default $SPORTSBOT_US_TAPE_DB or data/us_tape.sqlite)"),
+            status: bool = typer.Option(False, "--status", help="print the recorded tape's state and exit")):
+    """Record the Polymarket US trade tape from the authenticated markets
+    websocket. DATA ONLY: never places orders. The paper venue and the live
+    maker test's tape shadow read it; without keys it exits cleanly."""
+    import asyncio
+    import logging
+    import os
+
+    from sportsbot.exchanges import polymarket_us_tape as ust
+    from sportsbot.exchanges.polymarket_us import PolymarketUSClient
+
+    path = db or os.environ.get(ust.ENV_DB) or ust.DEFAULT_DB
+    if status:
+        console.print(ust.TapeStore(path).status() if os.path.exists(path) else f"no tape at {path}")
+        return
+    client = PolymarketUSClient()
+    if not client.has_credentials:
+        # no file is created: an empty tape would make every read a TapeGap
+        console.print("us-tape: POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY not set; nothing to record")
+        return
+    store = ust.TapeStore(path)
+    logging.getLogger("sportsbot.exchanges.polymarket_us_tape").setLevel(logging.INFO)
+    keys = tuple(s.strip() for s in sports.split(",") if s.strip())
+    coll = ust.TapeCollector(store, client.key_id, client.secret_key, ust.slugs_for(client, keys, window_h))
+    console.print(asyncio.run(coll.run(hours=hours)))
 
 
 @app.command("queue-log")
