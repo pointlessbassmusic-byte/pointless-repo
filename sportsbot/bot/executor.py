@@ -49,6 +49,25 @@ def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
             "ask_size": quote.asks[0].size if quote.asks else None}
 
 
+def queue_ahead(quote: Optional[MarketQuote], side: Side, price: float) -> Optional[float]:
+    """Contracts resting on OUR side at our price or better when the order
+    goes in: the queue a maker order joins (it fills only after those trade).
+    YES buys rest among the YES bids; a NO buy at q rests among the YES asks
+    at 1 - q. None without a book. Recorded per order so fill share can be
+    read against queue depth."""
+    if quote is None:
+        return None
+    eps = 1e-9
+    if side == Side.YES:
+        levels = [lv for lv in quote.bids if lv.price >= price - eps]
+    else:
+        yes_px = 1.0 - price
+        levels = [lv for lv in quote.asks if lv.price <= yes_px + eps]
+    if not quote.bids and not quote.asks:
+        return None
+    return round(sum(float(lv.size) for lv in levels), 6)
+
+
 # Venue-side order lifetime: the local TTL cancels resting orders each
 # cycle, but a crashed process or a failed cancel would leave a quote
 # resting into the game, where faster watchers pick it off (EDGE_VERDICT
@@ -103,6 +122,7 @@ class Executor:
             "placed_at": placed_at.isoformat(),
             "start_time": market.start_time.isoformat() if market.start_time else None,
             "book": _book_snapshot(quote),
+            "queue_ahead": queue_ahead(quote, intent.side, float(intent.price)),
         }
         order.post_only = str(order.raw["arm"]).endswith("/maker")
         start = market.start_time
@@ -208,6 +228,7 @@ class Executor:
         through = tape_fill_size(prints, order.side, order.price,
                                  after=tracked.placed_at, before=before)
         order.raw = {**order.raw, "tape_through": round(min(order.size, through), 6),
+                     "tape_printed": round(through, 6),          # uncapped: read against queue_ahead
                      "tape_prints": len(prints),
                      "rested_seconds": order.raw.get(
                          "rested_seconds",

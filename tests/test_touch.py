@@ -130,6 +130,29 @@ def test_executor_reports_resting_sides_and_books_touch_fills_on_the_arm(tmp_pat
     assert store.exposure_by()["total"] == 0.0                   # resting, not exposure
 
 
+def test_queue_ahead_is_the_size_at_our_price_or_better_on_our_side():
+    from sportsbot.bot.executor import queue_ahead
+
+    q = MarketQuote(market_id="m1", bid=0.44, ask=0.47, ts=NOW,
+                    bids=[BookLevel(price=0.44, size=120.0), BookLevel(price=0.43, size=900.0)],
+                    asks=[BookLevel(price=0.47, size=80.0), BookLevel(price=0.48, size=500.0)])
+    assert queue_ahead(q, Side.YES, 0.44) == 120.0          # join the bid: the bid level is ahead
+    assert queue_ahead(q, Side.YES, 0.43) == 1020.0         # one tick under: both levels ahead
+    assert queue_ahead(q, Side.NO, 0.53) == 80.0            # NO at 0.53 rests with YES asks at 0.47
+    assert queue_ahead(q, Side.YES, 0.45) == 0.0            # improving: first at a new level
+    assert queue_ahead(None, Side.YES, 0.44) is None
+    assert queue_ahead(MarketQuote(market_id="m1", ts=NOW), Side.YES, 0.44) is None
+
+
+def test_every_order_records_the_queue_it_joined(tmp_path):
+    store = Store(str(tmp_path / "t.sqlite"))
+    ex = Executor(PaperExchange(starting_balance=100.0), store, mode="paper")
+    intent, _ = evaluate_touch(_market(), _quote(0.44, 0.47, depth=250.0), _cfg(), EMPTY, [], NO_FEE, now=NOW)
+    ex.submit(intent, quote=_quote(0.44, 0.47, depth=250.0))
+    (o,) = store.all_orders()
+    assert o["raw"]["queue_ahead"] == 250.0
+
+
 def test_runner_touch_pass_posts_through_risk_and_tallies(tmp_path):
     from types import SimpleNamespace
 

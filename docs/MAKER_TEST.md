@@ -109,6 +109,14 @@ on Polymarket has the start from Gamma and needs nothing.
 - the taker prints that crossed the level while it rested (the paper
   venue's fill rule applied to the same tape, so paper and live fill
   rates can be compared order by order)
+- `queue_ahead`: the contracts resting on our side at our price or better
+  when the order went in, i.e. the queue it joined (from 2026-10-20)
+- `tape_printed`: the uncapped size the tape printed through the level
+  (`tape_through` is capped at the order's size). The report splits fill
+  share by whether `tape_printed` covered `queue_ahead` plus the order
+  (a strict FIFO fill was possible) or not (only a front-of-queue fill
+  could have happened). This is addendum 3's question, measured on real
+  orders.
 
 ## How the evidence is kept
 
