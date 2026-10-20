@@ -54,6 +54,8 @@ cp "$APP_DIR/deploy/sportsbot-prematch.service" /etc/systemd/system/sportsbot-pr
 cp "$APP_DIR/deploy/sportsbot-lip.service" /etc/systemd/system/sportsbot-lip.service
 # data only; enable by hand once REDDIT_CLIENT_ID/SECRET are in .env
 cp "$APP_DIR/deploy/sportsbot-reddit.service" /etc/systemd/system/sportsbot-reddit.service
+# data only; enable by hand: systemctl enable --now sportsbot-queuelog
+cp "$APP_DIR/deploy/sportsbot-queuelog.service" /etc/systemd/system/sportsbot-queuelog.service
 # pilot books: installed, never enabled here (docs/LIVE_PILOT_PLAN_2026-10-08.md)
 cp "$APP_DIR"/deploy/sportsbot-pilot*.service /etc/systemd/system/
 cp "$APP_DIR/deploy/sportsbot-boardserve.service" /etc/systemd/system/sportsbot-boardserve.service

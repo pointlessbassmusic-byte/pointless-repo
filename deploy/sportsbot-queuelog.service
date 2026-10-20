@@ -1,0 +1,19 @@
+[Unit]
+Description=sportsbot venue queue recorder (data only; public reads, no keys, no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Records Kalshi / Polymarket books and Kalshi's tape for every US game
+# starting within 12 h: the forward dataset for
+# docs/QUEUE_FILL_MODEL_PREREG_2026-10-20.md. Each run samples for 6 h
+# and the unit restarts it, so a crash or reboot loses at most one pass.
+# Installed by setup, enabled by hand.
+User=sportsbot
+WorkingDirectory=/opt/sportsbot
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot queue-log --minutes 360 --interval 30 --window-h 12 --db data/queue_forward.sqlite
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
