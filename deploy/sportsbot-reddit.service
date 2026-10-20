@@ -1,0 +1,16 @@
+[Unit]
+Description=sportsbot Reddit team-news recorder (data only; docs/NEWS_VETO_PREREG_2026-10-13.md)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in /opt/sportsbot/.env.
+# Installed by setup, enabled by hand once the keys are there.
+User=sportsbot
+WorkingDirectory=/opt/sportsbot
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot reddit-watch
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target

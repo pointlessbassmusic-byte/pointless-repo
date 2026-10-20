@@ -1,0 +1,49 @@
+name: telemetry
+
+# Nightly: ask the server to export its reports (status, allocation, fill
+# markouts, forward test, boards) and commit them to the `telemetry` branch
+# under telemetry/<date>/ and telemetry/latest/. A Claude Code session, or a
+# scheduled Routine, reads that branch to review live results and propose
+# changes without ever needing server access. Read-only on the server.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"   # 09:17 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: telemetry
+          fetch-depth: 1
+        continue-on-error: true
+      - name: ensure telemetry branch
+        run: |
+          git fetch origin telemetry 2>/dev/null && git checkout telemetry || git checkout --orphan telemetry
+          git config user.name telemetry-bot
+          git config user.email telemetry@sportsbot
+      - name: ssh key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+      - name: export on server and pull
+        run: |
+          H="${{ secrets.SERVER_HOST }}"
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes root@"$H" "bash /opt/sportsbot/deploy/export_reports.sh"
+          D="telemetry/$(date -u +%F)"
+          rm -rf telemetry/latest && mkdir -p "$D" telemetry/latest
+          scp -i ~/.ssh/id_deploy -r root@"$H":/opt/sportsbot/data/export/. "$D/"
+          cp -r "$D"/. telemetry/latest/
+      - name: commit
+        run: |
+          git add telemetry
+          git commit -m "telemetry $(date -u +%F)" || echo "nothing new"
+          git push origin telemetry

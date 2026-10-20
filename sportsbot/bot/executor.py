@@ -16,9 +16,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sportsbot.bot.portfolio import arm_of_intent
-from sportsbot.core.books import tape_fill_size
+from sportsbot.core.books import tape_fill_bounds
 from sportsbot.core.types import (
     BetIntent,
+    MarketInfo,
     MarketQuote,
     Order,
     OrderStatus,
@@ -38,7 +39,11 @@ class _Tracked:
     intent: BetIntent
     placed_at: datetime
     booked_fill: float = 0.0   # fill size already recorded as a bet
+    lookups_failed: int = 0    # get_order failures after it left the book
     first_fill_at: Optional[datetime] = None
+
+
+MAX_FINAL_LOOKUPS = 10         # cycles to keep asking the venue for a final fill
 
 
 def _book_snapshot(quote: Optional[MarketQuote]) -> Optional[dict]:
@@ -82,6 +87,27 @@ def venue_expiry(placed_at: datetime, ttl_seconds: float) -> datetime:
     return placed_at + timedelta(seconds=max(ttl_seconds + EXPIRY_GRACE_S, VENUE_MIN_EXPIRY_S))
 
 
+def _queue_ahead(order: Order) -> Optional[float]:
+    """Contracts resting at our price when we posted, from the book stored
+    on the order (YES frame: a NO bid at L sits behind the YES ask at
+    1 - L). 0 when we posted at a new best price; None when unknown."""
+    book = (order.raw or {}).get("book") or {}
+    if order.side == Side.YES:
+        level, size = book.get("bid"), book.get("bid_size")
+        if level is None:
+            return None
+        if order.price > level + 1e-9:
+            return 0.0
+        return float(size) if size is not None and abs(order.price - level) < 1e-9 else None
+    level, size = book.get("ask"), book.get("ask_size")
+    if level is None:
+        return None
+    yes_price = 1.0 - order.price
+    if yes_price < level - 1e-9:
+        return 0.0
+    return float(size) if size is not None and abs(yes_price - level) < 1e-9 else None
+
+
 class Executor:
     def __init__(self, exchange: ExchangeClient, store: Store, mode: str = "paper",
                  order_ttl_seconds: float = 120.0) -> None:
@@ -90,6 +116,9 @@ class Executor:
         self.mode = mode
         self.order_ttl = order_ttl_seconds
         self._open: dict[str, _Tracked] = {}
+        # Called with (bet_id, market, side, entry_price) for every booked
+        # fill increment — the runner attaches the markout recorder here.
+        self.on_fill = None
 
     # ------------------------------------------------------------------
     def submit(self, intent: BetIntent, quote: Optional[MarketQuote] = None) -> Order:
@@ -105,6 +134,10 @@ class Executor:
             order_type=OrderType.LIMIT_GTD,   # venue-expiring rest (venue_expiry)
             price=intent.price,
             size=intent.size,
+            # A maker intent was priced to rest; on venues that honour it
+            # (Polymarket US participateDontInitiate) it must not become a
+            # taker fill at a price the edge math never approved.
+            post_only=intent.maker,
         )
         log.info(
             "[%s] %s %s %.2f @ %.3f edge=%.3f (%s)",
@@ -124,7 +157,10 @@ class Executor:
             "book": _book_snapshot(quote),
             "queue_ahead": queue_ahead(quote, intent.side, float(intent.price)),
         }
-        order.post_only = str(order.raw["arm"]).endswith("/maker")
+        # Post-only if the intent was priced to rest OR the arm is a maker
+        # arm: either reason alone forbids crossing, and the flag can only
+        # make the venue reject an order, never fill a worse one.
+        order.post_only = bool(intent.maker) or str(order.raw["arm"]).endswith("/maker")
         start = market.start_time
         if start is not None and start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
@@ -137,14 +173,14 @@ class Executor:
             order.raw["error"] = "venue expiry would outlive the pre-game window"
             log.warning("refused %s: expiry %s not before start %s",
                         market.market_id, order.expires_at.isoformat(), start.isoformat())
-            self._persist_order(order)
+            self._persist_order(order, intent)
             return order
         if isinstance(self.exchange, PaperExchange):
             order = self.exchange.place_order(order, quote=quote, market=market,
                                               now=placed_at)
         else:
             order = self.exchange.place_order(order)
-        self._persist_order(order)
+        self._persist_order(order, intent)
 
         tracked = _Tracked(order=order, intent=intent, placed_at=placed_at)
         if order.filled > 0:
@@ -154,12 +190,24 @@ class Executor:
             self._open[order.client_id] = tracked
         return order
 
-    def _persist_order(self, order: Order) -> None:
+    def _persist_order(self, order: Order, intent: Optional[BetIntent] = None) -> None:
+        if intent is not None:
+            # Enough of the intent to book a fill after a restart, when the
+            # in-memory tracker is gone: the bets row needs sport, model
+            # probability and edge, not just the venue's price and size. Kept
+            # on the order itself so every later persist carries it too.
+            market = intent.market
+            order.raw = {**(order.raw or {}), "intent": {
+                "sport": market.sport.value if market.sport else "unknown",
+                "prob": intent.prob, "edge": intent.edge, "price": intent.price,
+                "side": intent.side.value, "market_id": market.market_id,
+            }}
+        raw = dict(order.raw or {})
         self.store.record_order(
             client_id=order.client_id, order_id=order.order_id,
             market_id=order.market_id, side=order.side.value,
             price=order.price, size=order.size, filled=order.filled,
-            status=order.status.value, raw=order.raw,
+            status=order.status.value, raw=raw,
         )
 
     def _book_fill(self, tracked: _Tracked, new_total_fill: float) -> None:
@@ -170,7 +218,7 @@ class Executor:
         intent = tracked.intent
         market = intent.market
         sport = market.sport.value if market.sport else "unknown"
-        self.store.record_bet(
+        bet_id = self.store.record_bet(
             market_id=market.market_id,
             sport=sport,
             side=intent.side.value,
@@ -184,6 +232,15 @@ class Executor:
             arm=arm_of_intent(sport, intent.reason),
         )
         tracked.booked_fill = new_total_fill
+        self._notify_fill(bet_id, market, intent.side, intent.price)
+
+    def _notify_fill(self, bet_id: int, market: MarketInfo, side: Side, price: float) -> None:
+        if self.on_fill is None:
+            return
+        try:
+            self.on_fill(bet_id, market, side, price)
+        except Exception:
+            log.exception("on_fill hook failed (fill is booked regardless)")
 
     def _note_fill(self, tracked: _Tracked, now: Optional[datetime] = None) -> None:
         """First time an order shows a fill: remember when, and how long
@@ -225,10 +282,16 @@ class Executor:
         except Exception:
             log.exception("tape shadow failed for %s", order.market_id)
             return
-        through = tape_fill_size(prints, order.side, order.price,
-                                 after=tracked.placed_at, before=before)
-        order.raw = {**order.raw, "tape_through": round(min(order.size, through), 6),
-                     "tape_printed": round(through, 6),          # uncapped: read against queue_ahead
+        qa = (order.raw or {}).get("queue_ahead")
+        bounds = tape_fill_bounds(prints, order.side, order.price,
+                                  after=tracked.placed_at, before=before,
+                                  queue_ahead=qa if qa is not None else _queue_ahead(order))
+        extra = {"tape_strict": round(min(order.size, bounds["strict"]), 6)}
+        if bounds["queue"] is not None:
+            extra["tape_queue"] = round(min(order.size, bounds["queue"]), 6)
+        order.raw = {**order.raw, "tape_through": round(min(order.size, bounds["through"]), 6),
+                     "tape_printed": round(bounds["through"], 6),   # uncapped: read against queue_ahead
+                     **extra,
                      "tape_prints": len(prints),
                      "rested_seconds": order.raw.get(
                          "rested_seconds",
@@ -285,17 +348,109 @@ class Executor:
                     tracked.order.filled = venue.filled
                     self._note_fill(tracked)
                     self._book_fill(tracked, venue.filled)
-                    self._persist_order(tracked.order)
+                    self._persist_order(tracked.order, tracked.intent)
             else:
-                # No longer resting: fully filled or canceled externally.
-                # Conservatively book it as fully filled only if partials
-                # were already seen; otherwise leave the booked exposure.
-                # Either way the tape shadow is taken now, while the window
-                # it rested in is still recent.
-                log.info("reconcile: order %s left the book", tracked.order.order_id)
+                # No longer resting: filled, or canceled externally. Ask the
+                # venue for the final fill count — guessing either way leaves
+                # untracked exposure (if it filled) or phantom exposure (if
+                # it was canceled).
+                has_lookup = getattr(self.exchange, "get_order", None) is not None
+                final = self._final_fill(tracked.order) if has_lookup else None
+                if final is None and has_lookup:
+                    # A transient lookup failure must not turn a filled order
+                    # into "canceled": keep asking, up to a bound.
+                    tracked.lookups_failed += 1
+                    if tracked.lookups_failed < MAX_FINAL_LOOKUPS:
+                        log.warning("reconcile: order %s left the book, final fill "
+                                    "unknown (lookup %d/%d); retrying next cycle",
+                                    tracked.order.order_id, tracked.lookups_failed,
+                                    MAX_FINAL_LOOKUPS)
+                        continue
+                    log.error("reconcile: order %s final fill unknown after %d lookups; "
+                              "keeping booked exposure only — RECONCILE MANUALLY",
+                              tracked.order.order_id, MAX_FINAL_LOOKUPS)
+                if final is not None and final > tracked.order.filled:
+                    tracked.order.filled = final
+                    self._note_fill(tracked)
+                    self._book_fill(tracked, final)
+                tracked.order.status = (OrderStatus.FILLED
+                                        if final and final >= tracked.order.size - 1e-9
+                                        else OrderStatus.CANCELED)
+                # The tape shadow is taken now, while the window it rested
+                # in is still recent (the maker test's fill-share denominator).
                 self._tape_shadow(tracked)
-                self._persist_order(tracked.order)
+                self._persist_order(tracked.order, tracked.intent)
+                log.info("reconcile: order %s left the book (final fill %s)",
+                         tracked.order.order_id, final)
                 self._open.pop(client_id, None)
+
+    def _final_fill(self, order: Order) -> Optional[float]:
+        get_order = getattr(self.exchange, "get_order", None)
+        if get_order is None or not order.order_id:
+            return None
+        try:
+            venue = get_order(order.order_id)
+        except Exception:
+            log.exception("get_order failed for %s", order.order_id)
+            return None
+        return None if venue is None else float(venue.filled)
+
+    def restore_open_orders(self) -> int:
+        """Startup pass over orders the previous process left resting (the
+        tracker is in memory only). Any fill the venue reports beyond what was
+        booked becomes a bets row; the remainder is canceled, never adopted:
+        a resting order whose edge was computed by a dead process is not one
+        this process has decided to keep. Returns the number handled."""
+        if isinstance(self.exchange, PaperExchange):
+            return 0
+        n = 0
+        for row in self.store.open_orders_rows():
+            raw = row.get("raw") or {}
+            intent = raw.get("intent") or {}
+            order_id = row.get("order_id") or ""
+            final = None
+            if order_id:
+                try:
+                    get_order = getattr(self.exchange, "get_order", None)
+                    venue = get_order(order_id) if get_order else None
+                    final = None if venue is None else float(venue.filled)
+                except Exception:
+                    log.exception("restore: get_order failed for %s", order_id)
+            booked = float(row.get("filled") or 0.0)
+            if final is not None and final > booked:
+                inc = final - booked
+                if not intent:
+                    # Pre-upgrade row with no intent: the exposure is real
+                    # whatever we know about why it was placed, so book it
+                    # with unknown provenance rather than lose it.
+                    log.error("restore: order %s filled %.2f beyond booked with no stored "
+                              "intent; booking as sport=unknown", order_id, inc)
+                bet_id = self.store.record_bet(
+                    market_id=row["market_id"], sport=intent.get("sport", "unknown"),
+                    side=row["side"], model_prob=float(intent.get("prob") or 0.0),
+                    entry_price=float(row["price"]),
+                    stake=round(float(row["price"]) * inc, 2), size=inc,
+                    edge=float(intent.get("edge") or 0.0),
+                    exchange=self.exchange.exchange.value, mode=self.mode,
+                    arm=raw.get("arm") or arm_of_intent(intent.get("sport", "unknown"),
+                                                        raw.get("reason")))
+                booked = final
+                self._notify_fill(bet_id, MarketInfo(exchange=self.exchange.exchange,
+                                                     market_id=row["market_id"]),
+                                  Side(row["side"]), float(row["price"]))
+            status = "filled"
+            if final is None or final < float(row.get("size") or 0.0) - 1e-9:
+                ok = self.exchange.cancel_order(order_id or row["client_id"])
+                status = "canceled" if ok else "open"   # retried next start
+                if not ok:
+                    log.warning("restore: cancel failed for %s", order_id)
+            self.store.record_order(
+                client_id=row["client_id"], order_id=order_id,
+                market_id=row["market_id"], side=row["side"], price=row["price"],
+                size=row["size"], filled=booked, status=status, raw=raw)
+            n += 1
+            log.info("restore: order %s -> %s (filled %.2f)", order_id, status, booked)
+        return n
 
     def expire_stale_orders(self) -> int:
         """Cancel resting orders older than the TTL. Returns count canceled.
@@ -310,7 +465,7 @@ class Executor:
             if ok:
                 order.status = OrderStatus.CANCELED
                 self._tape_shadow(tracked, now)
-                self._persist_order(order)
+                self._persist_order(order, tracked.intent)
                 self._open.pop(client_id, None)
                 n += 1
             else:

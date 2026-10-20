@@ -1,0 +1,131 @@
+{
+  "_about": "Every pre-registered strategy test and its verdict. The board renders this; the allocator funds nothing that is not a PASS here AND past the go-live gate. Add a row per results doc; never edit a verdict after the fact \u2014 add a new row.",
+  "tests": [
+    {
+      "date": "2026-09-23",
+      "test": "Model vs market (tennis bootstrap Elo, MLB Elo)",
+      "verdict": "FAIL",
+      "result": "Bootstrap tennis Elo Brier 0.2589 vs market 0.2024; MLB model adds nothing to the price (beta 0.065, t 0.20).",
+      "doc": "docs/EDGE_VERDICT_2026-09-23.md"
+    },
+    {
+      "date": "2026-09-23",
+      "test": "Maker markout (tennis, MLB)",
+      "verdict": "FAIL",
+      "result": "Resting orders fill when the price is about to move against them; adverse selection exceeds the spread.",
+      "doc": "docs/MARKOUT_2026-09-23.md"
+    },
+    {
+      "date": "2026-10-01",
+      "test": "Kalshi exchange-wide price-only survey (taker + maker, 876 cells)",
+      "verdict": "FAIL",
+      "result": "0 taker cells survive confirmation; every maker cell dies at the fill check.",
+      "doc": "docs/SURVEY_2026-10-01.md"
+    },
+    {
+      "date": "2026-10-02",
+      "test": "Weather nowcast (running max vs Kalshi dailies)",
+      "verdict": "FAIL",
+      "result": "Market already prices the observations.",
+      "doc": "docs/NOWCAST_2026-10-02.md"
+    },
+    {
+      "date": "2026-10-03",
+      "test": "Kalshi liquidity incentive (LIP) rewards vs fill losses",
+      "verdict": "FAIL",
+      "result": "Break-even reward share 23-70% vs 0.3-9% achievable.",
+      "doc": "docs/LIP_HIST_2026-10-03.md"
+    },
+    {
+      "date": "2026-10-05",
+      "test": "Crypto 15-minute markets (3 strategies)",
+      "verdict": "FAIL",
+      "result": "-2.2 to -3.3c, -1.6c, -$31.6/market.",
+      "doc": "docs/ARTICLES_CRYPTO_2026-10-05.md"
+    },
+    {
+      "date": "2026-10-05",
+      "test": "Copy sharp Polymarket wallets",
+      "verdict": "FAIL",
+      "result": "+2.75c at their own prices (t 3.2) but -2.2c one minute later; edge decays in ~5 s, 85% in-play.",
+      "doc": "docs/SHARPS_PREREG/2026-10-05.md"
+    },
+    {
+      "date": "2026-10-05",
+      "test": "Kalshi vs Polymarket in-play lag (jump-follow)",
+      "verdict": "FAIL",
+      "result": "Kalshi leads by ~3 s; following the jump loses in both directions.",
+      "doc": "docs/LAG_PREREG/2026-10-05.md"
+    },
+    {
+      "date": "2026-10-05",
+      "test": "Combination signals",
+      "verdict": "FAIL",
+      "result": "-0.74c / +1.11c across the two halves; no confirmation.",
+      "doc": "docs/COMBO_PREREG/2026-10-05.md"
+    },
+    {
+      "date": "2026-10-08",
+      "test": "Settlement-side VPIN / order-flow toxicity (MLB, ATP/WTA)",
+      "verdict": "FAIL",
+      "result": "MLB dead; ATP/WTA confirmation -0.89c, t -1.03 on 1,723 markets.",
+      "doc": "docs/SETTLE_VPIN_2026-10-08.md"
+    },
+    {
+      "date": "2026-10-08",
+      "test": "Kalshi tennis vs sportsbook closing line",
+      "verdict": "FAIL",
+      "result": "Kalshi matches the book-average close (Brier 0.2008 vs 0.2003); the trade rule loses -1.5c / -5.3c per trade by half.",
+      "doc": "docs/PINNACLE_TENNIS_2026-10-08.md"
+    },
+    {
+      "date": "2026-10-08",
+      "test": "Polymarket tennis vs sportsbook closing line (+ Kalshi same-moment)",
+      "verdict": "FAIL",
+      "result": "Polymarket matches the book close (Brier 0.2023 vs 0.2028, median 0.8c apart); 52 trades in 7 months; Kalshi and Polymarket identical at the same timestamp (1c median gap).",
+      "doc": "docs/PM_TENNIS_BOOKS_2026-10-08.md"
+    },
+    {
+      "date": "2026-10-12",
+      "test": "Polymarket US calibration survey (baseball, tennis, table tennis; taker rules at T-30)",
+      "verdict": "FAIL",
+      "result": "Settle rate within ~1c of mid in every volume bucket; no taker cell passes both halves (tennis NO-on-longshots +3.8c only in the second half, first half negative); PM US and Kalshi 0.5c apart on the same tennis matches.",
+      "doc": "docs/PMUS_SURVEY_2026-10-12.md"
+    },
+    {
+      "date": "2026-10-14",
+      "test": "House side of Kalshi sports combos (NO at the combo buyer's fill price, KXMVESPORTSMULTIGAMEEXTENDED)",
+      "verdict": "FAIL",
+      "result": "15,224 settled combos (Aug 17-30): YES settled 20.1% at a 19.5c mean price; NO side -3.7% per $ net of taker fee, CI spans zero, confirmation half only 16 markets. Combo buyers on Kalshi are priced fairly; no house edge to quote for.",
+      "doc": "docs/COMBO_HOUSE_SIDE_PREREG_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-14",
+      "test": "Kalshi vs Polymarket US on the same games: complement arb, lead-lag, maker-on-PM-US/hedge-on-Kalshi (114 games, 20 s books, 60 min)",
+      "verdict": "FAIL",
+      "result": "No pre-game cross ever (best -1.4c/pair). In-play gaps are post-point latency (5 of 42 survive 20 s). PM US follows Kalshi (in-play beta 0.93 within 20 s, t 33; Kalshi never follows); pre-game the venues sit 1-2c apart with nothing to trade.",
+      "doc": "docs/PMUS_KALSHI_RESULT_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-14",
+      "test": "Result 15 touch-maker on Kalshi's own tape (MLB, NHL, NFL, NCAAF, soccer; population baseline, test half)",
+      "verdict": "PASS",
+      "result": "NHL PASS: +0.67c CLV/fill [+0.61, +0.71], return +2.0% on 41 test games. MLB/NFL/soccer CLV +0.65 to +1.12c with intervals above zero but realised return inconclusive; NCAAF spans zero. Queue-priority caveat stands: only the live $1 test measures fill share. A PASS here funds nothing by itself.",
+      "doc": "docs/KALSHI_TOUCH_RESULT_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-15",
+      "test": "Correction to the Kalshi touch-maker PASS: queue-adjusted reading (main's Result 15 addendum 3, #82)",
+      "verdict": "FAIL",
+      "result": "The 2026-10-14 NHL PASS is the front-of-queue upper bound (+0.67c, matching #82's +0.66c). Counting the queue in front on Kalshi NHL: joining the existing queue fills 22% at -0.24c, first-at-new-price +0.07c (41 times in 16 games). No fundable maker edge at realistic queue positions; the $1 live test stays a measurement.",
+      "doc": "docs/KALSHI_TOUCH_RESULT_2026-10-14.md"
+    },
+    {
+      "date": "2026-10-19",
+      "test": "Touch-maker with the queue counted, second night (Kalshi; tennis, NHL, NFL, MLB; scripts/queue_join.py)",
+      "verdict": "INCONCLUSIVE",
+      "result": "Behind a real queue (median 988 contracts) a $1 order filled 17 of 1,634 joins (1.0%) at -0.19c [-1.01, +0.04] net; first-at-new-price 8 of 56 at +0.14c; front-of-queue bound +0.28c [+0.12, +0.44]. 5 games with fills < 15. The touch edge belongs to whoever is first in line, not a new $1 order.",
+      "doc": "docs/QUEUE_ADJUSTED_TOUCH_RESULT_2026-10-19.md"
+    }
+  ]
+}

@@ -173,3 +173,31 @@ def test_mlb_start_time_comes_from_the_ticker_not_occurrence():
     raw["occurrence_datetime"] = "2026-09-23T05:10:00Z"   # end, 3h later
     mi = c._to_market_info(raw, Sport.BASEBALL, "KXMLBGAME")
     assert mi.start_time == datetime(2026, 9, 23, 2, 10, tzinfo=timezone.utc)
+
+
+def test_team_sport_start_is_occurrence_minus_3h30_and_never_late():
+    """NHL/NFL/NBA: occurrence_datetime is the scheduled end, 3.0 h after
+    the start on 69 of 69 games checked against Polymarket US (2026-10-14).
+    The estimate is 3.5 h before it, i.e. half an hour EARLY: a late
+    estimate would let the pre-match guards quote in play."""
+    from datetime import datetime, timedelta, timezone
+
+    from sportsbot.core.types import Sport
+    c = KalshiClient(env="prod")
+    occ = datetime(2026, 9, 21, 6, 0, tzinfo=timezone.utc)
+    true_start = occ - timedelta(hours=3)
+    for ticker, sport, series in (("KXNHLGAME-26SEP21BOSSJ-SJ", Sport.HOCKEY, "KXNHLGAME"),
+                                  ("KXNFLGAME-26SEP21BUFLAR-LAR", Sport.FOOTBALL, "KXNFLGAME"),
+                                  ("KXNBAGAME-26SEP21MEMCHI-CHI", Sport.BASKETBALL, "KXNBAGAME")):
+        mi = c._to_market_info(_raw(ticker), sport, series)
+        assert mi.start_time == occ - timedelta(hours=3, minutes=30)
+        assert mi.start_time < true_start                    # early, never late
+        assert mi.meta["start_source"] == "occurrence-3.5h"
+    # no occurrence -> still unknown (the risk layer then refuses the entry)
+    raw = {k: v for k, v in _raw("KXNHLGAME-26SEP21BOSSJ-SJ").items() if k != "occurrence_datetime"}
+    assert c._to_market_info(raw, Sport.HOCKEY, "KXNHLGAME").start_time is None
+    # tennis keeps no start, MLB keeps the ticker's first pitch
+    assert c._to_market_info(_raw("KXATPMATCH-26SEP20ABCDEF-ABC"), Sport.TENNIS,
+                             "KXATPMATCH").start_time is None
+    mlb = c._to_market_info(_raw("KXMLBGAME-26SEP222210SDLAD-LAD"), Sport.BASEBALL, "KXMLBGAME")
+    assert mlb.meta["start_source"] == "ticker"

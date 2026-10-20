@@ -22,3 +22,17 @@ jobs:
       # py-clob-client is imported lazily (live trading only) so tests don't need it
       - run: pip install requests python-dotenv PyYAML cryptography pytest
       - run: python -m pytest tests -q
+
+  sportsbot:
+    # The consolidated engine at the repo root: lint + the full offline suite
+    # (no network, no keys). The venue clients' trading paths are covered by
+    # recorded payloads, so a red run here means a real regression.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[kalshi,polymarket_us]" pytest ruff
+      - run: ruff check sportsbot tests
+      - run: python -m pytest -q

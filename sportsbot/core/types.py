@@ -35,7 +35,7 @@ class Sport(str, enum.Enum):
 
 
 class Exchange(str, enum.Enum):
-    POLYMARKET = "polymarket"
+    POLYMARKET = "polymarket"          # international CLOB (geoblocked for US orders)
     KALSHI = "kalshi"
     POLYMARKET_US = "polymarket_us"   # the CFTC-regulated US exchange (exchanges/polymarket_us.py)
     PAPER = "paper"
@@ -151,6 +151,7 @@ class BetIntent(BaseModel):
     edge: float                    # prob - price, after adjustments
     kelly_fraction: float          # fraction of bankroll this represents
     reason: str = ""
+    maker: bool = False            # priced to rest (improve the bid), not to cross
     ts: datetime = Field(default_factory=utcnow)
 
 

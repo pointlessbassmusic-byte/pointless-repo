@@ -50,10 +50,20 @@ cp "$APP_DIR/deploy/sportsbot.service" /etc/systemd/system/sportsbot.service
 cp "$APP_DIR/deploy/weather-snapshot.service" /etc/systemd/system/weather-snapshot.service
 cp "$APP_DIR/deploy/sportsbot-sim.service" /etc/systemd/system/sportsbot-sim.service
 cp "$APP_DIR/deploy/sportsbot-board.service" /etc/systemd/system/sportsbot-board.service
+cp "$APP_DIR/deploy/sportsbot-prematch.service" /etc/systemd/system/sportsbot-prematch.service
+cp "$APP_DIR/deploy/sportsbot-lip.service" /etc/systemd/system/sportsbot-lip.service
+# data only; enable by hand once REDDIT_CLIENT_ID/SECRET are in .env
+cp "$APP_DIR/deploy/sportsbot-reddit.service" /etc/systemd/system/sportsbot-reddit.service
+# data only; enable by hand: systemctl enable --now sportsbot-queuelog
+cp "$APP_DIR/deploy/sportsbot-queuelog.service" /etc/systemd/system/sportsbot-queuelog.service
+# pilot books: installed, never enabled here (docs/LIVE_PILOT_PLAN_2026-10-08.md)
+cp "$APP_DIR"/deploy/sportsbot-pilot*.service /etc/systemd/system/
 cp "$APP_DIR/deploy/sportsbot-boardserve.service" /etc/systemd/system/sportsbot-boardserve.service
 cp "$APP_DIR/deploy/sportsbot-update.service" /etc/systemd/system/sportsbot-update.service
 cp "$APP_DIR/deploy/sportsbot-update.timer" /etc/systemd/system/sportsbot-update.timer
 systemctl daemon-reload
+systemctl enable --now sportsbot-prematch  # keyless pre-match quote recorder; data only
+systemctl enable --now sportsbot-lip       # keyless Kalshi LIP recorder; data only
 systemctl enable sportsbot
 systemctl enable --now weather-snapshot   # read-only data collection; safe to start now
 systemctl enable --now sportsbot-sim      # $100 paper book on live markets; no real money

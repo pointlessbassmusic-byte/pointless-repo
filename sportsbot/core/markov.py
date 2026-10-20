@@ -210,3 +210,150 @@ def tt_point_prob_for_match_prob(target: float, best_of: int = 5, tol: float = 1
         else:
             hi = mid
     return (lo + hi) / 2.0
+
+
+# --------------------------------------------------------------------------
+# In-play: win probability from a live score, and point leverage
+# --------------------------------------------------------------------------
+# Used for (1) fair value during play and (2) DEFENSIVE quoting: the
+# leverage of the next point (how far fair value jumps on it) says when a
+# resting order is about to be picked off by someone who saw the point first.
+# A maker should pull or widen before high-leverage points (deuce at 4-4 in a
+# deciding set moves fair ~10c), not after.
+
+def _game_state(p: float, s: int, r: int) -> float:
+    """P(server wins the game) from server points `s`, returner points `r`."""
+    if s >= 4 and s - r >= 2:
+        return 1.0
+    if r >= 4 and r - s >= 2:
+        return 0.0
+    if p in (0.0, 1.0):
+        return p
+    q = 1.0 - p
+    if s >= 3 and r >= 3:
+        deuce = p * p / (p * p + q * q)
+        if s == r:
+            return deuce
+        return p + q * deuce if s > r else p * deuce
+    return p * _game_state(p, s + 1, r) + q * _game_state(p, s, r + 1)
+
+
+def _tb_state(p_a: float, p_b: float, a: int, b: int, a_first: bool, target: int) -> float:
+    """P(A wins a tiebreak at a-b points) when `a_first` = A served point 1."""
+    if a >= target and a - b >= 2:
+        return 1.0
+    if b >= target and b - a >= 2:
+        return 0.0
+    if a == b and a >= target - 1:
+        a_sweep, b_sweep = p_a * (1.0 - p_b), (1.0 - p_a) * p_b
+        return 0.5 if a_sweep + b_sweep == 0 else a_sweep / (a_sweep + b_sweep)
+    if a >= target - 1 and b >= target - 1:           # one point ahead late: reduce
+        lead = a - b
+        a, b = target - 1 + max(lead, 0), target - 1 + max(-lead, 0)
+    a_serving = _tb_server_is_a(a + b + 1) == a_first
+    pa = p_a if a_serving else 1.0 - p_b
+    return pa * _tb_state(p_a, p_b, a + 1, b, a_first, target) + \
+        (1.0 - pa) * _tb_state(p_a, p_b, a, b + 1, a_first, target)
+
+
+def tennis_win_prob_from_state(p_a: float, p_b: float, *, sets_a: int = 0, sets_b: int = 0,
+                               games_a: int = 0, games_b: int = 0, pts_a: int = 0,
+                               pts_b: int = 0, server_a: bool = True, best_of: int = 3,
+                               final_tb_target: int = 7) -> float:
+    """P(A wins the match) from a live score.
+
+    `pts_*` are points in the current game (0,1,2,3,4... — 40-40 is 3-3), or
+    tiebreak points when the set is at 6-6. `server_a` is who serves the
+    current game; during a tiebreak it is who served the tiebreak's FIRST
+    point. `final_tb_target` = 10 for deciding-set match tiebreaks.
+    """
+    _validate(p_a, "p_a")
+    _validate(p_b, "p_b")
+    if best_of % 2 == 0 or best_of < 1:
+        raise ValueError("best_of must be odd and >= 1")
+    need = best_of // 2 + 1
+    g_a, g_b = game_win_prob(p_a), game_win_prob(p_b)
+
+    @lru_cache(maxsize=None)
+    def at_game_start(sa: int, sb: int, ga: int, gb: int, srv_a: bool) -> float:
+        if sa >= need:
+            return 1.0
+        if sb >= need:
+            return 0.0
+        if ga == 6 and gb == 6:
+            target = final_tb_target if sa + sb == best_of - 1 else 7
+            pt = _tb_state(p_a, p_b, 0, 0, srv_a, target)
+            return pt * at_game_start(sa + 1, sb, 0, 0, not srv_a) + \
+                (1.0 - pt) * at_game_start(sa, sb + 1, 0, 0, not srv_a)
+        pg = g_a if srv_a else 1.0 - g_b
+        return pg * after_game(sa, sb, ga + 1, gb, srv_a) + \
+            (1.0 - pg) * after_game(sa, sb, ga, gb + 1, srv_a)
+
+    def after_game(sa: int, sb: int, ga: int, gb: int, last_srv_a: bool) -> float:
+        if ga >= 6 and ga - gb >= 2:
+            return at_game_start(sa + 1, sb, 0, 0, not last_srv_a)
+        if gb >= 6 and gb - ga >= 2:
+            return at_game_start(sa, sb + 1, 0, 0, not last_srv_a)
+        return at_game_start(sa, sb, ga, gb, not last_srv_a)
+
+    if sets_a >= need:
+        return 1.0
+    if sets_b >= need:
+        return 0.0
+    if games_a == 6 and games_b == 6:                 # mid-tiebreak
+        target = final_tb_target if sets_a + sets_b == best_of - 1 else 7
+        pt = _tb_state(p_a, p_b, pts_a, pts_b, server_a, target)
+        return pt * at_game_start(sets_a + 1, sets_b, 0, 0, not server_a) + \
+            (1.0 - pt) * at_game_start(sets_a, sets_b + 1, 0, 0, not server_a)
+    if server_a:
+        pg = _game_state(p_a, pts_a, pts_b)
+    else:
+        pg = 1.0 - _game_state(p_b, pts_b, pts_a)
+    return pg * after_game(sets_a, sets_b, games_a + 1, games_b, server_a) + \
+        (1.0 - pg) * after_game(sets_a, sets_b, games_a, games_b + 1, server_a)
+
+
+def tennis_point_leverage(p_a: float, p_b: float, **state) -> float:
+    """How far P(A wins the match) moves on the next point: P(.|A wins it) −
+    P(.|A loses it), from the same live-score arguments. In [0, 1]."""
+    a_won = dict(state, pts_a=state.get("pts_a", 0) + 1)
+    b_won = dict(state, pts_b=state.get("pts_b", 0) + 1)
+    return (tennis_win_prob_from_state(p_a, p_b, **a_won)
+            - tennis_win_prob_from_state(p_a, p_b, **b_won))
+
+
+def tt_win_prob_from_state(p: float, *, sets_a: int = 0, sets_b: int = 0, pts_a: int = 0,
+                           pts_b: int = 0, best_of: int = 5, target: int = 11) -> float:
+    """Table tennis: P(A wins the match) from sets and points in the current set."""
+    _validate(p)
+    need = best_of // 2 + 1
+    if sets_a >= need:
+        return 1.0
+    if sets_b >= need:
+        return 0.0
+
+    def set_state(a: int, b: int) -> float:
+        if a >= target and a - b >= 2:
+            return 1.0
+        if b >= target and b - a >= 2:
+            return 0.0
+        if a >= target - 1 and b >= target - 1:
+            q = 1.0 - p
+            deuce = 0.5 if p * p + q * q == 0 else p * p / (p * p + q * q)
+            if a == b:
+                return deuce
+            return p + q * deuce if a > b else p * deuce
+        return p * set_state(a + 1, b) + (1.0 - p) * set_state(a, b + 1)
+
+    p_set = tt_set_win_prob(p, target)
+
+    @lru_cache(maxsize=None)
+    def from_sets(sa: int, sb: int) -> float:
+        if sa >= need:
+            return 1.0
+        if sb >= need:
+            return 0.0
+        return p_set * from_sets(sa + 1, sb) + (1.0 - p_set) * from_sets(sa, sb + 1)
+
+    ps = set_state(pts_a, pts_b)
+    return ps * from_sets(sets_a + 1, sets_b) + (1.0 - ps) * from_sets(sets_a, sets_b + 1)

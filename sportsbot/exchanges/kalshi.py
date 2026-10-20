@@ -27,7 +27,7 @@ import math
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -101,6 +101,13 @@ _MLB_TICKER = re.compile(r"^KXMLBGAME-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})")
 _MONTHS = {m: i for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
      "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+
+
+# Team-sport series whose occurrence_datetime is a fixed offset after the
+# scheduled start (see _to_market_info). Tennis is NOT here: its
+# occurrence slot does not track the match start.
+OCCURRENCE_START_SERIES = {"KXNHLGAME", "KXNFLGAME", "KXNBAGAME"}
+OCCURRENCE_TO_START = timedelta(hours=3, minutes=30)
 
 
 def mlb_first_pitch(ticker: str):
@@ -204,44 +211,53 @@ def kalshi_taker_fee(price: float, contracts: float, fee_multiplier: float = 1.0
     return math.ceil(round(raw * 100.0, 6)) / 100.0
 
 
-# Kalshi reports a per-series `fee_type` on /series/<ticker>. Both sports
-# series this bot trades return "quadratic_with_maker_fees" (verified live
-# 2026-09-23, KXATPMATCH and KXMLBGAME), i.e. RESTING ORDERS ARE NOT FREE.
-# The strategy layer prefers maker execution (`post_inside_spread`), so
-# modelling maker fills at zero understates the cost of the bot's own
-# preferred path on every quote it posts.
+# Kalshi reports a per-series `fee_type` on /series/<ticker>:
+#   "quadratic"                  -> takers pay, RESTING orders pay nothing
+#   "quadratic_with_maker_fees"  -> resting orders pay too
+# Verified live 2026-10-08: KXATPMATCH, KXWTAMATCH (mult 1) and KXMLBGAME
+# (mult 0.5) charge makers; KXATPCHALLENGERMATCH and KXITFMATCH do not.
 #
-# The per-contract rate is NOT verified here: kalshi.com returned 429 on
-# every fee-schedule URL when this was written, and guessing a rate the
-# venue will actually charge is worse than making the gap explicit. Set
-# KALSHI_MAKER_FEE_PER_CONTRACT from the live fee schedule before trusting
-# any maker-side PnL. The default is deliberately non-zero so an unset
-# environment errs toward over-costing rather than toward a free lunch.
+# Maker rate: 0.0175 × mult × C × P × (1−P), rounded up to the cent per
+# order (a quarter of the 0.07 taker coefficient). Source: secondary fee
+# write-ups (rivermarkets.com/insights/kalshi-fees, ingame.com) quoting the
+# Kalshi fee schedule, consistent with the series' fee_type naming. The
+# primary PDF (kalshi.com/docs/kalshi-fee-schedule.pdf) returned 429 again
+# on 2026-10-08 — re-verify it before trusting maker-side PnL to the cent.
+# KALSHI_MAKER_FEE_PER_CONTRACT still overrides with a flat per-contract
+# rate, and with no price given the old flat default applies (errs toward
+# over-costing).
 MAKER_FEE_ENV = "KALSHI_MAKER_FEE_PER_CONTRACT"
 DEFAULT_MAKER_FEE = 0.0025
+MAKER_FEE_RATE = 0.0175
+MAKER_FEE_FREE_SERIES = frozenset({"KXATPCHALLENGERMATCH", "KXITFMATCH"})
 
 
 def kalshi_maker_fee_per_share(market_id: str = "",
-                               fee_multiplier: Optional[float] = None) -> float:
-    """Per-contract fee for a RESTING order, in dollars.
+                               fee_multiplier: Optional[float] = None,
+                               price: Optional[float] = None) -> float:
+    """MARGINAL fee per contract for a RESTING order, in dollars.
 
-    Flat per contract, not quadratic: the venue's maker charge does not
-    shape with p(1-p) the way the taker fee does, so it bites hardest on
-    the cheap contracts where the taker fee is smallest.
+    With `price`: 0.0175 × mult × p(1−p) (no rounding — marginal, like
+    `kalshi_fee_per_share`). Series whose fee_type is plain "quadratic"
+    charge makers nothing. Without `price`, or with the env override set,
+    a flat per-contract rate is used.
     """
+    series = (market_id or "").split("-")[0]
+    if series in MAKER_FEE_FREE_SERIES:
+        return 0.0
+    mult = (kalshi_fee_multiplier(market_id) if fee_multiplier is None
+            else fee_multiplier)
     raw = os.environ.get(MAKER_FEE_ENV)
     if raw not in (None, ""):
         try:
-            rate = float(raw)
+            return max(0.0, float(raw) * mult)
         except ValueError:
             log.warning("%s=%r is not a number; using %.4f",
                         MAKER_FEE_ENV, raw, DEFAULT_MAKER_FEE)
-            rate = DEFAULT_MAKER_FEE
-    else:
-        rate = DEFAULT_MAKER_FEE
-    mult = (kalshi_fee_multiplier(market_id) if fee_multiplier is None
-            else fee_multiplier)
-    return max(0.0, rate * mult)
+            return max(0.0, DEFAULT_MAKER_FEE * mult)
+    if price is None:
+        return max(0.0, DEFAULT_MAKER_FEE * mult)
+    return MAKER_FEE_RATE * mult * price * (1.0 - price)
 
 
 def kalshi_fee_per_share(price: float, fee_multiplier: float = 1.0) -> float:
@@ -534,6 +550,18 @@ class KalshiClient(ExchangeClient):
         close_time = self._ts(m, "expected_expiration_time", "close_time")
         start_time = (mlb_first_pitch(m.get("ticker", ""))
                       if sport is Sport.BASEBALL else None)
+        start_source = "ticker" if start_time is not None else None
+        if start_time is None and series in OCCURRENCE_START_SERIES:
+            # NHL/NFL/NBA: occurrence_datetime is the scheduled END, a
+            # fixed 3.0 h after the scheduled start on every game checked
+            # (69 of 69 against Polymarket US's start times, 2026-10-14).
+            # Subtracting 3.5 h puts the estimate half an hour EARLY, so
+            # the pre-match guards stop quoting before the real start;
+            # a late estimate would let the bot quote in play.
+            occ = self._ts(m, "occurrence_datetime")
+            if occ is not None:
+                start_time = occ - OCCURRENCE_TO_START
+                start_source = "occurrence-3.5h"
         return MarketInfo(
             exchange=Exchange.KALSHI,
             market_id=m.get("ticker", ""),
@@ -555,6 +583,7 @@ class KalshiClient(ExchangeClient):
             meta={
                 "series": series,
                 "event_ticker": m.get("event_ticker"),
+                "start_source": start_source,
                 # trailing segment of the ticker: the team this contract pays on
                 "team_code": str(m.get("ticker", "")).rsplit("-", 1)[-1],
                 "yes_bid": self._dollars(m, "yes_bid_dollars"),
@@ -679,6 +708,9 @@ class KalshiClient(ExchangeClient):
         if order.expires_at is not None and tif == "good_till_canceled":
             body["expiration_time"] = int(order.expires_at.timestamp())
         if order.post_only:
+            # A maker intent was priced to rest: Create Order V2 rejects it
+            # instead of crossing, so it can never become a taker fill at a
+            # price the edge math (maker fee, no walk) never approved.
             body["post_only"] = True
         try:
             resp = self._request_once(
@@ -775,6 +807,17 @@ class KalshiClient(ExchangeClient):
             return raw
         return "yes" if raw == "bid" else "no"
 
+    def get_order(self, order_id: str) -> Optional[Order]:
+        """One order by venue id, whatever its state — the executor asks for
+        the final fill count once an order has left the resting book."""
+        try:
+            data = self._request("GET", f"{API_ROOT}/portfolio/orders/{order_id}", auth=True)
+        except Exception as exc:
+            log.error("kalshi get_order %s failed: %s", order_id, exc)
+            return None
+        o = data.get("order") if isinstance(data, dict) else None
+        return self._parse_order(o) if o else None
+
     def get_open_orders(self) -> list[Order]:
         try:
             data = self._request(
@@ -783,54 +826,59 @@ class KalshiClient(ExchangeClient):
         except Exception as exc:
             log.error("kalshi get_open_orders failed: %s", exc)
             return []
-        orders = []
-        for o in data.get("orders", []):
-            outcome = self._order_outcome(o)
-            size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
-            remaining = self._num(o, "remaining_count_fp", "remaining_count")
-            explicit = self._num(o, "fill_count_fp", "fill_count")
-            if explicit is None:
-                taker = self._num(o, "taker_fill_count_fp", "taker_fill_count")
-                maker = self._num(o, "maker_fill_count_fp", "maker_fill_count")
-                if taker is not None or maker is not None:
-                    explicit = (taker or 0.0) + (maker or 0.0)
-            if explicit is not None:
-                filled = explicit
-            elif size is not None and remaining is not None:
-                filled = max(0.0, size - remaining)
-            else:
-                # The executor books a maker fill only when the venue reports
-                # MORE filled than it already knows, so a silent 0.0 here
-                # means a partially filled resting order is never booked:
-                # untracked exposure in live mode. Say so loudly instead.
-                filled = 0.0
-                log.warning(
-                    "kalshi order %s: no fill count in payload (keys=%s); "
-                    "fills on this resting order cannot be reconciled",
-                    o.get("order_id"), sorted(o),
-                )
-            # Price of the side we are long, in that side's own terms.
-            price = self._num(o, "yes_price_dollars" if outcome == "yes"
-                              else "no_price_dollars")
-            if price is None:
-                yes_px = self._num(o, "yes_price_dollars")
-                if yes_px is not None:
-                    price = round(1.0 - yes_px, 4)
-            orders.append(
-                Order(
-                    order_id=str(o.get("order_id", "")),
-                    client_id=str(o.get("client_order_id") or ""),
-                    exchange=Exchange.KALSHI,
-                    market_id=o.get("ticker", ""),
-                    side=Side.YES if outcome == "yes" else Side.NO,
-                    price=price or 0.0,
-                    size=size or 0.0,
-                    filled=filled,
-                    status=OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN,
-                    raw=o,
-                )
+        return [self._parse_order(o) for o in data.get("orders", [])]
+
+    def _parse_order(self, o: dict) -> Order:
+        outcome = self._order_outcome(o)
+        size = self._num(o, "initial_count_fp", "initial_count", "count_fp", "count")
+        remaining = self._num(o, "remaining_count_fp", "remaining_count")
+        explicit = self._num(o, "fill_count_fp", "fill_count")
+        if explicit is None:
+            taker = self._num(o, "taker_fill_count_fp", "taker_fill_count")
+            maker = self._num(o, "maker_fill_count_fp", "maker_fill_count")
+            if taker is not None or maker is not None:
+                explicit = (taker or 0.0) + (maker or 0.0)
+        if explicit is not None:
+            filled = explicit
+        elif size is not None and remaining is not None:
+            filled = max(0.0, size - remaining)
+        else:
+            # The executor books a maker fill only when the venue reports
+            # MORE filled than it already knows, so a silent 0.0 here
+            # means a partially filled resting order is never booked:
+            # untracked exposure in live mode. Say so loudly instead.
+            filled = 0.0
+            log.warning(
+                "kalshi order %s: no fill count in payload (keys=%s); "
+                "fills on this resting order cannot be reconciled",
+                o.get("order_id"), sorted(o),
             )
-        return orders
+        # Price of the side we are long, in that side's own terms.
+        price = self._num(o, "yes_price_dollars" if outcome == "yes"
+                          else "no_price_dollars")
+        if price is None:
+            yes_px = self._num(o, "yes_price_dollars")
+            if yes_px is not None:
+                price = round(1.0 - yes_px, 4)
+        venue_status = str(o.get("status") or "resting").lower()
+        if venue_status in ("executed", "filled"):
+            status = OrderStatus.FILLED
+        elif venue_status in ("canceled", "cancelled", "expired"):
+            status = OrderStatus.CANCELED
+        else:
+            status = OrderStatus.PARTIAL if filled > 0 else OrderStatus.OPEN
+        return Order(
+            order_id=str(o.get("order_id", "")),
+            client_id=str(o.get("client_order_id") or ""),
+            exchange=Exchange.KALSHI,
+            market_id=o.get("ticker", ""),
+            side=Side.YES if outcome == "yes" else Side.NO,
+            price=price or 0.0,
+            size=size or 0.0,
+            filled=filled,
+            status=status,
+            raw=o,
+        )
 
     def get_positions(self) -> list[Position]:
         try:

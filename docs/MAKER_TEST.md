@@ -95,11 +95,13 @@ documented field names and the YES price frame. (2) Order prices are always in Y
 NO at 0.40 is sent as a short at 0.60) and `participateDontInitiate` makes
 every maker order post-only; confirm both on the first order by hand, as
 step 4 below says.
-Kalshi's NHL and NFL tickers carry no start time, and the risk layer
-refuses an entry whose start it does not know; today that time comes
-from the sharp harness's commence field, so on Kalshi the NHL/NFL leg of
-this test needs `ODDS_API_KEY` as well as the venue keys. The paper sim
-on Polymarket has the start from Gamma and needs nothing.
+Kalshi's NHL and NFL tickers carry no start time. Since 2026-10-14 the
+client derives one from the market's `occurrence_datetime` (the scheduled
+end, 3.0 h after the start on 69 of 69 games checked) minus 3.5 h: half
+an hour early, so quoting stops before the real start. The NHL/NFL leg
+therefore no longer needs `ODDS_API_KEY`; the key still supplies the
+sharp close the read-out grades against. The paper sim on Polymarket has
+the start from Gamma and needs nothing.
 
 ## What is recorded, per resting order
 
@@ -185,19 +187,31 @@ preflight and exits non-zero on any FAIL.
    kills the bot at $25; tens of dollars is the expected cost).
    *Polymarket US:* create a key at polymarket.us/developer and put
    `POLYMARKET_US_KEY_ID` and `POLYMARKET_US_SECRET_KEY` in `.env`, then set
-   `exchange: polymarket_us` in `config/maker_test.yaml`. *Kalshi:* put
-   `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH` (mode 600, readable by
-   the `sportsbot` user) in `.env`; set `KALSHI_ENV=demo` for the first day
-   and `prod` after; `ODDS_API_KEY` is needed there for NHL/NFL start
-   times. On either venue `ODDS_API_KEY` also gives the sharp close the
-   read-out grades against.
-2. **Tell the config what is funded.** In `config/maker_test.yaml` set
-   `accounts.real.starting_balance` and `bankroll.amount` to the funded
-   amount (the knobs are scaled for $100) and `mode: live`.
-3. **Give the arm a budget, by hand, in `config/allocation.yaml`.** Live
-   money reaches an arm only through a manual weight, a green gate, or a
-   learning budget. For this test the learning budget is the right door,
-   because it is bounded and pauses itself on a bad week:
+   `exchange: polymarket_us` in your copy of the config (step 2). *Kalshi:*
+   put `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH` (mode 600, owned by
+   the `sportsbot` user) in `.env` and `KALSHI_ENV=prod` (unset or `demo`
+   sends orders to the demo exchange; `doctor` warns). The Kalshi key must
+   be an **RSA** key from Kalshi's API-keys page: an Ed25519 key (what some
+   other Kalshi tools use, ~120 bytes) cannot sign these requests, and
+   `doctor` FAILs it. `ODDS_API_KEY` is optional: on either venue it
+   gives the sharp close the read-out grades against (Kalshi NHL/NFL start
+   times now come from the market itself).
+2. **Make your own copies; never edit the tracked files on the server.**
+   The daily `deploy/update.sh` pulls with `--ff-only` and stops on a
+   locally modified tracked file. `*.local.yaml` is git-ignored:
+   ```bash
+   cd /opt/sportsbot
+   sudo -u sportsbot cp config/maker_test.yaml config/maker_test.local.yaml
+   sudo -u sportsbot cp config/allocation.yaml config/allocation.local.yaml
+   ```
+   In `maker_test.local.yaml` set `mode: live`, the venue (`exchange`),
+   and `accounts.real.starting_balance` / `bankroll.amount` to the funded
+   amount (the knobs are scaled for $100). It already writes its own
+   `data/maker_test.sqlite` and reads `config/allocation.local.yaml`.
+3. **Give the arm a budget, by hand, in `config/allocation.local.yaml`.**
+   Live money reaches an arm only through a manual weight, a green gate,
+   or a learning budget. For this test the learning budget is the right
+   door, because it is bounded and pauses itself on a bad week:
    ```yaml
    learning:
      budget_usd: 30.0            # $10 a sport: ten concurrent $1 contracts each
@@ -209,7 +223,10 @@ preflight and exits non-zero on any FAIL.
    ```
    Those are the only lines that change. The per-sport cap
    (`max_fraction_per_sport`, 20% of the bankroll) still applies, so a
-   $100 bankroll caps each sport at $20 whatever the budget says.
+   $100 bankroll caps each sport at $20 whatever the budget says. If the
+   file is missing, no arm gets money (fails closed).
+   `sportsbot allocation -c config/maker_test.local.yaml` prints which
+   arms are funded and why.
 4. **Start the tape first** (Polymarket US only): once the keys are in
    `.env`, run `sudo systemctl restart sportsbot-ustape`. `update.sh`
    installs the unit, which exits cleanly while the keys are missing. Then
@@ -218,26 +235,30 @@ preflight and exits non-zero on any FAIL.
    silent, because the test would then measure nothing. Let the recorder
    run for at least a few minutes before the first order, since an order
    placed before a market's subscription has no shadow.
-5. **Run it.** On the server, as a second unit beside the sim:
+5. **Preflight, then run it as its own unit beside the sim.**
    ```bash
-   cd /opt/sportsbot && sudo -u sportsbot .venv/bin/sportsbot doctor -c config/maker_test.yaml
-   sudo systemctl edit sportsbot      # add under [Service]:
-   #   Environment=SPORTSBOT_LIVE=1
-   #   ExecStart=
-   #   ExecStart=/opt/sportsbot/.venv/bin/sportsbot run -c /opt/sportsbot/config/maker_test.yaml
-   sudo systemctl start sportsbot && journalctl -u sportsbot -f
+   sudo -u sportsbot env SPORTSBOT_LIVE=1 .venv/bin/sportsbot doctor -c config/maker_test.local.yaml
+   ```
+   No FAIL rows (a WARN for the not-yet-created database is expected).
+   Then install `deploy/sportsbot-maker.service` and start it:
+   ```bash
+   sudo cp deploy/sportsbot-maker.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now sportsbot-maker
+   journalctl -u sportsbot-maker -f
    ```
    Without `SPORTSBOT_LIVE=1` the runner logs that it is forcing paper
    mode and places nothing real, whatever the config says. On Polymarket
-   US, before starting the unit, watch the first order by hand: check in
-   the app that a NO order shows the price the log printed (the venue
+   US, before leaving it unattended, watch the first order by hand: check
+   in the app that a NO order shows the price the log printed (the venue
    books it in YES terms) and that a maker order resting at the touch was
-   not executed against on arrival (post-only).
-6. **Read it out** with `sportsbot maker-report -c config/maker_test.yaml
-   --mode live` at 200 fills or 30 days, per the section above; the board
-   shows the real book beside the sim's. **Stop it** with
-   `systemctl stop sportsbot`, or `touch data/KILL_SWITCH` for an
-   immediate halt that needs `sportsbot reset-kill-switch` to clear.
+   not executed against on arrival (post-only). The daily update never
+   restarts this unit: after reading a change that reached the server,
+   `systemctl restart sportsbot-maker` yourself.
+6. **Read it out** with `sportsbot maker-report -c config/maker_test.local.yaml
+   --mode live` at 200 fills or 30 days, per the section above. **Stop it**
+   with `systemctl disable --now sportsbot-maker`, or `touch
+   data/KILL_SWITCH` for an immediate halt of every book on the box
+   (`sportsbot reset-kill-switch` clears it).
 
 ## Cost of the test
 

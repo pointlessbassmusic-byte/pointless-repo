@@ -1,7 +1,9 @@
 # The pre-registered live maker fill-share test (docs/MAKER_TEST.md), as a
 # COMPLETE standalone config: `sportsbot run -c config/maker_test.yaml`.
 #
-# Shipped INERT: mode is paper. It places real orders only when the operator
+# Shipped INERT: mode is paper. Do not edit this tracked file on the server
+# (the daily `git pull --ff-only` stops on a locally modified file): copy it
+# to config/maker_test.local.yaml (git-ignored) and edit the copy. It places real orders only when the operator
 # (1) sets `mode: live` here, (2) exports SPORTSBOT_LIVE=1, (3) supplies
 # Kalshi keys in .env, and (4) gives the touch arms a learning budget in
 # config/allocation.yaml (live money reaches an arm only through a manual
@@ -72,7 +74,7 @@ adaptive:
   stake_cut: 0.5
 
 allocation:
-  path: config/allocation.yaml   # the operator's file; see the header for the two lines the test needs
+  path: config/allocation.local.yaml   # the operator's copy (git-ignored); docs/MAKER_TEST.md step 3
 
 risk:                            # scaled to $100; the fraction form is the tighter one and wins
   daily_loss_limit: 10.0
@@ -123,9 +125,10 @@ sports:
     signal: sharp
 
 storage:
-  sqlite_path: data/sportsbot.sqlite   # same store as the sim: the board shows sim and real side by side
+  sqlite_path: data/maker_test.sqlite  # its OWN file: `doctor` FAILs a live config on the sim DB
+                                       # (two processes would share kv state and the kill switch)
   ratings_dir: data/ratings
 
 logging:
   level: INFO
-  file: logs/sportsbot.log
+  file: logs/maker_test.log

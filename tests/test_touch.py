@@ -407,7 +407,13 @@ def test_shipped_maker_test_config_is_inert_and_touch_only():
     assert c["execution"]["order_ttl_seconds"] == 120           # the measured deadline
     assert c["sports"]["tennis"]["enabled"] is False and c["sports"]["table_tennis"]["enabled"] is False
     assert c["sports"]["basketball"]["enabled"] is False
-    assert c["allocation"]["path"] == "config/allocation.yaml"  # funding stays the operator's file
+    # funding stays the operator's (git-ignored) copy; missing = nothing funded
+    assert c["allocation"]["path"] == "config/allocation.local.yaml"
+    # a live book trades its own ledger: flipped live, doctor must not FAIL on the DB
+    from sportsbot.bot.doctor import _check_live_book
+    live = {**c, "mode": "live", "accounts": {**c["accounts"], "real": {"starting_balance": 100.0}}}
+    checks = {k.name: k.level for k in _check_live_book(live)}
+    assert checks["live.own_db"] == "PASS" and "FAIL" not in checks.values()
     assert c["risk"]["daily_loss_fraction"] == 0.10 and c["risk"]["max_drawdown_fraction"] == 0.25
     assert c["risk"]["daily_loss_limit"] <= 10.0 and c["risk"]["max_drawdown"] <= 25.0
     assert set(c["scan"]["sports"]) == {"baseball", "hockey", "football"}

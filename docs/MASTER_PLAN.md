@@ -91,6 +91,12 @@ Pipeline per cycle:
   if we outgrow it.
 - **Secrets in `.env`** (never committed). `.env.example` documents every variable.
 - **systemd timers** on the server run each engine on its cycle; logs via `journalctl`.
+- **Venue split (2026-10-02, owner decision).** Sports → Polymarket (`sportsbot`
+  `exchange: polymarket`, `polymarket-edge/`). Kalshi → event markets (weather,
+  economics, …): `kalshi-engine` skips the Sports category via
+  `markets.exclude_categories`. Polymarket's main CLOB blocks order placement
+  from US IPs; for a US-based live account the legal route is Polymarket US
+  (separate regulated API, not yet implemented). Never circumvent the geoblock.
 
 ## Roadmap
 
@@ -593,3 +599,42 @@ item names the measurement that would move it, and the standing rules apply
    rule, run alongside v1, needs the operator's go-ahead; v1 rows are never
    rewritten.
 
+
+### 2026-10-08 → 10-12: pre-registered research round + live-pilot plumbing (sportsbot)
+
+Decision log. The research ledger (`docs/research_ledger.json`, rendered on the
+board) now holds 13 pre-registered tests, all FAIL: no price-only or
+consensus-anchored strategy on Kalshi, Polymarket or Polymarket US survives
+out-of-sample with real fees and fills. The remaining evidence is live fills.
+
+- [x] Kalshi and Polymarket tennis vs the sportsbook closing line: both venues
+      price like the books (Brier within 0.001, ~1¢ apart); found and fixed the
+      late in-play cut in `prematch_cut` (`backoff_s`), erratum on SETTLE_VPIN
+- [x] Polymarket US calibration survey (15,220 resolved markets): within ~1¢ of
+      the settle rate in every volume bucket; no taker cell confirms
+- [x] Polymarket US client (`exchanges/polymarket_us.py`): public gateway reads
+      verified live, Ed25519-signed orders built from the API reference, post-only
+      makers on both venues (`BetIntent.maker` → `Order.post_only`); five
+      1-contract checks still required before the first real order
+- [x] Live-pilot plumbing: per-book isolation (store/risk/runner/CLI),
+      venue-confirmed fill accounting and restart recovery, fill markouts at
+      +5s/+60s/+5m/+30m, board cards (fill quality, research ledger),
+      `config/pilot.yaml` and `config/pilot_pmus.yaml` as twins, doctor live-book
+      checks. (Reconciled with main 2026-10-13: main's arm-level portfolio
+      allocator in `bot/portfolio.py` + `config/allocation.yaml` is the one that
+      sizes; this branch's per-sport sleeve wiring and its learning log were
+      retired so only one allocator drives money.)
+- [x] Pre-match quote recorder (`signals/prematch.py`): keyless, both venues, the
+      forward dataset for every later test; pre-registered T−30 longshot forward
+      test (PM US tennis, NO on mid ≤ 0.15, n ≥ 150)
+- [x] One-command server update (`deploy/update_sportsbot.sh`): units, recorders,
+      pilot preflights, v3 log copy
+- [ ] Server: run `update_sportsbot.sh`; keys in `.env`; Kalshi pilot on demo for a
+      week, then prod; Polymarket US 1-contract checks, then its pilot
+- [ ] Read the v3 paper logs (CLV of de-vigged sharp fair value vs the Polymarket mid)
+- [ ] Forward test verdict at n = 150 (≈ 5 weeks of recording)
+- [x] Reddit team-news recorder (`signals/reddit.py`, official OAuth API, data
+      only) + pre-registered news-veto test on the maker test's fills; read out
+      with the maker test (`sportsbot news-veto-report`). Operator: create a
+      Reddit "script" app, keys in `.env`, `systemctl enable --now sportsbot-reddit`
+- [x] `doctor`: Kalshi key must be RSA; live configs prove a signed read

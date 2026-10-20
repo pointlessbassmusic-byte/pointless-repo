@@ -16,7 +16,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
-from sportsbot.bot.allocation import allocate
+from sportsbot.bot.allocation import allocate, allocation_bankroll
 from sportsbot.bot.portfolio import (
     RESULTS,
     allocate_arms,
@@ -182,8 +182,9 @@ def _allocation(alloc: dict) -> str:
     for sport, s in alloc["sleeves"].items():
         state = ("active" if s["active"] else "idle")
         clv = ("—" if s.get("mean_clv") is None else f'{s["mean_clv"]:+.4f}')
+        hand = (' <span class="pill">manual</span>' if s.get("manual") else "")
         rows.append(
-            f'<tr class="{state}"><td><strong>{_e(sport)}</strong>'
+            f'<tr class="{state}"><td><strong>{_e(sport)}</strong>{hand}'
             f'<div class="evidence">{_e(s["evidence"])}</div></td>'
             f'<td class="num">{s["weight"] * 100:.0f}%</td>'
             f'<td class="num">{_money(s["budget"])}</td>'
@@ -202,7 +203,77 @@ def _allocation(alloc: dict) -> str:
         f'<tbody>{"".join(rows)}{excl}</tbody></table>'
         f'<div class="foot">Allocated {_money(alloc["allocated"])} of '
         f'{_money(alloc["bankroll"])}; the rest stays uncommitted. Weights move '
-        'with measured closing-line value, never with a losing streak.</div>')
+        'with measured closing-line value, never with a losing streak. Manual '
+        'control: <code>allocation.manual</code> / <code>allocation.paused</code> '
+        'in <code>config/local.yaml</code>; the measurements and caps still '
+        'apply on top.</div>')
+
+
+def _ledger(entries: list[dict]) -> str:
+    """The research record: every pre-registered test and its verdict."""
+    if not entries:
+        return '<div class="foot">No research ledger found (docs/research_ledger.json).</div>'
+    rows = []
+    for e in entries:
+        v = str(e.get("verdict", "")).upper()
+        cls = "ok" if v.startswith("PASS") else "down" if v.startswith("FAIL") else ""
+        rows.append(
+            f'<tr><td>{_e(e.get("date", ""))}</td>'
+            f'<td><strong>{_e(e.get("test", ""))}</strong>'
+            f'<div class="evidence">{_e(e.get("result", ""))}</div></td>'
+            f'<td><span class="pill {cls}">{_e(v)}</span></td>'
+            f'<td class="sub">{_e(e.get("doc", ""))}</td></tr>')
+    n_fail = sum(1 for e in entries if str(e.get("verdict", "")).upper().startswith("FAIL"))
+    return ('<table class="grid-table"><thead><tr><th>Date</th><th>Pre-registered test</th>'
+            '<th>Verdict</th><th>Write-up</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>'
+            f'<div class="foot">{len(entries)} tests, {n_fail} failed. A strategy is '
+            'funded only after it passes here AND clears the go-live gate.</div>')
+
+
+def _markouts(rep: dict) -> str:
+    """Mean markout per fill by sport and horizon: the price move after our
+    own fills, in cents per share, negative = picked off."""
+    by_sport = rep.get("by_sport") or {}
+    if not by_sport:
+        return ('<div class="foot">No marked fills yet. Each fill is marked at '
+                '+5 s, +60 s, +5 min and +30 min against the live book.</div>')
+    horizons = sorted({h for v in by_sport.values() for h in v})
+    head = "".join(f'<th class="num">+{h}s</th>' if h < 60 else
+                   f'<th class="num">+{h // 60}m</th>' for h in horizons)
+    rows = []
+    for sport, cells in sorted(by_sport.items()):
+        tds = []
+        for h in horizons:
+            c = cells.get(h)
+            if not c or c["mean_cents"] is None:
+                tds.append('<td class="num">—</td>')
+                continue
+            cls = "down" if c["mean_cents"] < 0 else "up"
+            t = "" if c["t"] is None else f' <span class="sub">t {c["t"]:+.1f}</span>'
+            tds.append(f'<td class="num"><span class="value {cls}">{c["mean_cents"]:+.2f}¢</span>'
+                       f'<div class="sub">n {c["n"]}{t}</div></td>')
+        rows.append(f'<tr><td><strong>{_e(sport)}</strong></td>{"".join(tds)}</tr>')
+    return ('<table class="grid-table"><thead><tr><th>Sleeve</th>'
+            f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+            f'<div class="foot">{rep.get("n_fills", 0)} fills marked. A fill that is '
+            'under water at +5 s was picked off; the go-live bar needs these to '
+            'average above the fee.</div>')
+
+
+def load_ledger(path: str = "docs/research_ledger.json") -> list[dict]:
+    import json
+    import os
+
+    here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), path)
+    for candidate in (path, here):
+        try:
+            with open(candidate) as fh:
+                data = json.load(fh)
+            return sorted(data.get("tests", []), key=lambda e: e.get("date", ""), reverse=True)
+        except (OSError, ValueError):
+            continue
+    return []
 
 
 # Reason prefixes -> the plain-English label the summary groups under.
@@ -536,7 +607,9 @@ def collect(cfg: dict, store) -> dict:
            "mode": f'{cfg.get("mode", "paper")}/{cfg.get("exchange", "polymarket")}',
            "categories": cat, "rated": counts, "provisional": provisional,
            "forward": forward, "accounts": {}}
-    for acct in ACCOUNTS:
+    from sportsbot.bot.markout import markout_report
+
+    for acct, mode in ACCOUNTS.items():
         start = starting_balance(cfg, acct)
         eq = account_equity(store, acct, start)
         out["accounts"][acct] = {
@@ -545,9 +618,10 @@ def collect(cfg: dict, store) -> dict:
             "decisions": store.recent_decisions(acct, limit=300),
             "edge_bar": edge_bar_rows(store, acct),
             "gate": evidence_gate(store, acct),
-            "allocation": allocate(max(eq["equity"], 0.0), cfg,
+            "allocation": allocate(allocation_bankroll(cfg, eq["equity"]), cfg,
                                    reports[acct].get("by_sport", {}), ratings,
                                    provisional=provisional),
+            "markouts": markout_report(store, mode=mode),
             "portfolio": allocate_arms(
                 max(eq["equity"], 0.0) if alloc_cfg.bankroll_mode == "equity"
                 else float(bank.get("amount", 100.0)),
@@ -555,6 +629,7 @@ def collect(cfg: dict, store) -> dict:
                 store.settled_bets(limit=1_000_000, mode=ACCOUNTS[acct]),
                 running, fees_verified=fees_ok, mode=ACCOUNTS[acct]),
         }
+    out["ledger"] = load_ledger()
     return out
 
 
@@ -585,9 +660,12 @@ def render(data: dict, refresh: int = 60, fragment: bool = False) -> str:
             f'{_arms(a["portfolio"])}</div>'
             f'<div class="card"><h2>Sport sleeves (legacy view)</h2>'
             f'{_allocation(a["allocation"])}</div>'
+            f'<div class="card"><h2>Fill quality (markout)</h2>'
+            f'{_markouts(a.get("markouts", {}))}</div>'
             f'<div class="card"><h2>Decisions</h2>{_decisions(a["decisions"])}</div>'
             f'<div class="card"><h2>Distance to the bar</h2>{_edge_bar(a.get("edge_bar", []))}</div>'
             f'<div class="card"><h2>Go-live gate (account)</h2>{_gate(a["gate"])}</div>'
+            f'<div class="card"><h2>Research ledger</h2>{_ledger(data.get("ledger", []))}</div>'
             + (f'<div class="card"><h2>Forward tests</h2>{_forward(data.get("forward") or [])}</div>'
                if acct == "sim" else "")
             + f'<div class="card"><h2>What has been measured</h2>{_results()}</div>'
@@ -635,6 +713,7 @@ text-transform:uppercase;letter-spacing:.06em}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;
 background:var(--chip);color:var(--muted);font-size:11px;white-space:nowrap}
 .pill.mode{color:var(--accent);font-weight:600}
+.pill.ok{color:var(--up);font-weight:600}.pill.down{color:var(--down);font-weight:600}
 .switch{display:inline-flex;background:var(--chip);border-radius:10px;
 padding:3px;margin-bottom:18px}
 .acct-radio{position:absolute;opacity:0;pointer-events:none}

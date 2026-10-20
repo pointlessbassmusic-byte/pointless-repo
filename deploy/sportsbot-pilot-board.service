@@ -1,0 +1,22 @@
+[Unit]
+Description=sportsbot board for the pilot book (static HTML, rebuilt every 60 s)
+After=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+Environment=SPORTSBOT_LIVE=1
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot board -c /opt/sportsbot/config/pilot.yaml --out /opt/sportsbot/data/pilot_board.html --loop 60
+Restart=on-failure
+RestartSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
