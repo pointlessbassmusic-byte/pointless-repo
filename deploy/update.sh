@@ -22,7 +22,7 @@ sudo -u sportsbot "$APP_DIR/.venv/bin/sportsbot" fit baseball || echo "update: f
 # Data-only collectors that later commits add (public reads, no orders, no
 # keys) are installed once from deploy/ and then restarted with the paper
 # units. Only names on this list; never the live unit.
-for unit in sportsbot-freshwatch sportsbot-ustape; do
+for unit in sportsbot-freshwatch sportsbot-ustape sportsbot-booklines; do
   if [ -f "$APP_DIR/deploy/$unit.service" ] && [ ! -f "/etc/systemd/system/$unit.service" ]; then
     cp "$APP_DIR/deploy/$unit.service" /etc/systemd/system/
     systemctl daemon-reload
@@ -36,6 +36,7 @@ if [ "$before" != "$after" ]; then
   systemctl restart sportsbot-sim sportsbot-board sportsbot-boardserve weather-snapshot
   systemctl restart sportsbot-freshwatch 2>/dev/null || true
   systemctl restart sportsbot-ustape 2>/dev/null || true
+  systemctl restart sportsbot-booklines 2>/dev/null || true
   echo "update: paper units restarted"
 else
   echo "update: no new commits; units left running"
