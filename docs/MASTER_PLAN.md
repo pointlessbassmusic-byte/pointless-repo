@@ -331,8 +331,10 @@ Pipeline per cycle:
         pooled (t -2.5), with look-ahead in the book's favour.
       * The T-15 taker toward the book nets +4.2 +- 2.5 per $1 (t 1.7),
         under its bar.
-      * Next step, only with the user's go-ahead: a separately registered
-        forward record of live lines.
+      * Forward record APPROVED by the user the same day
+        (`signals/book_lines.py`, `sportsbot-booklines.service`). Their bar:
+        100 T-15 trades on Polymarket US at the ask net of fees, mean > 0,
+        t >= 1.65 -> pre-live gate.
 - [x] Polymarket US trade tape (2026-10-19, `exchanges/polymarket_us_tape.py`,
       `sportsbot us-tape`, `sportsbot-ustape.service`). This is the live maker
       test's fill-share denominator, built ahead of the keys from the

@@ -2264,5 +2264,29 @@ and it would have to be registered on its own:
 
 That is a separate decision for the user. It is not implied by this result.
 
+**Addendum (2026-10-20): the user approved the forward record and set its
+bar.** The user pointed out that +4.2c per contract is already net of fees
+and spread, and asked for a lower bar for sports. The retrospective result
+above stands as recorded: re-grading it with a new bar after seeing it
+would be moving the goalposts.
+
+The lower bar applies to the forward record instead
+(`sportsbot/signals/book_lines.py`, written and committed before its first
+row):
+
+- **Inputs:** ESPN's current line, read live, so there is no look-ahead.
+- **Venue:** Polymarket US, the venue the user can trade, at its real ask
+  and its 0.0695 taker fee.
+- **The trade:** at T-15, a 2c margin, one trade per game.
+- **Pass:** 100 trades, mean > 0 with **t >= 1.65** (one-sided 95%, down
+  from t >= 2). A pass goes to the pre-live gate for a minimum-size live
+  test, not to capital.
+- **Kill:** a mean <= 0 at 100 trades.
+- **Context only:** Polymarket main and the T-30 / T-60 checkpoints are
+  reported beside it but cannot pass.
+
+The live smoke test on 2026-10-20 matched all 14 upcoming NBA and NHL
+games on ESPN and both venues.
+
 Rerun: `sportsbot espn-lines --days 400` (resumable, about 25 minutes on a
 fresh cache), then `sportsbot espn-lines --report`.
