@@ -115,6 +115,29 @@ def fee(price: float, rate: float) -> float:
     return rate * price * (1.0 - price)
 
 
+def team_names(team: dict) -> list[str]:
+    """Every form ESPN gives a team's name, lower-cased: Polymarket's
+    outcomes use the nickname on NFL/NBA/NHL ("rams") and the full name on
+    MLB ("los angeles dodgers")."""
+    # location too: Polymarket lists Utah's NHL team as "utah" (ESPN: Mammoth);
+    # a match still needs BOTH teams, so a shared city cannot pair the wrong game
+    forms = [team.get(k) for k in ("name", "displayName", "shortDisplayName", "nickname", "abbreviation",
+                                   "location")]
+    if team.get("location") and team.get("name"):
+        forms.append(f"{team['location']} {team['name']}")
+    return sorted({str(f).strip().lower() for f in forms if f})
+
+
+def is_match(ev: dict, home: str, away: str) -> Optional[bool]:
+    """None when the ESPN event is not this game; else True when ESPN's home
+    team is Polymarket's outcomes[0] (no flip needed), False when reversed."""
+    if home in ev["home"] and away in ev["away"]:
+        return True
+    if home in ev["away"] and away in ev["home"]:
+        return False
+    return None
+
+
 # ------------------------------------------------------------------ fetch
 class Fetcher:
     def __init__(self, http=None, pause: float = 0.12, cache: str = CACHE, sleep=time.sleep):
@@ -139,9 +162,8 @@ class Fetcher:
         out = []
         for e in data.get("events", []):
             comp = (e.get("competitions") or [{}])[0]
-            teams = {c.get("homeAway"): str(c.get("team", {}).get("name", "")).lower()
-                     for c in comp.get("competitors", [])}
-            if "home" in teams and "away" in teams:
+            teams = {c.get("homeAway"): team_names(c.get("team") or {}) for c in comp.get("competitors", [])}
+            if teams.get("home") and teams.get("away"):
                 from datetime import datetime
                 ts = datetime.fromisoformat(e["date"].replace("Z", "+00:00")).timestamp()
                 out.append({"id": e["id"], "ts": ts, "home": teams["home"], "away": teams["away"]})
@@ -194,7 +216,7 @@ def collect(sport: str, days: int = 400, fetcher: Optional[Fetcher] = None, max_
                         log.warning("scoreboard %s %s: %s", sport, k, exc)
                         boards[k] = []
                 evs += boards[k]
-            cands = [e for e in evs if {e["home"], e["away"]} == {g.home, g.away}
+            cands = [e for e in evs if is_match(e, g.home, g.away) is not None
                      and abs(e["ts"] - g.start_ts) <= 6 * 3600]
             ev = min(cands, key=lambda e: abs(e["ts"] - g.start_ts)) if cands else None
             if ev is None:
@@ -210,7 +232,7 @@ def collect(sport: str, days: int = 400, fetcher: Optional[Fetcher] = None, max_
                     row["skip"] = "no book close"
                 else:
                     # the book quotes ESPN's home team; orient to outcomes[0]
-                    flip = ev["home"] != g.home
+                    flip = not is_match(ev, g.home, g.away)
                     row.update(provider=bk["provider"],
                                book=(1 - bk["close"]) if flip else bk["close"],
                                book_open=None if bk["open"] is None else ((1 - bk["open"]) if flip else bk["open"]),

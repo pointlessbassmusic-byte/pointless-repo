@@ -54,3 +54,19 @@ def test_the_bar_needs_both_a_better_brier_and_a_paid_trade():
     assert els.verdict(dict(good, trades=99)) == "not a member"
     assert els.verdict(dict(good, diff_se=0.006)) == "not a member"
     assert els.verdict(dict(good, trade_mean=-0.01)) == "not a member"
+
+
+def test_matching_takes_any_name_form_and_says_which_way_round():
+    """Regression (plumbing check 2026-10-20): MLB outcomes are full names
+    ("milwaukee brewers"), ESPN's `name` is the nickname; every MLB game was
+    unmatched until all of ESPN's name forms were compared."""
+    brewers = els.team_names({"name": "Brewers", "displayName": "Milwaukee Brewers", "location": "Milwaukee",
+                              "abbreviation": "MIL"})
+    dodgers = els.team_names({"name": "Dodgers", "displayName": "Los Angeles Dodgers"})
+    ev = {"home": dodgers, "away": brewers}
+    assert els.is_match(ev, "milwaukee brewers", "los angeles dodgers") is False     # reversed: flip
+    assert els.is_match(ev, "dodgers", "brewers") is True
+    assert els.is_match(ev, "dodgers", "cubs") is None
+    utah = els.team_names({"name": "Mammoth", "displayName": "Utah Mammoth", "location": "Utah"})
+    pens = els.team_names({"name": "Penguins", "displayName": "Pittsburgh Penguins", "location": "Pittsburgh"})
+    assert els.is_match({"home": utah, "away": pens}, "penguins", "utah") is False
