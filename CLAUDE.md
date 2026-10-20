@@ -81,7 +81,13 @@ mode; Kalshi client implements the same interface for the US-legal path.
   `sharp.py` (sharp-line CLV harness: budgeted The Odds API snapshots,
   Shin de-vig, grades every decision/bet against the Pinnacle close with a
   pre-registered pass criterion — see `docs/SHARP_CLV.md`; its only
-  trading-path effect is tighten-only via the adaptive layer).
+  trading-path effect is tighten-only via the adaptive layer),
+  `book_lines.py` (Result 26's forward record: ESPN's live DraftKings line
+  vs the Polymarket US and main books at T-60/30/15 for NFL/NBA/NHL/MLB,
+  settled from ESPN; pre-registered bar set by the user: >= 100 T-15 trades
+  on Polymarket US at the ask net of its 0.0695 taker fee, mean > 0 with
+  t >= 1.65 -> pre-live gate; `sportsbot book-lines`,
+  `sportsbot-booklines.service`).
   `prematch.py` (keyless top-of-book recorder for both venues' match-winner
   markets + the pre-registered T−30 forward test; the forward dataset for
   any later test, so verdicts stop depending on venue price-history feeds).
@@ -132,6 +138,9 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - In-play feed latency (MLB): `sportsbot score-latency` (network; Result 23).
 - In-play latency (NFL, vs ESPN snap stamps): `sportsbot nfl-latency` (network; Result 25).
 - Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 24).
+- US sportsbook close vs Polymarket (NFL/NBA/NHL/MLB, DraftKings via ESPN, keyless):
+  `sportsbot espn-lines` then `--report` (network; Result 26); its forward
+  record: `sportsbot book-lines [--report]` (public reads, no keys).
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Polymarket US tape: `sportsbot us-tape` (needs the US keys; data only),
@@ -246,7 +255,15 @@ the outcome and fabricates longshot edge.
   disagreement is 0.8c; buying the book's side of a 2-3c disagreement loses.
   A reference must LEAD the market (fed-funds futures do); a consensus of the
   books the crowd already reads does not. `ODDS_API_KEY` is not an unlock.
-  US sports are unmeasured; measure with the same script before assuming.
+  US sports are now measured too (EDGE_VERDICT Result 26, `sportsbot
+  espn-lines`). Pre-registered, over 6,130 NFL/NBA/NHL/MLB games, the
+  DraftKings close via ESPN (keyless) is the nearest miss yet but NOT a
+  member. It beats Polymarket's last pre-start print on Brier pooled
+  (-0.0005, t -2.5; NBA t -2.3), with beta ~1, partly from look-ahead (the
+  close is stamped at kickoff) and partly from the print's bid-ask bounce.
+  The T-15 taker toward it nets +4.2 +- 2.5 per $1 (t 1.7, 365 trades),
+  under its bar, and NBA, where the Brier gap is largest, nets +0.1. Only a
+  separately registered forward record of live lines could settle it.
 - Polymarket is not a leading reference for Kalshi either
   (`docs/VENUE_LEAD_LAG_2026-09-23.md`, `python -m src.venue_study`): on 148
   matches listed on both venues the quotes sit 0.5c apart at the median,

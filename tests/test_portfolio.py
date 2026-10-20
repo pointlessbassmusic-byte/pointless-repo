@@ -213,5 +213,5 @@ def test_dashboard_rows_are_funded_first_and_carry_the_gate_progress():
     rows = pf.summarise_for_dashboard(port)
     assert rows[0]["arm"] == "tennis/model/taker" and rows[0]["budget"] == 10.0
     assert 0.0 <= rows[0]["gate_progress"] <= 1.0
-    assert len(pf.RESULTS) == 15 and pf.RESULTS[-1][0] == "22"
+    assert len(pf.RESULTS) == 16 and pf.RESULTS[-1][0] == "26"
     assert "queue" in dict((r[0], r[2]) for r in pf.RESULTS)["15"]     # the front-of-queue caveat is shown

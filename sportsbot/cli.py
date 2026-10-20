@@ -453,7 +453,9 @@ def digest(config: str = CONFIG_OPT,
 
     from sportsbot.substrate_bridge.fresh_watch import status_line
     data_dir = os.path.dirname(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite")) or "."
-    forward = [x for x in (status_line(os.path.join(data_dir, "fresh_watch.sqlite")),) if x]
+    from sportsbot.signals.book_lines import status_line as book_status
+    forward = [x for x in (book_status(os.path.join(data_dir, "book_lines.sqlite")),
+                           status_line(os.path.join(data_dir, "fresh_watch.sqlite"))) if x]
     texts = []
     for acct, mode in ACCOUNTS.items():
         texts.append(alerts.digest_text(store, acct, mode, starting_balance(cfg, acct),
@@ -879,6 +881,45 @@ def fresh_watch(hours: float = typer.Option(0.0, help="how long to watch; 0 = un
         return
     logging.getLogger("sportsbot.substrate_bridge.fresh_watch").setLevel(logging.INFO)
     fwt.Watch(db).run(hours=hours, poll=poll)
+
+
+@app.command("book-lines")
+def book_lines(hours: float = typer.Option(0.0, help="how long to record; 0 = until stopped"),
+               poll: float = typer.Option(60.0, help="seconds between passes"),
+               db: str = typer.Option("data/book_lines.sqlite"),
+               report: bool = typer.Option(False, "--report", help="score the record instead of recording")):
+    """Forward record (pre-registered, Result 26's follow-up): the live
+    DraftKings line via ESPN against Polymarket US and main at T-60/30/15,
+    scored at settlement. Public reads only, no orders."""
+    import logging
+
+    from sportsbot.signals import book_lines as bkl
+
+    if report:
+        console.print(bkl.format_report(bkl.report(db)), soft_wrap=True)
+        return
+    logging.getLogger("sportsbot.signals.book_lines").setLevel(logging.INFO)
+    bkl.Recorder(db).run(hours=hours, poll=poll)
+
+
+@app.command("espn-lines")
+def espn_lines(days: int = typer.Option(400, help="resolved games whose start fell in the last N days"),
+               sports: str = typer.Option("nfl,nba,nhl,mlb"),
+               max_games: int = typer.Option(0, help="newest N games per sport (0 = all)"),
+               report: bool = typer.Option(False, "--report", help="analyse the cache instead of fetching")):
+    """Pre-registered study: does the US sportsbook close (DraftKings via
+    ESPN, keyless) lead Polymarket on NFL/NBA/NHL/MLB? Public reads only."""
+    import logging
+
+    from sportsbot.backtest import espn_line_study as els
+
+    keys = tuple(s.strip() for s in sports.split(",") if s.strip())
+    if report:
+        console.print(els.format_report(els.report(keys)), soft_wrap=True)
+        return
+    logging.getLogger("sportsbot.backtest.espn_line_study").setLevel(logging.INFO)
+    for k in keys:
+        console.print(els.collect(k, days=days, max_games=max_games))
 
 
 @app.command("us-tape")

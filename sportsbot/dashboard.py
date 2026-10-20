@@ -602,7 +602,9 @@ def collect(cfg: dict, store) -> dict:
 
     from sportsbot.substrate_bridge.fresh_watch import status_line
     data_dir = os.path.dirname(cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite")) or "."
-    forward = [x for x in (status_line(os.path.join(data_dir, "fresh_watch.sqlite")),) if x]
+    from sportsbot.signals.book_lines import status_line as book_status
+    forward = [x for x in (book_status(os.path.join(data_dir, "book_lines.sqlite")),
+                           status_line(os.path.join(data_dir, "fresh_watch.sqlite"))) if x]
     out = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "mode": f'{cfg.get("mode", "paper")}/{cfg.get("exchange", "polymarket")}',
            "categories": cat, "rated": counts, "provisional": provisional,

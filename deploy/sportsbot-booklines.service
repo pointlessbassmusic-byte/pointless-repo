@@ -1,0 +1,28 @@
+[Unit]
+Description=sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sportsbot
+Group=sportsbot
+WorkingDirectory=/opt/sportsbot
+EnvironmentFile=-/opt/sportsbot/.env
+# Result 26's pre-registered follow-up (signals/book_lines.py): every minute,
+# for NFL/NBA/NHL/MLB games 60/30/15 minutes from the start, stores ESPN's
+# current DraftKings line beside the Polymarket US and main books; settles
+# from ESPN's scoreboard. Read it with `sportsbot book-lines --report --db
+# /opt/sportsbot/data/book_lines.sqlite`.
+ExecStart=/opt/sportsbot/.venv/bin/sportsbot book-lines --db /opt/sportsbot/data/book_lines.sqlite
+Restart=on-failure
+RestartSec=120
+MemoryMax=400M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sportsbot/data /opt/sportsbot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
