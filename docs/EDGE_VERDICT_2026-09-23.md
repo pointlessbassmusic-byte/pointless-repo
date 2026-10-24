@@ -627,6 +627,34 @@ orders answer. That experiment (minimum size, Polymarket, tennis, active
 sessions, a week of fills logged against this signal) is now the single
 best-evidenced thing to spend real money finding out.
 
+**Addendum, 2026-10-24 — the two-book logger paired MLB games across
+dates.** `twobook.match_pairs` matched on the two competitor names only;
+its docstring said "(and date)" but nothing checked it. In an MLB series,
+where the same two teams play on consecutive days, one Polymarket game
+was paired with several days' Kalshi games. Sample #23 exposed it. It
+logged three World Series pairs: MIL@TB Oct 27 showed Kalshi TB 0.535
+against Polymarket 0.465, a static 7-point "gap" between two different
+games. The fix is `same_game`, with regression tests:
+- **Both venues have a start:** starts within 3 h (the queue study's
+  tolerance).
+- **Kalshi has no start (tennis):** its close within ±12 h of
+  Polymarket's start. Tennis closes are the scheduled time, and on Oct 24
+  they sat up to 7 h before delayed starts.
+- **No times:** no match.
+
+Audit of the logged history:
+- **Tennis:** 0 of 520 pairs share a market across tickers. Today's live
+  tennis pairs are identical under both rules (32 of 32). Every tennis
+  sample above, and the pooled Polymarket→Kalshi estimate (≈ +0.050 ±
+  0.010 at 90 s over twenty samples), **stand**.
+- **MLB:** 31 of 32 logged pairs do share markets across dates. So the
+  sample-#11 note above ("5 MLB pairs … mean |gap| 7.2 points … wide,
+  dead") is **not evidence** about MLB books. A cross-date pair produces
+  exactly a large, static gap. No MLB two-book reading has entered a
+  pooled number or a verdict, and none should be read from the pre-fix
+  log. The verdicts here (Results 10, 15, 24) rest on settled prices and
+  tapes, not on these pairs.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of

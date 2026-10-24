@@ -30,9 +30,18 @@ import statistics
 import time
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Optional
 
+from sportsbot.substrate_bridge.queue_study import MATCH_START_TOLERANCE_H
+
 log = logging.getLogger(__name__)
+
+# A Kalshi ticker with no start (tennis, NHL, NBA) is matched on its close.
+# Symmetric: tennis closes are the SCHEDULED time and sat up to 7 h before
+# Polymarket's (delayed) start on Oct 24, while the same names on another
+# day are >= ~20 h away.
+CLOSE_WINDOW_H = 12.0
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pairs (
@@ -82,10 +91,23 @@ class Pair:
     pm_yes_is_kalshi_yes: bool
 
 
+def same_game(k, p) -> bool:
+    """Same two names on another day is another game (every MLB series, the
+    World Series). Starts must agree within MATCH_START_TOLERANCE_H; a Kalshi
+    ticker with no start must close within CLOSE_WINDOW_H of Polymarket's
+    start. No times, no match."""
+    if p.start_time is None:
+        return False
+    if k.start_time is not None:
+        return abs((k.start_time - p.start_time).total_seconds()) <= MATCH_START_TOLERANCE_H * 3600
+    return k.close_time is not None and abs(k.close_time - p.start_time) <= timedelta(hours=CLOSE_WINDOW_H)
+
+
 def match_pairs(sport: str, kalshi_markets, pm_markets, max_pairs: int = 40) -> list[Pair]:
-    """Match open moneylines across venues by the set of competitor names.
-    Both inputs are MarketInfo lists (home = the YES side on each venue).
-    Polymarket candidates are taken highest-volume first."""
+    """Match open moneylines across venues by the set of competitor names and
+    the game's date (`same_game`). Both inputs are MarketInfo lists (home =
+    the YES side on each venue). Polymarket candidates are taken
+    highest-volume first."""
     by_names: dict[frozenset, list] = defaultdict(list)
     for k in kalshi_markets:
         if not k.home or not k.away:
@@ -99,7 +121,7 @@ def match_pairs(sport: str, kalshi_markets, pm_markets, max_pairs: int = 40) -> 
         if len(key) != 2:
             continue
         for k in by_names.get(key, []):
-            if k.market_id in used:
+            if k.market_id in used or not same_game(k, p):
                 continue
             used.add(k.market_id)
             out.append(Pair(
