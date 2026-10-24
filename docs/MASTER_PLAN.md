@@ -504,6 +504,9 @@ Pipeline per cycle:
       window but contested (hike-25 at 0.82/0.83 and 0.77/0.80), so they do not fire.
       2026-10-23: BoJ Oct 30 hold fired (two_venue), Kalshi ask 0.960 / Polymarket ask 0.970
       at 6.5 days, +3.9% / +3.1% if it pays.
+      2026-10-24: RBNZ Oct 27 hike-25 fired (two_venue), Kalshi ask 0.92 / Polymarket ask
+      0.94 at 3.5 days, +8.1% / +6.4% if it pays. First fire on a move rather than a hold,
+      and the thinnest margin so far: one surprise costs ~12 wins at these prices.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
