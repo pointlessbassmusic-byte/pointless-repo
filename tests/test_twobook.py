@@ -2,15 +2,19 @@
 import math
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 
 from sportsbot.core.types import Exchange, MarketInfo, Sport
 from sportsbot.substrate_bridge import twobook as tb
 
 
-def _mi(exchange, mid, home, away, sport, token="", vol=0.0):
+T0 = datetime(2026, 10, 24, 0, 0, tzinfo=timezone.utc)
+
+
+def _mi(exchange, mid, home, away, sport, token="", vol=0.0, start=T0, close=None):
     return MarketInfo(exchange=exchange, market_id=mid, yes_token_id=token, no_token_id="",
                       question="", slug="", sport=sport, home=home, away=away,
-                      start_time=None, close_time=None, active=True, tick_size=0.01,
+                      start_time=start, close_time=close, active=True, tick_size=0.01,
                       min_order_size=1, neg_risk=False, meta={"volume24hr": vol})
 
 
@@ -26,6 +30,39 @@ def test_pairs_match_on_names_and_record_orientation():
     assert by["KXATPMATCH-1-SIN"].pm_yes_is_kalshi_yes is False   # PM YES = Alcaraz, Kalshi YES = Sinner
     assert by["KXWTAMATCH-2-SWI"].pm_yes_is_kalshi_yes is True
     assert pairs[0].pm_condition == "c2"                            # highest Polymarket volume first
+
+
+def test_pairs_need_the_same_game_date_not_just_the_same_names():
+    """World Series 2026: MIL and TB on consecutive days. Name-only matching
+    paired one Polymarket market with three days' Kalshi games (Oct 24)."""
+    day = timedelta(days=1)
+    k = [_mi(Exchange.KALSHI, "KXMLBGAME-26OCT242000TBMIL-MIL", "Milwaukee Brewers", "Tampa Bay Rays",
+             Sport.BASEBALL, start=T0),
+         _mi(Exchange.KALSHI, "KXMLBGAME-26OCT262000MILTB-TB", "Tampa Bay Rays", "Milwaukee Brewers",
+             Sport.BASEBALL, start=T0 + 2 * day)]
+    p = [_mi(Exchange.POLYMARKET, "g5", "Tampa Bay Rays", "Milwaukee Brewers", Sport.BASEBALL, "t5", 900.0,
+             start=T0 + 2 * day + timedelta(minutes=8)),
+         _mi(Exchange.POLYMARKET, "g3", "Milwaukee Brewers", "Tampa Bay Rays", Sport.BASEBALL, "t3", 500.0,
+             start=T0 + timedelta(minutes=8))]
+    by = {pr.kalshi_ticker: pr.pm_condition for pr in tb.match_pairs("baseball", k, p)}
+    assert by == {"KXMLBGAME-26OCT242000TBMIL-MIL": "g3", "KXMLBGAME-26OCT262000MILTB-TB": "g5"}
+
+
+def test_kalshi_without_a_start_matches_on_its_close_and_no_times_never_match():
+    k = [_mi(Exchange.KALSHI, "KXATPMATCH-1-SIN", "Jannik Sinner", "Carlos Alcaraz", Sport.TENNIS,
+             start=None, close=T0 + timedelta(hours=6))]
+    later = [_mi(Exchange.POLYMARKET, "c1", "Carlos Alcaraz", "Jannik Sinner", Sport.TENNIS, "t1",
+                 start=T0 + timedelta(days=2))]
+    assert tb.match_pairs("tennis", k, later) == []                 # closes before that match starts
+    same = [_mi(Exchange.POLYMARKET, "c2", "Carlos Alcaraz", "Jannik Sinner", Sport.TENNIS, "t2")]
+    assert [pr.pm_condition for pr in tb.match_pairs("tennis", k, same)] == ["c2"]
+    # Kalshi's close is the SCHEDULED time: a match delayed past it is still the same match
+    delayed = [_mi(Exchange.POLYMARKET, "c4", "Carlos Alcaraz", "Jannik Sinner", Sport.TENNIS, "t4",
+                   start=T0 + timedelta(hours=13))]
+    assert [pr.pm_condition for pr in tb.match_pairs("tennis", k, delayed)] == ["c4"]
+    untimed = [_mi(Exchange.POLYMARKET, "c3", "Carlos Alcaraz", "Jannik Sinner", Sport.TENNIS, "t3",
+                   start=None)]
+    assert tb.match_pairs("tennis", k, untimed) == []
 
 
 def _synthetic_db(path, lag_steps=2, step=20.0, n=400, flip=False):
