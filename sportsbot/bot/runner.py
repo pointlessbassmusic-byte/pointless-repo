@@ -6,7 +6,8 @@ One Runner instance per venue. Each cycle:
   3. scan (entity-match + predict)
   4. evaluate (blend, edge, Kelly under caps)
   5. risk-gate each intent, execute survivors
-  6. arb sweep (bundle; cross-venue when both clients configured)
+  6. arb sweep (bundle, single venue; cross-venue matching exists in bot/arb.py
+     but is not wired into the cycle)
   7. expire stale orders, snapshot quotes
 """
 

@@ -18,12 +18,29 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Callable, Optional
 
 from sportsbot.bot.matching import similarity
 from sportsbot.core.types import MarketInfo, MarketQuote
 
 log = logging.getLogger(__name__)
+
+# Same names on another day is another game (every series, the World Series):
+# starts must agree within START_TOLERANCE; a start-less Kalshi ticker must
+# close within CLOSE_WINDOW of Polymarket's start. Mirrors
+# substrate_bridge.queue_study, which the trading path does not import.
+START_TOLERANCE = timedelta(hours=3)
+CLOSE_WINDOW = timedelta(hours=12)
+
+
+def same_game(pm: MarketInfo, km: MarketInfo) -> bool:
+    """No times, no match."""
+    if pm.start_time is None:
+        return False
+    if km.start_time is not None:
+        return abs(km.start_time - pm.start_time) <= START_TOLERANCE
+    return km.close_time is not None and abs(km.close_time - pm.start_time) <= CLOSE_WINDOW
 
 
 @dataclass
@@ -85,7 +102,8 @@ def match_cross_venue(
     kalshi_markets: list[MarketInfo],
     min_similarity: float = 0.88,
 ) -> list[tuple[MarketInfo, MarketInfo, bool]]:
-    """Pair Polymarket and Kalshi markets covering the same match.
+    """Pair Polymarket and Kalshi markets covering the same match (names AND
+    `same_game`).
 
     Returns (pm, kalshi, aligned) where aligned=True means pm YES side and
     kalshi YES contract refer to the same participant.
@@ -95,7 +113,7 @@ def match_cross_venue(
         if not pm.home or not pm.away:
             continue
         for km in kalshi_markets:
-            if pm.sport != km.sport or not km.home:
+            if pm.sport != km.sport or not km.home or not same_game(pm, km):
                 continue
             # Kalshi: home = yes_sub_title (participant YES pays on).
             same = similarity(pm.home, km.home)

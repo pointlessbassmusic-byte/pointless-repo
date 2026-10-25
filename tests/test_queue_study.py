@@ -102,6 +102,19 @@ def test_kalshi_matches_on_names_and_a_close_shortly_after_the_us_start():
     assert qs.match_kalshi("baseball", mlb_us, [mlb_k])[1] is True    # Kalshi's own start, when it has one
 
 
+def test_kalshi_tennis_close_at_or_before_the_us_start_is_the_same_match():
+    """Kalshi's tennis close is the SCHEDULED time: on Oct 25 it sat at or
+    before the US start for 5 of 39 matches, which a close-after-start rule
+    dropped. Yesterday's meeting of the same names is still another match."""
+    us = _mi(Exchange.POLYMARKET_US, "aec-atp-jas-kik", "Omar Jasika", "Yuta Kikuchi", sport=Sport.TENNIS)
+    sched = _mi(Exchange.KALSHI, "KXATPCHALLENGERMATCH-26OCT26JASKIK-JAS", "Omar Jasika", "Yuta Kikuchi",
+                sport=Sport.TENNIS, start=None, close=START - timedelta(minutes=30))
+    assert qs.match_kalshi("tennis", us, [sched])[0].market_id == sched.market_id
+    yesterday = _mi(Exchange.KALSHI, "KXATPCHALLENGERMATCH-26OCT25JASKIK-JAS", "Omar Jasika", "Yuta Kikuchi",
+                    sport=Sport.TENNIS, start=None, close=START - timedelta(hours=21))
+    assert qs.match_kalshi("tennis", us, [yesterday]) is None
+
+
 def test_sampler_stores_both_venues_in_the_us_long_frame_and_stops_at_the_start(tmp_path):
     clock = Clock()
     us_m = _mi(Exchange.POLYMARKET_US, "aec-nhl-nj-det", "New Jersey Devils", "Detroit Red Wings")
