@@ -35,8 +35,8 @@ def _iso(s: str) -> float:
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 
 
-def scoreboard(day: datetime, http) -> list[dict]:
-    r = http.get(f"{ESPN}/scoreboard", params={"dates": day.strftime("%Y%m%d")})
+def scoreboard(day: datetime, http, base: str = ESPN) -> list[dict]:
+    r = http.get(f"{base}/scoreboard", params={"dates": day.strftime("%Y%m%d")})
     r.raise_for_status()
     out = []
     for e in r.json().get("events", []):

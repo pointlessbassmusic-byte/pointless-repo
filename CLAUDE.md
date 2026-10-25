@@ -137,6 +137,7 @@ mode; Kalshi client implements the same interface for the US-legal path.
   `sportsbot sharp-report` (offline; grades decisions vs Pinnacle close).
 - In-play feed latency (MLB): `sportsbot score-latency` (network; Result 23).
 - In-play latency (NFL, vs ESPN snap stamps): `sportsbot nfl-latency` (network; Result 25).
+- In-play latency (NBA, vs ESPN play stamps): `sportsbot nba-latency` (network; Result 27).
 - Kalshi touch-maker baseline (MLB): `sportsbot kalshi-touch` (network; Result 24).
 - US sportsbook close vs Polymarket (NFL/NBA/NHL/MLB, DraftKings via ESPN, keyless):
   `sportsbot espn-lines` then `--report` (network; Result 26); its forward
@@ -395,8 +396,12 @@ the outcome and fabricates longshot edge.
   The NFL is the same (Result 25, `sportsbot nfl-latency`): on 254 scoring
   plays in 82 games, half the move prints 10 s after the snap (90% by
   20 s). A taker at snap + 20 s nets -0.32c, falling to -0.85c by 60 s;
-  only sub-10-second information (the stadium) is paid. Write no in-play
-  taker code for MLB or the NFL; NBA is unmeasured.
+  only sub-10-second information (the stadium) is paid. The NBA is faster
+  still (Result 27, `sportsbot nba-latency`): on 6,548 scoring plays in 66
+  games a basket is priced 2-3 s after it falls; a taker at +0-2 s nets
+  +0.5-0.75c, at +10 s -0.43c. Score every scoring play there, never a
+  move-filtered subset (in the NBA that filter selects the scorer's future
+  run). Write no in-play taker code for MLB, the NFL or the NBA.
 - The touch edge holds on Kalshi too, as an upper bound (EDGE_VERDICT Result 24,
   `sportsbot kalshi-touch`): on 396 settled MLB games a bid one tick under
   each pre-start print earns +0.80 to +0.93c per fill net of the maker fee
