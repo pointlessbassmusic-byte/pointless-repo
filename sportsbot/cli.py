@@ -928,7 +928,9 @@ def us_tape(sports: str = typer.Option("baseball,hockey,football,basketball,coll
             window_h: float = typer.Option(24.0, help="subscribe games starting within this many hours"),
             hours: float = typer.Option(0.0, help="how long to record; 0 = until stopped"),
             db: str = typer.Option("", help="tape database (default $SPORTSBOT_US_TAPE_DB or data/us_tape.sqlite)"),
-            status: bool = typer.Option(False, "--status", help="print the recorded tape's state and exit")):
+            status: bool = typer.Option(False, "--status", help="print the recorded tape's state and exit"),
+            verify: bool = typer.Option(False, "--verify", help="check field names and the YES price frame "
+                                        "against the venue's public last trade, then exit (no keys needed)")):
     """Record the Polymarket US trade tape from the authenticated markets
     websocket. DATA ONLY: never places orders. The paper venue and the live
     maker test's tape shadow read it; without keys it exits cleanly."""
@@ -940,8 +942,17 @@ def us_tape(sports: str = typer.Option("baseball,hockey,football,basketball,coll
     from sportsbot.exchanges.polymarket_us import PolymarketUSClient
 
     path = db or os.environ.get(ust.ENV_DB) or ust.DEFAULT_DB
-    if status:
-        console.print(ust.TapeStore(path).status() if os.path.exists(path) else f"no tape at {path}")
+    if status or verify:
+        if not os.path.exists(path):
+            console.print(f"no tape at {path}")
+            return
+        store = ust.TapeStore(path)
+        if status:
+            console.print(store.status())
+        if verify:
+            res = ust.verify(store, PolymarketUSClient().get_bbo)
+            console.print(res)
+            console.print("us-tape verify: " + ("OK" if res["ok"] else "CHECK — " + "; ".join(res["problems"])))
         return
     client = PolymarketUSClient()
     if not client.has_credentials:
