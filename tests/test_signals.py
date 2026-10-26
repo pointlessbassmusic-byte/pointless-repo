@@ -248,3 +248,46 @@ def test_score_arms_keeps_arms_separate_and_honors_no_backfill(tmp_path, monkeyp
     conn.close()
     res = score_arms(str(db))
     assert res["nws_covered"]["n"] == 2 and res["all"]["nws"] is not None
+
+
+def test_weather_lead_is_measured_to_the_stations_standard_midnight():
+    """The CLI climate day starts at local STANDARD midnight: 05:00Z in New
+    York, 08:00Z in Los Angeles, all year. UTC midnight runs 5-8 h early."""
+    from datetime import date, datetime, timezone
+
+    from sportsbot.substrate_bridge.kalshi_weather import DEFAULT_SERIES, STANDARD_UTC_OFFSET_H, lead_days
+
+    utc_midnight = datetime(2026, 10, 20, tzinfo=timezone.utc).timestamp()
+    assert lead_days("KXHIGHNY", date(2026, 10, 20), utc_midnight) == pytest.approx(5 / 24)
+    assert lead_days("KXHIGHLAX", date(2026, 10, 20), utc_midnight) == pytest.approx(8 / 24)
+    assert lead_days("KXHIGHDEN", date(2026, 10, 21), utc_midnight) == pytest.approx(1 + 7 / 24)
+    assert lead_days("KXHIGHNOWHERE", date(2026, 10, 20), utc_midnight) is None
+    assert set(DEFAULT_SERIES) <= set(STANDARD_UTC_OFFSET_H)       # a new city needs its offset
+
+
+def test_score_arms_sigma_uses_the_station_local_lead(tmp_path, monkeypatch):
+    """Decision 2 h after the target's UTC midnight: the old code read a lead
+    of -2 h (sigma floor 1.8); New York's climate day is still 3 h away."""
+    from datetime import datetime, timezone
+
+    import sportsbot.substrate_bridge.climatology as climo_mod
+    from sportsbot.signals.nws import prob_from_high, sigma_for_lead
+    from sportsbot.substrate_bridge.kalshi_weather import SCHEMA, score_arms
+
+    db = tmp_path / "w.sqlite"
+    conn = sqlite3.connect(db)
+    conn.executescript(SCHEMA)
+    first_ts = datetime(2026, 9, 16, 2, 0, tzinfo=timezone.utc).timestamp()
+    title = "Will the maximum temperature be >70° on Sep 16, 2026?"
+    conn.execute("INSERT INTO weather_snapshots (ts, ticker, series, title, yes_bid, yes_ask, close_ts)"
+                 " VALUES (?,?,?,?,?,?,?)", (first_ts, "A", "KXHIGHNY", title, 0.79, 0.81, first_ts))
+    conn.execute("INSERT INTO weather_outcomes (ticker, outcome, settled_ts) VALUES (?,?,?)",
+                 ("A", 1, first_ts + 86400))
+    conn.execute("INSERT INTO weather_forecasts (ts, series, target_date, forecast_high) VALUES (?,?,?,?)",
+                 (first_ts, "KXHIGHNY", "2026-09-16", 72))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(climo_mod.Climatology, "prob", lambda self, s, t: 0.5)
+    p = prob_from_high(title, 72.0, sigma=sigma_for_lead(3 / 24))
+    assert p != pytest.approx(prob_from_high(title, 72.0, sigma=sigma_for_lead(-2 / 24)))
+    assert score_arms(str(db))["all"]["nws"] == pytest.approx((p - 1) ** 2)
