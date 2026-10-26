@@ -23,9 +23,15 @@ run "$BIN/sportsbot" allocation -c "$APP/config/sim.yaml" > "$OUT/allocation_sim
 # Forward test (pre-match recorder) and recorder health.
 [ -f "$APP/data/prematch.sqlite" ] && run "$BIN/python" -m sportsbot.signals.prematch --db "$APP/data/prematch.sqlite" --report > "$OUT/prematch_forward_test.json" 2>/dev/null || true
 
+# The other forward records and the Polymarket US tape (all read-only reads
+# of local databases; us-tape --verify also reads the public /bbo).
+[ -f "$APP/data/book_lines.sqlite" ] && run "$BIN/sportsbot" book-lines --report --db "$APP/data/book_lines.sqlite" > "$OUT/book_lines_report.txt" 2>&1 || true
+[ -f "$APP/data/fresh_watch.sqlite" ] && run "$BIN/sportsbot" fresh-watch --report --db "$APP/data/fresh_watch.sqlite" > "$OUT/fresh_watch_report.txt" 2>&1 || true
+run "$BIN/sportsbot" us-tape --status --verify --db "$APP/data/us_tape.sqlite" > "$OUT/us_tape.txt" 2>&1 || true
+
 # Service health and the last lines of each recorder's log.
 systemctl --no-pager --type=service --state=running | grep -E "sportsbot|weather" > "$OUT/services.txt" 2>&1 || true
-for u in sportsbot-prematch sportsbot-sim sportsbot-pilot sportsbot-pilot-pmus sportsbot-lip; do
+for u in sportsbot-prematch sportsbot-sim sportsbot-pilot sportsbot-pilot-pmus sportsbot-lip sportsbot-booklines sportsbot-freshwatch sportsbot-ustape; do
   journalctl -u "$u" -n 40 --no-pager > "$OUT/log_$u.txt" 2>/dev/null || true
 done
 

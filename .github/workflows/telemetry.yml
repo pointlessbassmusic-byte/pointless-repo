@@ -28,21 +28,42 @@ jobs:
           git fetch origin telemetry 2>/dev/null && git checkout telemetry || git checkout --orphan telemetry
           git config user.name telemetry-bot
           git config user.email telemetry@sportsbot
+      # Without both secrets there is no server to read: say so and skip
+      # instead of failing at the ssh step every night.
+      - name: secrets present
+        id: s
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          if [ -n "$HOST" ] && [ -n "$KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=telemetry skipped::SERVER_HOST / SERVER_SSH_KEY repository secrets are not set; nothing was exported"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: ssh key
+        if: steps.s.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
       - name: export on server and pull
+        if: steps.s.outputs.ok == 'true'
+        env:
+          H: ${{ secrets.SERVER_HOST }}
         run: |
-          H="${{ secrets.SERVER_HOST }}"
           ssh -i ~/.ssh/id_deploy -o BatchMode=yes root@"$H" "bash /opt/sportsbot/deploy/export_reports.sh"
           D="telemetry/$(date -u +%F)"
           rm -rf telemetry/latest && mkdir -p "$D" telemetry/latest
           scp -i ~/.ssh/id_deploy -r root@"$H":/opt/sportsbot/data/export/. "$D/"
           cp -r "$D"/. telemetry/latest/
       - name: commit
+        if: steps.s.outputs.ok == 'true'
         run: |
           git add telemetry
           git commit -m "telemetry $(date -u +%F)" || echo "nothing new"
