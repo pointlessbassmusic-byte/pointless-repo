@@ -77,7 +77,11 @@ CREATE INDEX IF NOT EXISTS prints_game ON prints(game_id, ts);
 SPORTS = ("hockey", "baseball", "basketball", "football", "college_football", "tennis")
 REFERENCES = ("pm", "kalshi")
 MATCH_START_TOLERANCE_H = 3.0     # same teams on another day is another game (playoff series)
-KALSHI_CLOSE_AFTER_START_H = 12.0  # Kalshi closes a game market a few hours after it starts
+# A Kalshi ticker with no start (NHL, NBA, tennis) is matched on its close,
+# symmetrically: tennis closes are the SCHEDULED time and sit at or up to 7 h
+# before the start the other venue lists (5 of 39 US tennis matches on Oct 25),
+# while the same names on another day are >= ~20 h away.
+KALSHI_CLOSE_WINDOW_H = 12.0
 EPS = 1e-9
 
 # Columns added after the first logs were written: (table, column, decl).
@@ -118,11 +122,17 @@ def match_main(sport: str, us_market, pm_markets) -> Optional[tuple]:
     return None
 
 
+def kalshi_close_matches(close_time, start_time) -> bool:
+    """A start-less Kalshi market is this game when it closes within
+    KALSHI_CLOSE_WINDOW_H of the game's start, on either side."""
+    return close_time is not None and abs(close_time - start_time) <= timedelta(hours=KALSHI_CLOSE_WINDOW_H)
+
+
 def match_kalshi(sport: str, us_market, k_markets) -> Optional[tuple]:
     """The Kalshi market for the same game: same two names, and its start
     within MATCH_START_TOLERANCE_H of the US start or, with no start (NHL,
-    NBA, tennis tickers), its close inside KALSHI_CLOSE_AFTER_START_H after
-    it. Returns (Kalshi MarketInfo, k_yes_is_us_long)."""
+    NBA, tennis tickers), `kalshi_close_matches`. Returns (Kalshi MarketInfo,
+    k_yes_is_us_long)."""
     names = frozenset((_key(sport, us_market.home), _key(sport, us_market.away)))
     if len(names) != 2 or us_market.start_time is None:
         return None
@@ -132,9 +142,7 @@ def match_kalshi(sport: str, us_market, k_markets) -> Optional[tuple]:
         if k.start_time is not None:
             if abs((k.start_time - us_market.start_time).total_seconds()) > MATCH_START_TOLERANCE_H * 3600:
                 continue
-        elif k.close_time is None or not (
-                timedelta(0) < k.close_time - us_market.start_time
-                <= timedelta(hours=KALSHI_CLOSE_AFTER_START_H)):
+        elif not kalshi_close_matches(k.close_time, us_market.start_time):
             continue
         return k, _key(sport, k.home) == _key(sport, us_market.home)
     return None

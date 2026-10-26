@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from sportsbot.bot.arb import find_bundle_arb, find_cross_venue_arb
+from sportsbot.bot.arb import find_bundle_arb, find_cross_venue_arb, match_cross_venue
 from sportsbot.bot.matching import match_entity, normalize, similarity
 from sportsbot.bot.risk import RiskConfig, RiskManager
 from sportsbot.bot.strategy import StrategyConfig, evaluate_market, walk_book
@@ -277,6 +277,19 @@ class TestArb:
                                    k_fee=NO_FEE)
         assert opp is not None
         assert opp.profit_per_pair == pytest.approx(0.10, abs=1e-6)
+
+    def test_cross_venue_match_needs_the_same_game_date(self):
+        """Name-only pairing joined different days' games in a series (the
+        two-book logger did this to the 2026 World Series, PR #102)."""
+        names = dict(home="Jannik Sinner", away="Carlos Alcaraz", question="Jannik Sinner vs Carlos Alcaraz")
+        pm = _market(**names)
+        today = _market(exchange=Exchange.KALSHI, market_id="KX-TODAY", start_time=None,
+                        close_time=pm.start_time + timedelta(hours=3), **names)
+        tomorrow = _market(exchange=Exchange.KALSHI, market_id="KX-TOMORROW", start_time=None,
+                           close_time=pm.start_time + timedelta(days=1, hours=3), **names)
+        untimed = _market(exchange=Exchange.KALSHI, market_id="KX-UNTIMED", start_time=None, **names)
+        assert [km.market_id for _, km, _ in match_cross_venue([pm], [tomorrow, untimed, today])] == ["KX-TODAY"]
+        assert match_cross_venue([pm], [tomorrow, untimed]) == []
 
 
 class TestKalshiFee:
