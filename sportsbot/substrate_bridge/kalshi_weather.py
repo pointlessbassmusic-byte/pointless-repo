@@ -34,6 +34,29 @@ DEFAULT_SERIES = [
     "KXHIGHMIA", "KXHIGHAUS", "KXHIGHPHIL",
 ]
 
+# Kalshi settles the daily highs on the NWS daily climate report (CLI), whose
+# day runs midnight to midnight local STANDARD time all year (no DST shift),
+# so a decision's lead is measured to that midnight at the settlement
+# station, never to UTC midnight (4-8 h early for these stations).
+STANDARD_UTC_OFFSET_H = {
+    "KXHIGHNY": -5, "KXHIGHPHIL": -5, "KXHIGHMIA": -5,
+    "KXHIGHCHI": -6, "KXHIGHAUS": -6, "KXHIGHDEN": -7, "KXHIGHLAX": -8,
+}
+
+
+def lead_days(series: str, target, decision_ts: float) -> Optional[float]:
+    """Days from `decision_ts` to the start of `target`'s climate day at the
+    series' settlement station (local standard midnight); None for a series
+    whose station offset is unknown."""
+    from datetime import datetime, timezone
+
+    off = STANDARD_UTC_OFFSET_H.get(series)
+    if off is None:
+        return None
+    day_start = datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc).timestamp() - off * 3600
+    return (day_start - decision_ts) / 86400.0
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS weather_snapshots (
     id INTEGER PRIMARY KEY,
@@ -232,12 +255,11 @@ class WeatherSnapshotService:
                 (series, parsed[0].isoformat(), first_ts + 1.0)).fetchone()
             if row is None:
                 return None
-            from datetime import datetime, timezone
-            lead_days = (datetime.combine(parsed[0], datetime.min.time(),
-                                          tzinfo=timezone.utc).timestamp()
-                         - first_ts) / 86400.0
+            lead = lead_days(series, parsed[0], first_ts)
+            if lead is None:
+                return None
             return prob_from_high(title, float(row["forecast_high"]),
-                                  sigma=sigma_for_lead(lead_days))
+                                  sigma=sigma_for_lead(lead))
         rows = self.conn.execute(
             """SELECT s.ticker, s.series, s.title, MIN(s.ts) AS first_ts,
                       s.close_ts, o.outcome, o.settled_ts
@@ -315,8 +337,9 @@ def score_arms(db_path: str = "data/weather_snapshots.sqlite") -> dict:
             (series, parsed[0].isoformat(), first_ts + 1.0)).fetchone()
         if row is None:
             return None
-        lead = (datetime.combine(parsed[0], datetime.min.time(),
-                                 tzinfo=timezone.utc).timestamp() - first_ts) / 86400.0
+        lead = lead_days(series, parsed[0], first_ts)
+        if lead is None:
+            return None
         return prob_from_high(title, float(row["forecast_high"]),
                               sigma=sigma_for_lead(lead))
 
