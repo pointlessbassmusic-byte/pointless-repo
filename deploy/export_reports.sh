@@ -21,7 +21,7 @@ run "$BIN/sportsbot" status -c "$APP/config/sim.yaml" > "$OUT/status_sim.txt" 2>
 run "$BIN/sportsbot" allocation -c "$APP/config/sim.yaml" > "$OUT/allocation_sim.txt" 2>&1 || true
 
 # Forward test (pre-match recorder) and recorder health.
-[ -f "$APP/data/prematch.sqlite" ] && run "$BIN/python" -m sportsbot.signals.prematch --db "$APP/data/prematch.sqlite" --report > "$OUT/prematch_forward_test.json" 2>/dev/null || true
+[ -f "$APP/data/prematch.sqlite" ] && run "$BIN/sportsbot" prematch --db "$APP/data/prematch.sqlite" > "$OUT/prematch_forward_test.json" 2>/dev/null || true
 
 # The other forward records and the Polymarket US tape (all read-only reads
 # of local databases; us-tape --verify also reads the public /bbo).
