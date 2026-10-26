@@ -148,7 +148,11 @@ def fetch(fetcher: Optional[Fetcher] = None, cache_dir: str = CACHE) -> list[dic
                 candles = {x.get("market_ticker"): x.get("candlesticks") or [] for x in data.get("markets") or []}
             for m in ms:
                 if not candles.get(m["ticker"]):
-                    data = f._get(f"{KALSHI}/historical/markets/{m['ticker']}/candlesticks", span) or {}
+                    try:
+                        data = f._get(f"{KALSHI}/historical/markets/{m['ticker']}/candlesticks", span) or {}
+                    except Exception as exc:  # noqa: BLE001 — a strike that never traded has no candles
+                        log.debug("no candles for %s: %s", m["ticker"], exc)
+                        data = {}
                     candles[m["ticker"]] = data.get("candlesticks") or []
             row = {"event_ticker": ev, "close": close,
                    "markets": [{"ticker": m["ticker"], "strike": m.get("floor_strike"),
