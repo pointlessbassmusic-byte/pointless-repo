@@ -626,6 +626,18 @@ def nfl_latency(days: int = typer.Option(45, help="resolved-market lookback"),
     console.print(nl.format_report(nl.run(games, tapes, plays), len(plays)))
 
 
+@app.command("nba-latency")
+def nba_latency(days: int = typer.Option(14, help="resolved-market lookback"),
+                max_games: int = typer.Option(200, help="highest-volume games kept")):
+    """NBA in-play taker vs ESPN's play-by-play stamps: buy the scorer's
+    side L s after each basket, marked 1-3 min later and to settlement. Data only."""
+    _setup("config/default.yaml")
+    from sportsbot.backtest import nba_latency as nb
+
+    games, tapes, plays = nb.collect(days=days, max_games=max_games)
+    console.print(nb.format_report(nb.taker_rows(games, tapes, plays), len(plays)))
+
+
 @app.command("kalshi-touch")
 def kalshi_touch(games: int = typer.Option(400, help="most recent settled KXMLBGAME games"),
                  sample: int = typer.Option(80_000, help="pre-start prints sampled")):
