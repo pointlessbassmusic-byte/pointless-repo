@@ -63,3 +63,27 @@ the top-quintile threshold, at $1.
 
 This is one model and one decision. It is the 18th rule variant this
 session has tried; the count is in the weekly status.
+
+## Amendment 1 (before any data): the scoring script
+
+`scripts/queue_fill_model.py` (tests `tests/test_queue_fill_model.py`)
+is the analysis, committed before `data/queue_forward.sqlite` exists. It
+fixes the details the text above leaves open:
+
+- Days are UTC calendar days. Day 0 is the UTC date of the first Kalshi
+  book sample. Days 0–6 are burn-in, and joins on day 30 or later are
+  outside the window.
+- **λ from the game itself** is used only when the game has at least
+  30 minutes of book before the join. "At or through the touch" means
+  the touch prevailing at each print (the last sample at or before it).
+  Otherwise λ is the sport's earlier-day through-size divided by its
+  observed touch-seconds (sample gaps capped at 90 s).
+- **τ** is the median completed lifetime of a touch price. A run cut by
+  a book gap over 90 s, or still alive at the last sample, is dropped.
+- **Fill threshold:** a join needs ⌈Q/s̄ + 1⌉ typical prints. A sport
+  with no earlier days uses all sports' earlier days; a join with
+  neither is not scored.
+- **Top quintile** is the ⌈20%⌉ highest predicted probabilities. Ties
+  keep their recording order.
+- **CLV** is net of the Kalshi maker fee, as in `scripts/queue_join.py`.
+  Intervals are game-clustered bootstraps, 2,000 draws, seed 19.
