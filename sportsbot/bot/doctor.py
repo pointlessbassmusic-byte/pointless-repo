@@ -312,6 +312,30 @@ def check_tape(cfg: dict) -> list[Check]:
                   f"recording: {st['slugs_subscribed']} slugs subscribed, {st['prints']} prints")]
 
 
+def check_tape_frame(cfg: dict, bbo=None) -> list[Check]:
+    """Polymarket US only, online: the tape's field names and YES price frame
+    confirmed against the venue's public last trade (`us-tape --verify`). A
+    live maker test on an unconfirmed frame would measure its fill share
+    against the wrong side: FAIL in live, WARN in paper. Silent when there is
+    no tape (check_tape already says so)."""
+    if cfg.get("exchange") != "polymarket_us":
+        return []
+    from sportsbot.exchanges.polymarket_us_tape import DEFAULT_DB, ENV_DB, TapeStore, verify
+
+    path = os.environ.get(ENV_DB) or DEFAULT_DB
+    if not os.path.exists(path):
+        return []
+    if bbo is None:
+        from sportsbot.exchanges.polymarket_us import PolymarketUSClient
+        bbo = PolymarketUSClient().get_bbo
+    res = verify(TapeStore(path), bbo)
+    if res["ok"]:
+        return [Check("tape.polymarket_us.frame", PASS,
+                      f"fields parse; {res['frame']['agree']} covered prints equal the venue's last trade")]
+    bad = FAIL if cfg.get("mode", "paper") == "live" else WARN
+    return [Check("tape.polymarket_us.frame", bad, "; ".join(res["problems"]) + " — sbot us-tape --verify")]
+
+
 # ---------------------------------------------------------------- network
 
 def _ping(url: str, timeout: float = 6.0):
@@ -399,7 +423,7 @@ def run_checks(cfg: dict, offline: bool = False) -> list[Check]:
     checks = (check_mode(cfg) + check_params(cfg) + check_storage(cfg)
               + check_ratings(cfg) + check_secrets(cfg) + check_tape(cfg))
     if not offline:
-        checks += check_network(cfg)
+        checks += check_tape_frame(cfg) + check_network(cfg)
     return checks
 
 

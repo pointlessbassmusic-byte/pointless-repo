@@ -290,3 +290,20 @@ def test_cli_verify_reads_the_tape_and_the_public_bbo_without_keys(tmp_path, mon
     monkeypatch.setattr(PolymarketUSClient, "get_bbo", lambda self, slug: {"last_px": 0.30})
     res = CliRunner().invoke(app, ["us-tape", "--verify"])
     assert res.exit_code == 0 and "us-tape verify: OK" in res.output
+
+
+def test_doctor_fails_a_live_us_config_until_the_tape_frame_is_confirmed(tmp_path, monkeypatch):
+    from sportsbot.bot.doctor import FAIL, PASS, WARN, check_tape_frame
+
+    monkeypatch.setenv(ust.ENV_DB, str(tmp_path / "tape.sqlite"))
+    live, paper = {"exchange": "polymarket_us", "mode": "live"}, {"exchange": "polymarket_us"}
+    assert check_tape_frame({"exchange": "kalshi"}) == []
+    assert check_tape_frame(live, bbo=_bbo({})) == []                  # no tape: check_tape reports it
+    now = datetime.now(timezone.utc)                                   # coverage reads the real clock
+    m = _trade(slug="a", px="0.300", t=(now - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    _tape_with(tmp_path, [m], [m], covered=("a",), now=now).conn.close()
+    (c,) = check_tape_frame(live, bbo=_bbo({"a": 0.70}))               # stored as 1 - p
+    assert c.level == FAIL and "not in YES terms" in c.detail
+    assert check_tape_frame(paper, bbo=_bbo({"a": 0.70}))[0].level == WARN
+    (c,) = check_tape_frame(live, bbo=_bbo({"a": 0.30}))
+    assert c.level == PASS and "1 covered prints" in c.detail
