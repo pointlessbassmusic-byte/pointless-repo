@@ -89,9 +89,11 @@ fill-share denominator (`tape_through`) read that file. A window it does
 not cover is a `TapeGap`, and the order then carries no shadow rather
 than a zero. Without the recorder the read-out reports live fills and CLV
 per fill with no shadow. The handshake was checked against the live
-endpoint with a dummy key (401 "API key not found"). The first session
-with a real key should read `raw_samples` in the tape file to confirm the
-documented field names and the YES price frame. (2) Order prices are always in YES terms (buying
+endpoint with a dummy key (401 "API key not found"). With a real key,
+`sportsbot us-tape --verify` (2026-10-25) confirms the documented field
+names and the YES price frame: every sampled trade must parse with a known
+taker intent, and a print on a slug the tape has covered without a gap must
+equal the public `/bbo` last trade, not 1 − p. (2) Order prices are always in YES terms (buying
 NO at 0.40 is sent as a short at 0.60) and `participateDontInitiate` makes
 every maker order post-only; confirm both on the first order by hand, as
 step 4 below says.
@@ -168,7 +170,12 @@ polymarket_us` and a scratch store. Results:
   0.0025, NHL 0.01). Every listed moneyline has `minimumTradeQty` 0.01,
   so the 2-decimal quantity a $1 stake gives is accepted.
 - **Doctor:** in paper, WARN only (keys, tape). On a live copy without
-  `SPORTSBOT_LIVE`: FAIL on both keys and on the missing tape.
+  `SPORTSBOT_LIVE`: FAIL on both keys and on the missing tape. Rerun
+  2026-10-26 on a live Polymarket US copy: the FAILs are exactly the
+  operator's steps (both keys, the tape, `live.funded`) plus the
+  `SPORTSBOT_LIVE` WARN; every code-side check passes. Since then an
+  online doctor also runs `tape.polymarket_us.frame` (the `--verify`
+  check): FAIL in live until a covered print confirms the YES frame.
 
 The rehearsal found one measurement bug. With no tape recorded, every
 order's shadow read `tape_through: 0.0`, a guess that a live run would
@@ -232,10 +239,13 @@ preflight and exits non-zero on any FAIL.
    Windows PC.)
 3. **Start the tape first** (Polymarket US only). Once the US keys are
    in, `keys.sh` restarts `sportsbot-ustape`. Check it with
-   `sudo -u sportsbot .venv/bin/sportsbot us-tape --status`. The doctor
-   FAILs a live `polymarket_us` config whose tape is missing or silent,
-   because the test would then measure nothing. Let the recorder run a
-   few minutes before the first order: an order placed before a market's
+   `sudo -u sportsbot .venv/bin/sportsbot us-tape --status`. After an hour
+   or so of games, run `... sportsbot us-tape --verify`: it must end
+   `us-tape verify: OK` (fields parse, prints are in YES terms). The
+   doctor FAILs a live `polymarket_us` config whose tape is missing,
+   silent or unverified, because the test would then measure nothing or
+   measure it against the wrong side. Let the recorder run a few minutes
+   before the first order: an order placed before a market's
    subscription has no shadow.
 4. **Go live** with a passing preflight and a typed confirmation:
    ```bash

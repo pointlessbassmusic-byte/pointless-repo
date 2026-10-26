@@ -2318,3 +2318,58 @@ games on ESPN and both venues.
 
 Rerun: `sportsbot espn-lines --days 400` (resumable, about 25 minutes on a
 fresh cache), then `sportsbot espn-lines --report`.
+
+## Result 27 (Polymarket NBA in-play): the book prices a basket in 2–3 seconds; a feed-driven taker loses
+
+_2026-10-25. `sportsbot/backtest/nba_latency.py` (`sportsbot nba-latency`).
+The NBA counterpart of Results 23 and 25, and the last unmeasured league in
+candidate-queue item 4._
+
+**Method.** Every resolved Polymarket NBA moneyline from 2026-10-12 to 10-25
+was used: 66 games, including the last of the preseason. All 66 matched
+their ESPN event on both nicknames and the nearest tip-off.
+- ESPN's NBA summary is a flat play list stamped with `wallclock`. Every
+  made basket or free throw counts as a scoring play: 6,548 in total.
+- On hand-checked late-game plays the price jumps 2–3 s after the stamp, so
+  the stamp is the basket itself.
+- **Results 23/25's rule does not carry over.** That rule kept plays whose
+  price moved >= 4c toward the scorer over the next 1–4 minutes. A team
+  scores every ~20 s, so the filter selects the scorer's *future* run. On
+  this data it read +3c to +6c per $1 at every lag up to 30 s, which is
+  look-ahead, not edge.
+- Every scoring play is scored instead, with no filter on what came next.
+  A taker buys the scorer's side at the first scoring-side print at or
+  after stamp + L, paying the 0.03 taker fee. The position is marked two
+  ways: the median print 60–180 s later, and settlement.
+- `late_mid` (4th quarter or OT, pre-play price 0.15–0.85) was fixed
+  before the subset was scored and uses only what is known at the decision.
+
+**Result.** Per $1, net of fee, 95% CI clustered by game:
+
+| | stamp + 0 s | + 2 s | + 5 s | + 10 s | + 20 s |
+|---|---|---|---|---|---|
+| all (n ≈ 6,500), markout | +0.75c [+0.57, +0.95] | +0.51c [+0.34, +0.69] | −0.09c [−0.26, +0.09] | −0.43c [−0.58, −0.26] | −0.46c [−0.60, −0.31] |
+| all, to settlement | +0.74c [+0.28, +1.21] | +0.52c [+0.04, +0.99] | −0.08c [−0.57, +0.42] | −0.46c [−0.96, +0.04] | −0.53c [−1.00, −0.06] |
+| late_mid (n 597), markout | +3.30c [+2.26, +4.53] | +2.44c [+1.38, +3.67] | +0.53c [−0.48, +1.75] | −0.11c [−1.04, +0.98] | +0.22c [−0.63, +1.24] |
+| late_mid, to settlement | +5.07c [+2.40, +8.10] | +4.22c [+1.53, +7.23] | +2.33c [−0.35, +5.36] | +1.65c [−1.14, +4.76] | +1.89c [−0.91, +4.99] |
+
+**Reading.**
+1. **The fastest of the three leagues.** The basket is priced 2–3 s after
+   it falls, against 6 s from the pitch in MLB and 10 s from the snap in
+   the NFL. Most of the move is gone by +5 s.
+2. **Only arena-speed information is paid.** The positive cells are 0–2 s
+   after the basket. No one outside the building has the score that soon:
+   broadcasts run several seconds behind, and ESPN's public feed later
+   still. By +10 s the full-sample taker loses net of the fee.
+3. **The late_mid settlement cells at +5 to +20 s are not a signal.** They
+   are positive in mean, their CIs span zero, and they rest on 597 plays in
+   66 games, where settlement noise dominates. The markout on the same
+   plays is ≈ 0. A subset that "nearly" passes is noise until a
+   registered test says otherwise.
+4. **Results 23 and 25 stand.** Their 4c filter biases toward the taker.
+   Scoring plays are sparse in baseball and football, so the bias there is
+   small, and both still came out negative.
+5. **Candidate-queue item 4 is closed for all three leagues.** Write no
+   in-play taker code for MLB, the NFL or the NBA.
+
+**What changes.** Nothing trades. CLAUDE.md and the plan record it.

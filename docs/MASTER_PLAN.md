@@ -502,6 +502,11 @@ Pipeline per cycle:
       **First fire 2026-10-22 (two_venue):** ECB Oct 29 hold, Kalshi ask 0.970 / Polymarket
       ask 0.966 at 7.0 days, +2.9% / +3.5% if it pays. BoC and RBNZ Oct are inside the
       window but contested (hike-25 at 0.82/0.83 and 0.77/0.80), so they do not fire.
+      2026-10-23: BoJ Oct 30 hold fired (two_venue), Kalshi ask 0.960 / Polymarket ask 0.970
+      at 6.5 days, +3.9% / +3.1% if it pays.
+      2026-10-24: RBNZ Oct 27 hike-25 fired (two_venue), Kalshi ask 0.92 / Polymarket ask
+      0.94 at 3.5 days, +8.1% / +6.4% if it pays. First fire on a move rather than a hold,
+      and the thinnest margin so far: one surprise costs ~12 wins at these prices.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
@@ -602,9 +607,10 @@ item names the measurement that would move it, and the standing rules apply
    −0.16c [−0.53, +0.20] per $1, and it is negative by 5–30 s. In-play is a
    maker game at best; write no in-play taker code. **Closed for the NFL
    too, 2026-10-19 (Result 25):** half the move prints 10 s after the
-   snap, and a taker at snap + 20 s nets −0.32c, worse later. NBA is
-   unmeasured (`sportsbot score-latency` / `nfl-latency` are the
-   templates).
+   snap, and a taker at snap + 20 s nets −0.32c, worse later. **Closed for
+   the NBA, 2026-10-25 (Result 27):** a basket is priced 2–3 s after it
+   falls; a taker at +0–2 s nets +0.5–0.75c, at +10 s −0.43c. Item closed
+   for all three leagues.
 5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
    October, see the roadmap item above ($101/24h series volume this year).
 6. **Weather arm**: stays excluded (beats climatology, loses to the market,
