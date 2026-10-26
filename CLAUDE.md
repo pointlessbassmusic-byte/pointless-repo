@@ -215,11 +215,15 @@ Reference implementation and regression tests:
   that is how its own settled record gets built — but treat a weather signal
   as unproven until that record exists, and see the `pre-live-gate` skill
   before any of it meets real money.
-- Lead time in `substrate_bridge/kalshi_weather.py` still counts from the
-  target date's **UTC** midnight (two call sites), which runs 4-8h short for
-  US stations. Small next to that module's 0.55/day ramp and it only feeds
-  offline scoring, not orders — but it is the same mistake as the first bullet
-  and should go when that module is next touched.
+- Lead time in `substrate_bridge/kalshi_weather.py` counted from the target
+  date's **UTC** midnight (two call sites), 4-8h short for US stations. Fixed
+  2026-10-26: `lead_days` measures to the settlement station's local
+  **standard** midnight (`STANDARD_UTC_OFFSET_H`; the NWS CLI climate day
+  ignores DST), and a series with no offset gets no NWS probability. On the
+  684 scored rows it moved `weather-score`'s NWS Brier 0.15172 -> 0.15167.
+  The daily NWS cohort (`substrate/reports/weather_nws_cohort_*.csv`) is
+  pre-registered under the old rule and stays on it: re-scoring it is the
+  v2 cohort question, which needs the user's go-ahead.
 
 ## What resolved data says about edges (repo-wide)
 

@@ -38,13 +38,36 @@ jobs:
           else
             echo "branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
           fi
+      # Without both secrets there is nothing to deploy to: say so and skip
+      # (the server still updates itself daily via deploy/update.sh) instead
+      # of failing at the ssh step on every merge.
+      - name: secrets present
+        id: s
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          if [ -n "$HOST" ] && [ -n "$KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=deploy skipped::SERVER_HOST / SERVER_SSH_KEY repository secrets are not set; the server updates itself via deploy/update.sh"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: ssh key
+        if: steps.s.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
       - name: update server
+        if: steps.s.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          BRANCH: ${{ steps.b.outputs.branch }}
         run: |
-          ssh -i ~/.ssh/id_deploy -o BatchMode=yes root@"${{ secrets.SERVER_HOST }}" \
-            "bash /opt/sportsbot/deploy/update_sportsbot.sh '${{ steps.b.outputs.branch }}' 2>&1 | tail -80"
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes root@"$HOST" \
+            "bash /opt/sportsbot/deploy/update_sportsbot.sh '$BRANCH' 2>&1 | tail -80"

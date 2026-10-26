@@ -13,7 +13,8 @@ venv/
 *.pem
 *.key
 config/local.yaml
-config/*.local.yaml        # operator copies (live test config, its allocation file)
+# operator copies (live test config, its allocation file); gitignore has no trailing comments
+config/*.local.yaml
 secrets/
 
 # Data and runtime state
