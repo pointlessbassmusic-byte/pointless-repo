@@ -914,6 +914,32 @@ def book_lines(hours: float = typer.Option(0.0, help="how long to record; 0 = un
     bkl.Recorder(db).run(hours=hours, poll=poll)
 
 
+@app.command("prematch")
+def prematch(db: str = typer.Option("data/prematch.sqlite", help="the recorder's database"),
+             report: bool = typer.Option(True, "--report/--no-report",
+                                         help="print the pre-registered T-30 forward test")):
+    """Pre-registered forward test on the pre-match recorder's quotes
+    (docs/PREMATCH_FORWARD_PREREG_2026-10-12.md: NO on Polymarket US tennis
+    longshots at T-30). Read-only; the recorder itself runs as
+    `sportsbot-prematch.service` (`python -m sportsbot.signals.prematch`)."""
+    import json
+    import os
+    import sqlite3
+
+    from sportsbot.signals.prematch import forward_test
+
+    if not report:
+        console.print("nothing to do: the recorder runs as sportsbot-prematch.service")
+        return
+    if not os.path.exists(db):
+        # never create an empty file at a mistyped path
+        console.print(f"no record at {db}")
+        return
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    console.print(json.dumps(forward_test(conn), indent=1), soft_wrap=True)
+
+
 @app.command("espn-lines")
 def espn_lines(days: int = typer.Option(400, help="resolved games whose start fell in the last N days"),
                sports: str = typer.Option("nfl,nba,nhl,mlb"),

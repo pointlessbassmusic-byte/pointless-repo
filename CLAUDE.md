@@ -142,6 +142,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - US sportsbook close vs Polymarket (NFL/NBA/NHL/MLB, DraftKings via ESPN, keyless):
   `sportsbot espn-lines` then `--report` (network; Result 26); its forward
   record: `sportsbot book-lines [--report]` (public reads, no keys).
+- Pre-match forward test (NO on Polymarket US tennis longshots at T-30,
+  `docs/PREMATCH_FORWARD_PREREG_2026-10-12.md`): `sportsbot prematch
+  [--db data/prematch.sqlite]` prints the read-only report; the recorder runs
+  as `sportsbot-prematch.service`.
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Polymarket US tape: `sportsbot us-tape` (needs the US keys; data only),
