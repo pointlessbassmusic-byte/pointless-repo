@@ -32,6 +32,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
+from sportsbot.substrate_bridge.queue_study import MATCH_START_TOLERANCE_H, kalshi_close_matches
+
 log = logging.getLogger(__name__)
 
 SCHEMA = """
@@ -82,10 +84,23 @@ class Pair:
     pm_yes_is_kalshi_yes: bool
 
 
+def same_game(k, p) -> bool:
+    """Same two names on another day is another game (every MLB series, the
+    World Series). Starts must agree within MATCH_START_TOLERANCE_H; a Kalshi
+    ticker with no start must pass `kalshi_close_matches` against
+    Polymarket's start. No times, no match."""
+    if p.start_time is None:
+        return False
+    if k.start_time is not None:
+        return abs((k.start_time - p.start_time).total_seconds()) <= MATCH_START_TOLERANCE_H * 3600
+    return kalshi_close_matches(k.close_time, p.start_time)
+
+
 def match_pairs(sport: str, kalshi_markets, pm_markets, max_pairs: int = 40) -> list[Pair]:
-    """Match open moneylines across venues by the set of competitor names.
-    Both inputs are MarketInfo lists (home = the YES side on each venue).
-    Polymarket candidates are taken highest-volume first."""
+    """Match open moneylines across venues by the set of competitor names and
+    the game's date (`same_game`). Both inputs are MarketInfo lists (home =
+    the YES side on each venue). Polymarket candidates are taken
+    highest-volume first."""
     by_names: dict[frozenset, list] = defaultdict(list)
     for k in kalshi_markets:
         if not k.home or not k.away:
@@ -99,7 +114,7 @@ def match_pairs(sport: str, kalshi_markets, pm_markets, max_pairs: int = 40) -> 
         if len(key) != 2:
             continue
         for k in by_names.get(key, []):
-            if k.market_id in used:
+            if k.market_id in used or not same_game(k, p):
                 continue
             used.add(k.market_id)
             out.append(Pair(

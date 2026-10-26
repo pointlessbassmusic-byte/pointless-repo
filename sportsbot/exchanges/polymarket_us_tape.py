@@ -26,7 +26,10 @@ executor's tape shadow). With it:
 * The first raw trade messages are kept (`raw_samples`) so the first session
   with keys can check the field names and the price frame against the docs.
   The docs show camelCase with string enums on one page and snake_case on
-  another; the parser accepts both.
+  another; the parser accepts both. `verify` (CLI `us-tape --verify`) does
+  that check: every sampled trade must parse with a known taker intent, and
+  each slug's latest print must equal the venue's public last trade (`/bbo`,
+  long frame), not 1 - p.
 
 DATA ONLY: it reads, it never places orders. It needs POLYMARKET_US_KEY_ID /
 POLYMARKET_US_SECRET_KEY, and without them the CLI exits cleanly.
@@ -177,6 +180,81 @@ class TapeStore:
         return {"prints": n, "slugs_with_prints": slugs, "slugs_subscribed": subs,
                 "sessions": last[1], "last_seen": last[0],
                 "alive": bool(last[0]) and self.clock() - last[0] <= COVERAGE_GRACE_S}
+
+
+FRAME_MIN_SKEW = 0.02   # within this of 0.5 a price cannot tell YES from 1 - YES
+FRAME_PX_TOL = 0.0005
+
+
+def verify(store: TapeStore, bbo: Callable[[str], dict], max_slugs: int = 40) -> dict:
+    """The first keyed session's check, without reading raw JSON by hand.
+
+    Fields: every sampled trade message must parse, and every taker intent
+    must be one TAKER_SIDE knows. Frame: when the tape has covered a slug
+    without a gap from its latest recorded print until now, that print IS the
+    venue's last trade, so it must equal the public `/bbo` `lastTradePx`
+    (long frame), not 1 - p. (`/bbo`'s `lastPriceSample.ts` is a sampling
+    clock that advances with no trade — 15 of 17 markets on Oct 25 — so it
+    cannot identify a trade.) `ok` needs at least one confirming print and no
+    problem."""
+    trades = parsed = 0
+    unparsed: set[str] = set()
+    intents: set[str] = set()
+    for (body,) in store.conn.execute("SELECT body FROM raw_samples").fetchall():
+        try:
+            msg = json.loads(body)
+        except (TypeError, ValueError):
+            continue                     # a sample cut at 4,000 chars is not a field problem
+        t = msg.get("trade") if isinstance(msg, dict) else None
+        if not isinstance(t, dict):
+            continue
+        trades += 1
+        if parse_trade(msg) is None:
+            unparsed.update(t.keys())
+        else:
+            parsed += 1
+        taker = _get(t, "taker")
+        intent = _get(taker, "intent") if isinstance(taker, dict) else None
+        if intent is not None and str(intent) not in TAKER_SIDE:
+            intents.add(str(intent))
+    frame = {"agree": 0, "flipped": 0, "other_trade": 0, "not_covered": 0, "near_half": 0}
+    latest = store.conn.execute(
+        "SELECT slug, MAX(ts), price_yes FROM prints GROUP BY slug ORDER BY MAX(ts) DESC LIMIT ?",
+        (max_slugs,)).fetchall()
+    for slug, ts, px in latest:
+        if not store.covered(slug, ts):
+            frame["not_covered"] += 1
+            continue
+        try:
+            last_px = (bbo(slug) or {}).get("last_px")
+        except Exception:  # noqa: BLE001 — one unreadable market is a non-match, not a crash
+            last_px = None
+        if last_px is None:
+            frame["not_covered"] += 1
+        elif abs(px - 0.5) < FRAME_MIN_SKEW:
+            frame["near_half"] += 1
+        elif abs(px - last_px) <= FRAME_PX_TOL:
+            frame["agree"] += 1
+        elif abs((1.0 - px) - last_px) <= FRAME_PX_TOL:
+            frame["flipped"] += 1
+        else:
+            frame["other_trade"] += 1    # e.g. a print between the recorder's write and this read
+    problems = []
+    if trades == 0:
+        problems.append("no trade message recorded yet")
+    if parsed < trades:
+        problems.append(f"{trades - parsed} of {trades} trade messages did not parse; "
+                        f"fields seen: {', '.join(sorted(unparsed))}")
+    if intents:
+        problems.append(f"unknown taker intents: {', '.join(sorted(intents))}")
+    if frame["flipped"]:
+        problems.append(f"{frame['flipped']} prints match the venue's last trade as 1 - p: "
+                        "the tape is not in YES terms")
+    if trades and not frame["agree"]:
+        problems.append("price frame unconfirmed: no covered print matched the venue's last trade yet "
+                        "(run it while the recorder is live)")
+    return {"ok": not problems, "trade_samples": trades, "parsed": parsed, "frame": frame,
+            "slugs_checked": len(latest), "problems": problems}
 
 
 def default_store() -> Optional[TapeStore]:

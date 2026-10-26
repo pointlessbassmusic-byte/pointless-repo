@@ -53,3 +53,6 @@ arb-scanner/data/
 maker/data/
 cryptoarb/data/
 !sportsbot/data/
+
+# operator copies (never committed)
+config/allocation.local.yaml

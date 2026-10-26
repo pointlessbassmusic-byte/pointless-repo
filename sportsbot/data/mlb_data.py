@@ -68,13 +68,44 @@ def http_headers() -> dict[str, str]:
             "Accept-Language": "en-US,en;q=0.9"}
 
 
+# The browser-like headers did not end the 406s from the Linode (2026-10-20: still 406 Not Acceptable from the
+# server while the same request from another network returned 200 with any headers), so a 406 now walks a short list
+# of alternatives and keeps the first that answers 200 for the rest of the client's life: the CDN's verdict depends
+# on the request's headers or scheme, and which one a host gets is not knowable from here. SPORTSBOT_STATSAPI_BASE
+# overrides the base URL outright.
+FALLBACKS: tuple[tuple[str, dict[str, str] | None], ...] = (
+    ("https://statsapi.mlb.com/api/v1", {"User-Agent": "curl/8.5.0", "Accept": "*/*"}),
+    ("https://statsapi.mlb.com/api/v1", None),            # httpx's own default headers
+    ("http://statsapi.mlb.com/api/v1", {"User-Agent": "curl/8.5.0", "Accept": "*/*"}),
+)
+
+
 class MLBStatsClient:
-    def __init__(self, timeout: float = 30.0) -> None:
-        self.http = httpx.Client(timeout=timeout, headers=http_headers())
+    def __init__(self, timeout: float = 30.0, transport: httpx.BaseTransport | None = None) -> None:
+        self.timeout = timeout
+        self.transport = transport
+        self.base = os.environ.get("SPORTSBOT_STATSAPI_BASE") or BASE
+        self.http = httpx.Client(timeout=timeout, headers=http_headers(), transport=transport)
+
+    def _client(self, headers: dict[str, str] | None) -> httpx.Client:
+        kw: dict = {"timeout": self.timeout, "transport": self.transport}
+        if headers is not None:
+            kw["headers"] = headers
+        return httpx.Client(**kw)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, max=8), reraise=True)
     def _get(self, path: str, params: dict | None = None) -> dict:
-        resp = self.http.get(f"{BASE}{path}", params=params)
+        resp = self.http.get(f"{self.base}{path}", params=params)
+        if resp.status_code == 406:
+            for base, headers in FALLBACKS:
+                client = self._client(headers)
+                alt = client.get(f"{base}{path}", params=params)
+                if alt.status_code == 200:
+                    log.warning("MLB Stats API: 406 with the default request; %s with %s headers answers 200, using it",
+                                base, "default httpx" if headers is None else headers.get("User-Agent"))
+                    self.http, self.base = client, base
+                    return alt.json()
+                client.close()
         resp.raise_for_status()
         return resp.json()
 

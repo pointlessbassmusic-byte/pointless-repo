@@ -212,3 +212,81 @@ def test_a_reader_sees_the_recorders_writes_on_the_same_file(tmp_path):
     writer.add("nhl-a-b", ust.parse_trade(_trade())[1])
     writer.commit()
     assert reader.status()["prints"] == 1
+
+
+def _tape_with(path, samples, prints, covered=(), now=None):
+    """A tape whose live session has covered `covered` since an hour before
+    the prints, with the clock 30 s after them (`now`, default T)."""
+    now = now or datetime(2026, 10, 26, 20, 0, 30, tzinfo=timezone.utc)
+    clock = Clock()
+    clock.t = (now - timedelta(hours=1)).timestamp()
+    store = ust.TapeStore(str(path / "tape.sqlite"), clock=clock)
+    sid = store.open_session()
+    store.subscribed(sid, list(covered))
+    for m in samples:
+        store.sample(json.dumps(m))
+    for m in prints:
+        store.add(*ust.parse_trade(m))
+    clock.t = now.timestamp()
+    store.touch(sid)
+    store.commit()
+    return store
+
+
+def _bbo(last):
+    """slug -> the public /bbo lastTradePx (long frame)."""
+    return lambda slug: {"last_px": last.get(slug)}
+
+
+T = "2026-10-26T20:00:00Z"
+
+
+def test_verify_passes_when_fields_parse_and_covered_prints_equal_the_last_trade(tmp_path):
+    msgs = [_trade(slug="a", px="0.300", t=T, tid="1"), _trade(slug="b", px="0.700", t=T, tid="2")]
+    res = ust.verify(_tape_with(tmp_path, msgs, msgs, covered=("a", "b")), _bbo({"a": 0.30, "b": 0.70}))
+    assert res["ok"] and res["frame"]["agree"] == 2 and res["parsed"] == res["trade_samples"] == 2
+
+
+def test_verify_flags_a_flipped_frame_unknown_fields_and_intents(tmp_path):
+    good = _trade(slug="a", px="0.300", t=T, intent="ORDER_INTENT_SOMETHING_NEW")
+    renamed = {"trade": {"slugOfMarket": "a", "px_value": "0.3", "qty": "1", "tradeTime": T}}
+    res = ust.verify(_tape_with(tmp_path, [good, renamed], [good], covered=("a",)), _bbo({"a": 0.70}))
+    assert not res["ok"] and res["frame"]["flipped"] == 1
+    text = " ".join(res["problems"])
+    assert "1 of 2 trade messages did not parse" in text and "slugOfMarket" in text
+    assert "ORDER_INTENT_SOMETHING_NEW" in text and "not in YES terms" in text
+
+
+def test_verify_only_trusts_covered_prints_away_from_one_half(tmp_path):
+    near = _trade(slug="c", px="0.505", t=T)
+    res = ust.verify(_tape_with(tmp_path, [near], [near], covered=("c",)), _bbo({"c": 0.495}))
+    assert not res["ok"] and res["frame"]["near_half"] == 1 and "unconfirmed" in " ".join(res["problems"])
+    other = tmp_path / "other"
+    other.mkdir()
+    gap = _trade(slug="d", px="0.2", t=T)                    # never subscribed: its last print may be stale
+    res = ust.verify(_tape_with(other, [gap], [gap]), _bbo({"d": 0.8}))
+    assert res["frame"]["not_covered"] == 1 and res["frame"]["flipped"] == 0 and not res["ok"]
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    res = ust.verify(_tape_with(empty, [], []), _bbo({}))
+    assert not res["ok"] and res["problems"] == ["no trade message recorded yet"]
+
+
+def test_cli_verify_reads_the_tape_and_the_public_bbo_without_keys(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from sportsbot.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    for k in ("POLYMARKET_US_KEY_ID", "POLYMARKET_US_SECRET_KEY", ust.ENV_DB):
+        monkeypatch.delenv(k, raising=False)
+    res = CliRunner().invoke(app, ["us-tape", "--verify"])
+    assert res.exit_code == 0 and "no tape" in res.output
+    (tmp_path / "data").mkdir()
+    now = datetime.now(timezone.utc)                         # the CLI reads coverage on the real clock
+    m = _trade(slug="a", px="0.300", t=(now - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    _tape_with(tmp_path / "data", [m], [m], covered=("a",), now=now).conn.close()
+    (tmp_path / "data" / "tape.sqlite").rename(tmp_path / "data" / "us_tape.sqlite")
+    monkeypatch.setattr(PolymarketUSClient, "get_bbo", lambda self, slug: {"last_px": 0.30})
+    res = CliRunner().invoke(app, ["us-tape", "--verify"])
+    assert res.exit_code == 0 and "us-tape verify: OK" in res.output

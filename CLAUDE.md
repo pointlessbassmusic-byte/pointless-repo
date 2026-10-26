@@ -144,7 +144,8 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Polymarket US tape: `sportsbot us-tape` (needs the US keys; data only),
-  `sportsbot us-tape --status`.
+  `sportsbot us-tape --status`, `sportsbot us-tape --verify` (first keyed
+  session: field names + YES price frame vs the public `/bbo` last trade).
 - Venue queue study: `sportsbot queue-log` (public reads, no keys) then
   `sportsbot queue-report` (offline).
 - Operator: `sportsbot digest [--post]` (daily lines, Discord webhook via
