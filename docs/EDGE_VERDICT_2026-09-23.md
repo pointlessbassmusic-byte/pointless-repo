@@ -2373,3 +2373,53 @@ their ESPN event on both nicknames and the nearest tip-off.
    in-play taker code for MLB, the NFL or the NBA.
 
 **What changes.** Nothing trades. CLAUDE.md and the plan record it.
+
+## Result 28 (Kalshi daily AAA gas ladder): the book already knows tomorrow's print; yesterday's is not a reference
+
+_2026-10-26. Pre-registered in `docs/GAS_DAILY_PREREG_2026-10-26.md`
+(commit 1749d88) before any price was scored.
+`kalshi-engine/src/gas_daily_study.py`
+(`python -m src.gas_daily_study`, then `--analyse`)._
+
+**Question.** KXAAAGASD lists a daily ladder of half-cent strikes on AAA's US
+regular average. Each ladder stops trading at midnight ET, before AAA
+publishes that day's figure, so every trader knows yesterday's print. Does
+the book misprice the one-day change?
+
+**Data.**
+- 215 consecutive daily events, 2026-03-26 to 10-26, with no gaps.
+- Each market's settled `expiration_value` gives the AAA series.
+- Daily changes have a mean of +0.14¢ and an sd of 2.1¢.
+- 986 two-sided strike quotes, taken at close − 2 h (about 22:00 ET the
+  evening before).
+
+**Model (fixed in advance).**
+- Yesterday's print, plus the mean of the last 5 daily changes.
+- A normal error with the residual sd of the prior 60 days (median 1.9¢).
+- Its errors are calibrated on the 189 priceable days: standardised mean
+  0.05, sd 1.08.
+
+**Result.** 189 events. Taker trades buy at the ask (or NO at 1 − bid)
+when the edge is ≥ 0.05, net of Kalshi's fee, errors clustered by event.
+
+| | Brier model | Brier book | diff (95% CI) | taker trades | mean net / contract | t | halves |
+|---|---|---|---|---|---|---|---|
+| primary (5-day drift) | 0.2454 | 0.0869 | +0.1585 ± 0.0274 | 784 | −5.98c | −4.9 | −5.9c / −6.1c |
+| secondary (zero drift) | 0.2400 | 0.0869 | +0.1531 ± 0.0254 | 774 | −3.46c | −2.6 | −3.5c / −3.4c |
+
+**Verdict: FAIL.** Every leg of the pre-registered bar fails.
+
+**Reading.**
+1. **The book is the sharper source.** It scores a third of the model's
+   Brier, and that is the book's own skill: the model's errors are
+   calibrated. By 22:00 ET the crowd is already pricing tomorrow's figure
+   from that day's pump prices. A print published once a day lags those
+   live prices, so it cannot lead the book.
+2. **Same class as weather.** A public number with a faster live
+   underlying than the scheduled print is a reverse-class market. The
+   eighth measured non-member of the reference class.
+3. **A trade against the book's disagreement loses 6c per contract.** The
+   disagreement is the book's information, not its error.
+
+**What changes.** Nothing trades. The ledger, CLAUDE.md and the plan record
+it.

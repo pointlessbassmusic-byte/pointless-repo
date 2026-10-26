@@ -126,6 +126,13 @@
       "verdict": "INCONCLUSIVE",
       "result": "Behind a real queue (median 988 contracts) a $1 order filled 17 of 1,634 joins (1.0%) at -0.19c [-1.01, +0.04] net; first-at-new-price 8 of 56 at +0.14c; front-of-queue bound +0.28c [+0.12, +0.44]. 5 games with fills < 15. The touch edge belongs to whoever is first in line, not a new $1 order.",
       "doc": "docs/QUEUE_ADJUSTED_TOUCH_RESULT_2026-10-19.md"
+    },
+    {
+      "date": "2026-10-26",
+      "test": "Kalshi daily AAA gas ladder (KXAAAGASD) vs yesterday's AAA print + 5-day drift (pre-registered, docs/GAS_DAILY_PREREG_2026-10-26.md)",
+      "verdict": "FAIL",
+      "result": "189 events, 986 two-sided strikes at close - 2 h: model Brier 0.2454 vs book 0.0869 (diff +0.159 +- 0.027) with calibrated model errors (z sd 1.08); taker at edge >= 0.05: 784 trades, -5.98c/contract net (t -4.9), both halves negative. The book prices tomorrow's print from live pump prices; yesterday's is not a reference.",
+      "doc": "docs/EDGE_VERDICT_2026-09-23.md"
     }
   ]
 }

@@ -10,6 +10,12 @@ set -e
 umask 077
 B=/opt/sportsbot; ENV=$B/.env; PEM=$B/secrets/kalshi.pem; DEP=${1:-100}
 cd $B
+if [ ! -f $B/deploy/maker_local.sh ]; then
+  # This script is fetched from main; a checkout from before the helper
+  # existed must pull first. Its old in-place edit is re-applied below.
+  sudo -u sportsbot git -C $B checkout -- config/maker_test.yaml 2>/dev/null || true
+  bash $B/deploy/update.sh
+fi
 . $B/deploy/maker_local.sh
 [ -f "$MAKER_LOCAL" ] || maker_local_config "$DEP"            # carries old hand edits out of the tracked file
 bash $B/deploy/update.sh

@@ -611,6 +611,9 @@ item names the measurement that would move it, and the standing rules apply
    the NBA, 2026-10-25 (Result 27):** a basket is priced 2–3 s after it
    falls; a taker at +0–2 s nets +0.5–0.75c, at +10 s −0.43c. Item closed
    for all three leagues.
+4b. **Kalshi daily AAA gas ladder, 2026-10-26 (Result 28, pre-registered): FAIL.**
+   Yesterday's print plus drift scores Brier 0.245 to the book's 0.087 on 189
+   days; the taker side loses 6c per contract. Reverse class, like weather.
 5. **Game-vs-series consistency monitor** (MLB postseason): deferred to next
    October, see the roadmap item above ($101/24h series volume this year).
 6. **Weather arm**: stays excluded (beats climatology, loses to the market,
