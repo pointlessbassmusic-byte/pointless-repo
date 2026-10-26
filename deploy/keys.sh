@@ -37,16 +37,11 @@ if [ -n "$ODDS" ]; then setkey ODDS_API_KEY "$ODDS"; echo "Odds API saved."; fi
 
 echo "=== TEST CONFIG ==="
 read -rp "Dollars actually deposited on Kalshi [100]: " DEP; DEP=${DEP:-100}
-C=$B/config/maker_test.yaml
-sed -i 's/^mode: paper /mode: live  /' "$C"
-sed -i "/^  real:/{n;s/starting_balance: [0-9.]*/starting_balance: $DEP/}" "$C"
-if awk -v d="$DEP" 'BEGIN{exit !(d<100)}'; then sed -i "s/^  amount: [0-9.]* /  amount: $DEP /" "$C"; fi
-if [ ! -f $B/config/allocation.local.yaml ] && [ -f $B/config/allocation_maker.yaml ]; then
-  cp $B/config/allocation_maker.yaml $B/config/allocation.local.yaml
-fi
+. $B/deploy/maker_local.sh
+maker_local_config "$DEP"
 
-chown -R sportsbot:sportsbot "$ENV" $B/secrets; chown sportsbot:sportsbot $B/config/allocation.local.yaml 2>/dev/null
+chown -R sportsbot:sportsbot "$ENV" $B/secrets
 chmod 600 "$ENV"
 if [ -n "$PM" ]; then systemctl restart sportsbot-ustape 2>/dev/null; fi
 echo; echo "=== CHECK (only config.live_gate should WARN; golive.sh clears it) ==="
-cd $B && sudo -u sportsbot .venv/bin/sportsbot doctor -c config/maker_test.yaml
+cd $B && sudo -u sportsbot .venv/bin/sportsbot doctor -c config/maker_test.local.yaml
