@@ -655,6 +655,46 @@ Audit of the logged history:
   log. The verdicts here (Results 10, 15, 24) rest on settled prices and
   tapes, not on these pairs.
 
+**Addendum, 2026-10-27 — Kalshi→Polymarket reached t ≥ 2 a second time;
+pooled, it is nothing.** The daily rule writes this up when the reverse
+direction is significant in a second sample.
+
+Sample #26 (Oct 27 12:13Z) had 40 tennis pairs, a normal gap sd of 0.0069
+points, and both mids moving in 14% of steps. At 90 s:
+- **Kalshi→Polymarket:** +0.177 ± 0.082 (t 2.2). The first such sample
+  was #19 on Oct 20: +0.321 ± 0.134 (t 2.4).
+- **Polymarket→Kalshi:** +0.061 ± 0.059.
+
+Both directions were pooled over every session in the local log. The
+sampler's estimator was re-run on each session bounded to [start, end]
+(the daily sampler bounds only the start), on tennis, a 30 s grid and
+k = 3. It reproduces the values reported at the time to the third
+decimal (e.g. Oct 20 Kalshi→Polymarket +0.321 ± 0.134; Oct 26
+Polymarket→Kalshi +0.048 ± 0.033).
+
+| 90 s, inverse-variance pooled | estimate | t | sessions with t ≥ 2 |
+|---|---|---|---|
+| Kalshi→Polymarket, 19 sessions (Oct 6–27) | **+0.0066 ± 0.0050** | +1.3 | 2 of 19 |
+| Polymarket→Kalshi, same 19 | **+0.0370 ± 0.0097** | +3.8 | 1 of 19 |
+
+**Kalshi does not follow Polymarket.** The two t ≥ 2 sessions are a
+little more than chance at one fixed horizon (about 0.4 expected), and
+the pooled estimate closes under 1% of the gap per 90 s (t 1.3).
+
+The direction this result is about holds at t 3.8 on these 19 sessions.
+The daily tally had carried it as ≈ +0.051 ± 0.010 (t ≈ 5.3) over 23
+samples. That figure included the pre-Oct-6 samples, whose books are in
+an earlier database and cannot be re-run here. With their documented
+four-active-sample estimate (+0.126 ± 0.024) folded in, the pool is
+≈ +0.050 ± 0.009 (t ≈ 5.5). The tally's level is right, but only the
+19-session figure is re-derivable from data on hand. Neither crosses the
+"pooled t under 3" line.
+
+Nothing here changes the verdict or proposes a trade. The gap still
+averages under a point. Hitting the lagging ask still marks out negative,
+as in every earlier sample. The maker experiment remains the only use of
+the lag.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of
@@ -1607,6 +1647,56 @@ Limits of this read:
     (82 fills), main +0.38 ± 0.07 (114) and Kalshi −0.19 ± 0.44 (110).
     Tennis is a main-book product: the US touch queue (5,800) is 3.6
     times main's.
+
+### Result 15, addendum 4 (2026-10-27): soccer re-measured on longer windows
+
+This re-measurement was scheduled after UCL matchday 3 and two more EPL
+weekends had resolved. It used the same construction as addendum 2:
+- up to 150 resolved games per sport, split train/test 70/30 by start time;
+- `wallet-follow --maker-ticks 1`;
+- test games only, with intervals clustered by market.
+
+The windows were 60 days for EPL and 90 days for UCL, so the test set
+(the newest 30%) is mostly games since Oct 13. The old and new windows
+overlap, so the two runs are not independent samples. Neither run was
+rate-limited.
+
+Population maker baseline, one tick under every pre-game print:
+
+| book | run | resolved (test) | deadline | fill rate | CLV per fill | realised return per $ |
+|---|---|---|---|---|---|---|
+| EPL | Oct 13, 30 d | 69 (21) | 120 s | 22.9% | +0.0100 [+0.0037, +0.0145] | +0.05 [−0.41, +0.53] |
+| | | | 30 min | 53.5% | +0.0120 [+0.0032, +0.0186] | −0.01 |
+| | | | to start | 89.8% | +0.0137 [+0.0017, +0.0237] | −0.05 |
+| EPL | **Oct 27, 60 d** | 150 (45) | 120 s | 27.2% | **+0.0082 [+0.0063, +0.0104]** | −0.11 [−0.29, +0.10] |
+| | | | 30 min | 58.8% | **+0.0102 [+0.0070, +0.0132]** | −0.05 [−0.27, +0.23] |
+| | | | to start | 91.4% | **+0.0110 [+0.0063, +0.0154]** | −0.02 [−0.26, +0.28] |
+| UCL | Oct 13, 60 d | 96 (29) | 120 s | 26.6% | +0.0065 [+0.0019, +0.0111] | −0.05 [−0.35, +0.21] |
+| | | | 30 min | 70.6% | +0.0119 [+0.0040, +0.0203] | −0.05 |
+| | | | to start | 92.7% | +0.0118 [+0.0042, +0.0203] | −0.05 |
+| UCL | **Oct 27, 90 d** | 150 (45) | 120 s | 26.0% | **+0.0058 [+0.0043, +0.0078]** | −0.03 [−0.26, +0.31] |
+| | | | 30 min | 62.9% | **+0.0052 [+0.0019, +0.0087]** | −0.05 [−0.27, +0.23] |
+| | | | to start | 89.8% | **+0.0051 [+0.0008, +0.0097]** | −0.02 [−0.25, +0.24] |
+
+The direction holds and every CLV interval is still above zero. EPL is
+about a point per fill, and its intervals have tightened on twice the
+test games. UCL's 30-minute and to-start CLV has roughly halved (+1.2 to
++0.5 points); the 120-second deadline is unchanged.
+
+Realised returns are centred near zero or slightly below, on intervals
+of ±0.25. That is the same sample-size statement as before, not a
+divergence.
+
+Behind the best-CLV wallets:
+- **EPL** reads +0.0073 to +0.0123 per fill.
+- **UCL** reads +0.0106 to +0.0122. The Oct 13 to-start figure was
+  +0.0170 [+0.0048, +0.0306].
+
+**What it changes: nothing about funding.** These are front-of-queue
+fills, an upper bound. Addendum 3 counted the real queue on NHL and the
+edge went. The paper sim already quotes soccer as `signal: touch` with
+no budget beyond its learning share, and only the live minimum-size test
+measures real queue position.
 
 ## Live paper record so far (for the record, not for inference)
 
