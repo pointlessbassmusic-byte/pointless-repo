@@ -507,6 +507,14 @@ Pipeline per cycle:
       2026-10-24: RBNZ Oct 27 hike-25 fired (two_venue), Kalshi ask 0.92 / Polymarket ask
       0.94 at 3.5 days, +8.1% / +6.4% if it pays. First fire on a move rather than a hold,
       and the thinnest margin so far: one surprise costs ~12 wins at these prices.
+      **2026-10-28: RBNZ settled — LOST on both venues.** The RBNZ held (Kalshi HOLD
+      finalized yes; Polymarket "No change" resolved yes), so the hike-25 rows entered at
+      0.92 / 0.94 return -100%. First settled rows of the forward record: 2 rows, 1
+      meeting, 0 paid. It was the first fire on a move rather than a hold, and the
+      book sat at 0.97 / 0.98 the day before the decision. One meeting cannot set a
+      rate, but it is the short-volatility tail the rule carries (CLAUDE.md): one loss
+      at 0.92 erases ~11 wins at that price. The rule stays a recorder; nothing changes
+      in it on one row.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
