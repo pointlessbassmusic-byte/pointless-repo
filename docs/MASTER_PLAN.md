@@ -515,6 +515,10 @@ Pipeline per cycle:
       rate, but it is the short-volatility tail the rule carries (CLAUDE.md): one loss
       at 0.92 erases ~11 wins at that price. The rule stays a recorder; nothing changes
       in it on one row.
+      2026-10-29: BoE Nov 5 hike-25 fired (two_venue) on Polymarket, ask 0.983 (Kalshi mid
+      0.99) at 6.9 days, +1.7% if it pays. Kalshi's own ask did not fire. Across both
+      recorders the forward G10 record is now 2 meetings settled (Fed paid, RBNZ lost),
+      4 rows: 2 paid, 2 lost.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
@@ -533,6 +537,8 @@ Pipeline per cycle:
       and Polymarket ask 0.92 (Kalshi mid 0.905) at 6.2 days, +9.3% / +8.7% if it pays.
       The entry sits in the 0.90–0.94 band where all three of Result 20's losses were
       entered, and this is a contested cycle (hold was 0.62 on 10-14).
+      **2026-10-29: Oct 28 FOMC settled — PAID on both venues** (Kalshi KXFEDDECISION-26OCT-H0
+      yes): +9.3% Kalshi / +8.7% Polymarket net. Fed record: 2 rows, 1 meeting, 2 paid.
       2026-10-03: Polymarket rows were costed fee-free, but Gamma's feeSchedule puts
       the Fed buckets at rate 0.05 (0.25c per $1 at 0.95, about a tenth of the measured +2.1%). Both
       the recorder and the cross-venue detector now charge each market's own Gamma
