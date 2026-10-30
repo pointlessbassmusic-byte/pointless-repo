@@ -519,6 +519,14 @@ Pipeline per cycle:
       0.99) at 6.9 days, +1.7% if it pays. Kalshi's own ask did not fire. Across both
       recorders the forward G10 record is now 2 meetings settled (Fed paid, RBNZ lost),
       4 rows: 2 paid, 2 lost.
+      **2026-10-30: ECB Oct 29 and BoJ Oct 30 holds settled — PAID on both venues** (Kalshi
+      HOLD finalized yes for both; Polymarket "no change" resolved yes for both): ECB
+      +2.9% / +3.5%, BoJ +3.9% / +3.1% net. BoE Nov 5 hike-25 also fired on Kalshi, ask
+      0.99 (Polymarket mid 0.98) at 5.9 days, +0.9% if it pays. Forward G10 record
+      (Fed + cb_watch, two_venue): 4 meetings settled, 8 rows, 6 paid, 2 lost (RBNZ).
+      The two losses cost two whole stakes; the six wins returned ~+32% of one stake
+      between them, so the record is net negative (cb_watch two_venue mean -31%), as a
+      short-volatility rule is after one surprise. Still records only.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
