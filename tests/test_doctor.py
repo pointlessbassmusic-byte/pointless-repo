@@ -194,3 +194,59 @@ def test_kalshi_auth_probe(monkeypatch):
     assert ok.level == PASS and "$123.45" in ok.detail
     monkeypatch.setattr(kalshi, "KalshiClient", _Bad)
     assert doctor._check_kalshi_auth().level == FAIL
+
+
+def test_update_status_from_the_server_timer(tmp_path):
+    """deploy/update.sh writes data/update_status.json; a failing oneshot
+    under a healthy-looking timer must show in the doctor."""
+    import json
+    from datetime import datetime, timezone
+
+    from sportsbot.bot.doctor import check_update
+
+    cfg = {"storage": {"sqlite_path": str(tmp_path / "s.sqlite")}}
+    assert check_update(cfg) == []                         # not a server install: silent
+    now = datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc).timestamp()
+    path = tmp_path / "update_status.json"
+
+    def write(status, at, step="done"):
+        path.write_text(json.dumps({"status": status, "step": step, "at": at,
+                                    "head": "a" * 40, "deployed": "b" * 40}))
+
+    write("ok", "2026-10-31T14:20:00Z")
+    assert check_update(cfg, now=now)[0].level == PASS
+    write("failed", "2026-10-31T14:20:00Z", step="pull")
+    c = check_update(cfg, now=now)[0]
+    assert c.level == WARN and "step pull" in c.detail
+    assert check_update(dict(cfg, mode="live"), now=now)[0].level == FAIL
+    write("ok", "2026-10-27T14:20:00Z")                    # the timer stopped running
+    c = check_update(cfg, now=now)[0]
+    assert c.level == WARN and "3.9d ago" in c.detail
+    path.write_text("{not json")
+    assert check_update(cfg, now=now)[0].level == WARN
+    assert "deploy.update" in by_name(run_checks(dict(cfg, mode="paper"), offline=True))
+
+
+def test_update_status_written_by_the_script_is_what_the_doctor_reads(tmp_path):
+    """The JSON the shell script prints must parse in check_update — the two
+    sides of one file, kept honest by one test."""
+    import os
+    import shutil
+    import subprocess
+
+    from sportsbot.bot.doctor import check_update
+
+    if shutil.which("bash") is None or shutil.which("git") is None:
+        pytest.skip("needs bash and git")
+    app = tmp_path / "app"
+    subprocess.run(["git", "init", "-q", str(app)], check=True)
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "chown").write_text("#!/usr/bin/env bash\nexit 1\n")
+    (bin_ / "chown").chmod(0o755)
+    env = dict(os.environ, SPORTSBOT_APP_DIR=str(app), PATH=f"{bin_}:{os.environ['PATH']}")
+    res = subprocess.run(["bash", str(REPO_ROOT / "deploy" / "update.sh")], env=env,
+                         capture_output=True, text=True)
+    assert res.returncode != 0
+    c = check_update({"storage": {"sqlite_path": str(app / "data" / "s.sqlite")}})[0]
+    assert c.level == WARN and "step chown" in c.detail

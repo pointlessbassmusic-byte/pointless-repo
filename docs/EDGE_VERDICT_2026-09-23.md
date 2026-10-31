@@ -695,6 +695,53 @@ averages under a point. Hitting the lagging ask still marks out negative,
 as in every earlier sample. The maker experiment remains the only use of
 the lag.
 
+**Addendum, 2026-10-31 — pooled Kalshi→Polymarket crossed t 2; Kalshi
+follows weakly, and it is still nothing to trade.** The daily rule writes
+this up when the pooled reverse direction reaches t ≥ 2.000 (unrounded).
+
+Pooled with the same estimator as the 2026-10-27 addendum, re-run on
+every logged session (tennis, 30 s grid, k = 3, each session bounded to
+[start, end]):
+
+| 90 s, inverse-variance pooled | estimate | t | sessions with t ≥ 2 |
+|---|---|---|---|
+| Kalshi→Polymarket, 23 sessions (Oct 6–31) | **+0.0094 ± 0.0042** | +2.22 | 4 of 23 (Oct 20, 27, 30, 31) |
+| Polymarket→Kalshi, same 23 | **+0.0261 ± 0.0060** | +4.38 | 3 of 23 |
+
+The pooled Kalshi→Polymarket t went 1.3 (Oct 27, 19 sessions), 1.4,
+1.9, 1.991 and then 2.22 on Oct 31.
+
+Today's sample #30 (Oct 31 12:07Z) is a busy one: 29 pairs, gap sd
+0.0086, and mids moving in 15% of steps. At 90 s it gives
+Polymarket→Kalshi +0.097 ± 0.032 (t 3.0) and Kalshi→Polymarket
++0.071 ± 0.035 (t 2.0).
+
+Three things temper the crossing:
+
+1. **Repeated looks.** The pool is re-read every day and was written up
+   on the first day it crossed. A t of 2.2 reached by looking daily is
+   weaker evidence than the same t at a fixed sample size.
+2. **Noisy quiet sessions.** Oct 30 had mids moving in about 3% of steps
+   and gave +0.433 ± 0.209. Few moves give large, noisy betas in both
+   directions. The pool down-weights them by their errors, but they still
+   count toward the "t ≥ 2" session tally.
+3. **One horizon.** The pooled Polymarket→Kalshi estimate swings with
+   which sessions are precise. It fell from +0.0389 (Oct 29) to +0.0236
+   (Oct 30) when a quiet session with se 0.009 entered, then rose to
+   +0.0261. Its t stayed above 3 throughout. This addendum, like the last
+   one, pools only the 90 s horizon.
+
+**Reading.** Kalshi follows Polymarket at most weakly. It closes about
+1% of the gap per 90 s, against about 2.6% for Polymarket toward Kalshi
+on the same sessions. This sharpens the 2026-10-27 line ("Kalshi does not
+follow Polymarket") to "follows at a third of the reverse rate, if at
+all". The direction this result is about still dominates.
+
+The gap averages 0.4–0.6 points, so Kalshi closing 1% of it is about
+0.005 points per 90 s. That is nothing a taker or a maker can earn, on
+either venue. No verdict changes, nothing is funded, and the maker
+experiment remains the only use of the lag.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of

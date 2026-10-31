@@ -31,7 +31,8 @@ run "$BIN/sportsbot" us-tape --status --verify --db "$APP/data/us_tape.sqlite" >
 
 # Service health and the last lines of each recorder's log.
 systemctl --no-pager --type=service --state=running | grep -E "sportsbot|weather" > "$OUT/services.txt" 2>&1 || true
-for u in sportsbot-prematch sportsbot-sim sportsbot-pilot sportsbot-pilot-pmus sportsbot-lip sportsbot-booklines sportsbot-freshwatch sportsbot-ustape; do
+[ -f "$APP/data/update_status.json" ] && cp "$APP/data/update_status.json" "$OUT/update_status.json" || true
+for u in sportsbot-prematch sportsbot-sim sportsbot-pilot sportsbot-pilot-pmus sportsbot-lip sportsbot-booklines sportsbot-freshwatch sportsbot-ustape sportsbot-update; do
   journalctl -u "$u" -n 40 --no-pager > "$OUT/log_$u.txt" 2>/dev/null || true
 done
 
