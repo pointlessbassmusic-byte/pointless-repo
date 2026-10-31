@@ -527,6 +527,9 @@ Pipeline per cycle:
       The two losses cost two whole stakes; the six wins returned ~+32% of one stake
       between them, so the record is net negative (cb_watch two_venue mean -31%), as a
       short-volatility rule is after one surprise. Still records only.
+      2026-10-31: RBA Nov hike-25 fired (two_venue), Kalshi ask 0.93 (Polymarket mid 0.9075)
+      / Polymarket ask 0.915 (Kalshi mid 0.925) at 2.6 days, +7.0% / +9.3% if it pays.
+      The second fire on a move rather than a hold, priced like the RBNZ hike that lost.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
