@@ -593,7 +593,6 @@ class Runner:
                 continue
             if yes_won is None:
                 continue
-            snap = self.store.last_snapshot(market_id)
             # Partial early closes banked proceeds and shrank the venue
             # position; settlement pays only the remainder.
             side_sizes: dict[str, float] = {}
@@ -610,7 +609,12 @@ class Runner:
                 bank_share = bank["proceeds"] * b["size"] / total
                 payout = b["size"] * frac_remaining if side_won else 0.0
                 pnl = round(bank_share + payout - b["stake"], 2)
+                # The close is the last book seen AFTER this entry. The quote
+                # the order was posted against is not a close: in a book that
+                # scans once a day it is the only snapshot, and it made every
+                # touch fill's CLV the half-spread. No later book, no close.
                 closing = None
+                snap = self.store.last_snapshot(market_id, after=b.get("ts"))
                 if snap and snap.get("bid") is not None and snap.get("ask") is not None:
                     mid = (snap["bid"] + snap["ask"]) / 2.0
                     closing = mid if b["side"] == "yes" else 1.0 - mid

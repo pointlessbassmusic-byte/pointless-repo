@@ -127,6 +127,22 @@ class TestSettlement:
         assert settled[0]["outcome"] == 0
         assert settled[0]["pnl"] == pytest.approx(-50.0)
 
+    def test_no_close_without_a_book_seen_after_the_entry(self, tmp_path):
+        """The close was the last snapshot of the market, whenever it was
+        taken. In a book that scans once a day the only snapshot of a filled
+        touch order is the quote it was posted against, so every fill
+        'closed' at its entry mid and every CLV was the half-spread (+0.5 pt
+        on all four sandbox fills, Oct 13–31). A close must be a book seen
+        after the entry; with none, there is no close."""
+        runner = self._runner_stub(tmp_path, resolution=False)
+        runner.store.snapshot_quote("m1", 0.49, 0.51)          # the quote it was posted against
+        runner.executor.submit(_intent(side=Side.YES, price=0.50, size=100.0),
+                               quote=_quote(ask=0.50, depth=100.0))
+        runner._settle_resolved()
+        settled = runner.store.settled_bets()
+        assert settled[0]["outcome"] == 0                       # settlement itself unaffected
+        assert settled[0]["closing_price"] is None
+
     def test_unresolved_stays_open(self, tmp_path):
         runner = self._runner_stub(tmp_path, resolution=None)
         runner.executor.submit(_intent(), quote=_quote(ask=0.50, depth=100.0))

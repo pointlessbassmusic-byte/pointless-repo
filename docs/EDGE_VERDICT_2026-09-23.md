@@ -742,6 +742,61 @@ The gap averages 0.4–0.6 points, so Kalshi closing 1% of it is about
 either venue. No verdict changes, nothing is funded, and the maker
 experiment remains the only use of the lag.
 
+**Addendum, 2026-11-01 — the pooled Polymarket→Kalshi t fell under 3,
+and the pool's weighting, not the market, is why.** The daily rule writes
+this up when the pooled main direction drops under t 3.000 (unrounded).
+
+Pooled with the fixed method over 24 sessions (Oct 6 – Nov 1):
+
+| 90 s, inverse-variance pooled | estimate | t | sessions with t ≥ 2 |
+|---|---|---|---|
+| Polymarket→Kalshi | **+0.0097 ± 0.0035** | +2.78 | 3 of 24 |
+| Kalshi→Polymarket | **+0.0085 ± 0.0036** | +2.38 | 4 of 24 |
+
+The day before (23 sessions) these were +0.0261 ± 0.0060 (t 4.38) and
++0.0094 ± 0.0042.
+
+Sample #31 (Nov 1 12:08Z) had 37 tennis pairs, mids moving in 14% of
+steps, and a gap sd of **0.046** points, five times the usual. At 90 s it
+gave Polymarket→Kalshi +0.001 ± 0.004 and Kalshi→Polymarket
++0.006 ± 0.007. Two pairs drive the gap sd. Per the fixed method, they are
+named here, not filtered:
+
+- **`KXATPCHALLENGERMATCH-26NOV01ROSBAL`** (Taranto qualifying,
+  Rossi v Balestrieri): a gap of +26 points, sd 0.2. The match started at
+  09:00Z, three hours before the session. Kalshi was trading it in play
+  (Balestrieri 0.20–0.25). Polymarket's deep book sat at 0.515/0.485 and
+  did not move, with ~2,000 and ~8,000 contracts at the touch. Both venues
+  list the same match; one book was live and the other was frozen.
+- **`KXWTAMATCH-26NOV02JACTAG`**: +9.7 points, sd 1.8, against a Kalshi
+  spread of about 16c.
+
+**Mechanism.** A pair with a large gap that never closes contributes a
+lot of variance in the regressor and no response. That pulls the session's
+beta toward zero with a small standard error. Inverse-variance pooling
+then gives the session the most weight. Sample #31 carries about 69% of
+the pooled Polymarket→Kalshi weight; the next largest is Oct 30 at about
+14%, the quiet session the 2026-10-31 addendum already flagged. The pooled
+figure now mostly reports one session in which two books did not move.
+
+**What changes and what does not.** The fixed method's number is the
+record, and it is reported above as computed. Read with the weights
+beside it, the main direction is not refuted. It is unmeasured by this
+pool, because two near-static sessions out of 24 dominate it. The two
+directions are now within one standard error of each other.
+
+**Not done.** No session or pair was dropped after seeing it, and no
+change to the method is applied. Two candidate changes would each be a
+method change that needs registering before the next read, not a repair
+of this one:
+
+- pool sessions with equal weights; or
+- exclude pairs whose book did not change in the session, or whose
+  match had already started on one venue only.
+
+The verdict is unchanged: no taker trade at any horizon, nothing funded,
+and the maker experiment remains the only use of the lag.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of
