@@ -532,11 +532,15 @@ class Store:
             args.append(mode)
         return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 
-    def last_snapshot(self, market_id: str) -> Optional[dict]:
-        row = self.conn.execute(
-            "SELECT * FROM market_snapshots WHERE market_id=? ORDER BY id DESC LIMIT 1",
-            (market_id,),
-        ).fetchone()
+    def last_snapshot(self, market_id: str, after: Optional[str] = None) -> Optional[dict]:
+        """The market's latest recorded quote; with `after` (an ISO timestamp,
+        e.g. a bet's `ts`), only a quote taken strictly later counts."""
+        sql = "SELECT * FROM market_snapshots WHERE market_id=?"
+        args: list = [market_id]
+        if after is not None:
+            sql += " AND ts > ?"
+            args.append(after)
+        row = self.conn.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
         return dict(row) if row else None
 
     def exposure_by(self, mode: str | None = None) -> dict:
