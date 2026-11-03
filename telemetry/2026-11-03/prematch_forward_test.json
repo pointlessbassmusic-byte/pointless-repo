@@ -1,0 +1,51 @@
+{
+ "n_obs": 812,
+ "cells": {
+  "polymarket_us/tennis/LONG-NO": {
+   "n": 41,
+   "mean_cents": 0.39,
+   "t": 0.1
+  },
+  "polymarket_us/tennis/DOG": {
+   "n": 41,
+   "mean_cents": -2.5,
+   "t": -0.62
+  },
+  "polymarket_us/tennis/FAV": {
+   "n": 73,
+   "mean_cents": 1.14,
+   "t": 0.38
+  }
+ },
+ "calibration": {
+  "polymarket_us/tennis/<.65": {
+   "n": 377,
+   "diff_cents": 3.56
+  },
+  "polymarket_us/tennis/<.85": {
+   "n": 163,
+   "diff_cents": -2.97
+  },
+  "polymarket_us/tennis/<.35": {
+   "n": 148,
+   "diff_cents": -0.12
+  },
+  "polymarket_us/tennis/<.15": {
+   "n": 41,
+   "diff_cents": -1.41
+  },
+  "polymarket_us/tennis/>=.85": {
+   "n": 73,
+   "diff_cents": 2.19
+  },
+  "polymarket_us/baseball/<.65": {
+   "n": 5,
+   "diff_cents": -8.35
+  },
+  "kalshi/baseball/<.65": {
+   "n": 5,
+   "diff_cents": 8.1
+  }
+ },
+ "verdict": "PENDING"
+}

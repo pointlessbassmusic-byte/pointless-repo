@@ -1,0 +1,28 @@
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /opt/sportsbot/sportsbot/cli.py:303 in allocation                            │
+│                                                                              │
+│    300 │   """Which strategy arms may risk money right now, how much, and    │
+│        why                                                                   │
+│    301 │   (bot/portfolio.py). The operator's levers live in the file named  │
+│        by                                                                    │
+│    302 │   `allocation.path` (config/allocation.yaml by default).            │
+│        Offline."""                                                           │
+│ ❱  303 │   cfg = _setup(config)                                              │
+│    304 │   from sportsbot.bot.ledger import account_equity                   │
+│    305 │   from sportsbot.bot.portfolio import (                             │
+│    306 │   │   allocate_arms,                                                │
+│                                                                              │
+│ /opt/sportsbot/sportsbot/cli.py:42 in _setup                                 │
+│                                                                              │
+│     39 │   log_file = log_cfg.get("file")                                    │
+│     40 │   handlers: list[logging.Handler] =                                 │
+│        [logging.StreamHandler(sys.stdout)]                                   │
+│     41 │   if log_file:                                                      │
+│ ❱   42 │   │   os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)  │
+│     43 │   │   handlers.append(logging.FileHandler(log_file))                │
+│     44 │   logging.basicConfig(                                              │
+│     45 │   │   level=getattr(logging, str(log_cfg.get("level",               │
+│        "INFO")).upper(), logging.INFO),                                      │
+│ in makedirs:225                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+PermissionError: [Errno 13] Permission denied: 'logs'
