@@ -3,14 +3,15 @@
 # pulls into the repo. Read-only: nothing here trades or changes config.
 #   bash /opt/sportsbot/deploy/export_reports.sh
 set -uo pipefail
-APP=/opt/sportsbot
+APP="${SPORTSBOT_APP_DIR:-/opt/sportsbot}"
 BIN="$APP/.venv/bin"
 OUT="$APP/data/export"
+# The configs' paths (logs/, data/...) are relative to the app directory;
+# over ssh this script starts in /root, where status/allocation died on
+# PermissionError 'logs' (telemetry 2026-11-03) and a relative sqlite path
+# would open the wrong book.
+cd "$APP" || exit 1
 mkdir -p "$OUT"
-# Configs name relative paths (logs/, data/): run from the app directory, not
-# from whatever home directory the ssh session lands in, or every command
-# fails with "Permission denied: 'logs'" (seen 2026-11-03).
-cd "$APP"
 run() { sudo -u sportsbot env "$@"; }
 
 # Which code the server runs, and whether the daily pull is stuck: a stale

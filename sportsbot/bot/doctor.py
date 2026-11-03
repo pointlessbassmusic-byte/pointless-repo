@@ -402,11 +402,15 @@ def check_network(cfg: dict) -> list[Check]:
             resp, ms = _ping(url)
             # Skew is measured against the clock IMMEDIATELY after this
             # response — never after later (possibly slow) pings.
+            # A cached response's Date is when the copy was made and its Age
+            # how long ago that was (Gamma: max-age=300). Reading the raw Date
+            # reported a 99-s-old copy as 98.7 s of skew on a synchronised box.
             if skew is None and resp.headers.get("date"):
                 try:
+                    age = float(resp.headers.get("age") or 0.0)
                     skew = abs((datetime.now(timezone.utc)
                                 - parsedate_to_datetime(resp.headers["date"])
-                                ).total_seconds())
+                                ).total_seconds() - age)
                 except (TypeError, ValueError):
                     pass
             if resp.status_code < 400:

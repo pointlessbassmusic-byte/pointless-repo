@@ -256,29 +256,64 @@ def test_executor_books_tape_fills_as_maker_bets(tmp_path):
 
 
 def test_polymarket_tape_flips_the_no_token_frame_and_stops_at_since():
+    """Data API v2 (v1 retired 2026-11-02: every v1 read is 410 Gone, so the
+    paper venue saw no tape and the shadow failed on every order, Nov 3):
+    `/v2/trades?condition=`, cursor pages, a {"data": [...]} envelope and
+    snake_case rows (token_id, transaction_hash)."""
     from sportsbot.exchanges.polymarket import PolymarketClient
 
     c = PolymarketClient()
     calls = []
-    page = [
-        {"side": "BUY", "asset": "t2", "size": 10, "price": 0.56, "timestamp": 1000, "transactionHash": "a"},
-        {"side": "BUY", "asset": "t1", "size": 5, "price": 0.45, "timestamp": 990, "transactionHash": "b"},
-        {"side": "SELL", "asset": "t1", "size": 7, "price": 0.43, "timestamp": 980, "transactionHash": "c"},
-        {"side": "BUY", "asset": "t1", "size": 5, "price": 0.45, "timestamp": 990, "transactionHash": "b"},  # dup
-        {"side": "BUY", "asset": "zzz", "size": 5, "price": 0.45, "timestamp": 985, "transactionHash": "d"},
-        {"side": "BUY", "asset": "t1", "size": 9, "price": 0.50, "timestamp": 900, "transactionHash": "e"},  # before since
+    rows = [
+        {"side": "BUY", "token_id": "t2", "size": 10, "price": 0.56, "timestamp": 1000, "transaction_hash": "a"},
+        {"side": "BUY", "token_id": "t1", "size": 5, "price": 0.45, "timestamp": 990, "transaction_hash": "b"},
+        {"side": "SELL", "token_id": "t1", "size": 7, "price": 0.43, "timestamp": 980, "transaction_hash": "c"},
+        {"side": "BUY", "token_id": "t1", "size": 5, "price": 0.45, "timestamp": 990, "transaction_hash": "b"},  # dup
+        {"side": "BUY", "token_id": "zzz", "size": 5, "price": 0.45, "timestamp": 985, "transaction_hash": "d"},
+        {"side": "BUY", "token_id": "t1", "size": 9, "price": 0.50, "timestamp": 900, "transaction_hash": "e"},  # before since
     ]
+    page = {"data": rows, "pagination": {"has_more": False, "next_cursor": None}}
     c._get = lambda url, params=None: (calls.append((url, params)), page)[1]
     since = datetime.fromtimestamp(950, tz=timezone.utc)
     out = c.recent_trades(_market(), since)
     assert [(p.price_yes, p.size, p.taker_side) for p in out] == [
         (0.44, 10.0, "no"), (0.45, 5.0, "yes"), (0.43, 7.0, "no")]
     assert out[0].ts == datetime.fromtimestamp(1000, tz=timezone.utc)
-    assert len(calls) == 1 and calls[0][1]["market"] == "m1" and calls[0][1]["takerOnly"] == "true"
+    assert out[0].trade_id == "a"
+    (url, params), = calls
+    assert url.endswith("/v2/trades")
+    assert params["condition"] == "m1" and params["taker_only"] == "true"
+    assert "market" not in params and "offset" not in params      # both rejected by v2 (400)
     # only the NO token id known: every other asset is YES (binary market),
     # so the unknown-asset print counts too
     out2 = c.recent_trades(_market(yes_token_id=None), since)
     assert [p.price_yes for p in out2] == [0.44, 0.45, 0.45, 0.43]
+
+
+def test_polymarket_tape_walks_v2_cursor_pages_back_to_since():
+    from sportsbot.exchanges.polymarket import PolymarketClient
+
+    c = PolymarketClient()
+    calls = []
+    pages = {
+        None: {"data": [{"side": "BUY", "token_id": "t1", "size": 1, "price": 0.5, "timestamp": 1000,
+                         "transaction_hash": "x1"}],
+               "pagination": {"has_more": True, "next_cursor": "c2"}},
+        "c2": {"data": [{"side": "BUY", "token_id": "t1", "size": 2, "price": 0.5, "timestamp": 960,
+                         "transaction_hash": "x2"},
+                        {"side": "BUY", "token_id": "t1", "size": 3, "price": 0.5, "timestamp": 940,
+                         "transaction_hash": "x3"}],
+               "pagination": {"has_more": True, "next_cursor": "c3"}},
+    }
+
+    def fake_get(url, params=None):
+        calls.append(dict(params))
+        return pages[params.get("cursor")]
+
+    c._get = fake_get
+    out = c.recent_trades(_market(), datetime.fromtimestamp(950, tz=timezone.utc))
+    assert [p.size for p in out] == [1.0, 2.0]                    # 940 is before since
+    assert [p.get("cursor") for p in calls] == [None, "c2"]       # stops once past since
 
 
 def test_kalshi_tape_reads_the_2026_string_fields():
