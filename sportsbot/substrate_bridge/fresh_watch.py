@@ -39,8 +39,23 @@ from sportsbot.backtest import wallet_review as wr
 
 log = logging.getLogger(__name__)
 
-TRADES = "https://data-api.polymarket.com/trades"
-ACTIVITY = "https://data-api.polymarket.com/activity"
+# Data API v2 (v1 retired 2026-11-02: every v1 read is 410 Gone). v2 wraps
+# rows in {"data": [...]} and names fields in snake_case.
+TRADES = "https://data-api.polymarket.com/v2/trades"
+ACTIVITY = "https://data-api.polymarket.com/v2/activity"
+
+
+def _rows(payload) -> list:
+    """The rows of a v2 page ({"data": [...]}); a bare list passes through."""
+    if isinstance(payload, dict):
+        return payload.get("data") or []
+    return payload or []
+
+
+def _f(row: dict, snake: str, camel: str):
+    """A v2 (snake_case) field, falling back to the v1 (camelCase) name."""
+    v = row.get(snake)
+    return row.get(camel) if v is None else v
 GAMMA = "https://gamma-api.polymarket.com/markets"
 BOOK = "https://clob.polymarket.com/book"
 MIN_CASH, MAX_PRICE, FRESH_DAYS = 1_000, 0.35, 14
@@ -93,32 +108,33 @@ class Watch:
 
     def first_seen(self, wallet: str) -> Optional[float]:
         if wallet not in self._first:
-            a = self._get(ACTIVITY, {"user": wallet, "limit": 1, "sortBy": "TIMESTAMP",
-                                     "sortDirection": "ASC"}) or []
+            a = _rows(self._get(ACTIVITY, {"user": wallet, "limit": 1, "sort_by": "TIMESTAMP",
+                                           "sort_direction": "ASC"}))
             self._first[wallet] = float(a[0]["timestamp"]) if a else None
         return self._first[wallet]
 
     # ------------------------------------------------------------ steps
     def scan(self) -> int:
         """New qualifying trades from the public feed (newest first)."""
-        rows = self._get(TRADES, {"filterType": "CASH", "filterAmount": MIN_CASH, "takerOnly": "true",
-                                  "limit": 500}) or []
+        rows = _rows(self._get(TRADES, {"filter_type": "CASH", "filter_amount": MIN_CASH,
+                                        "taker_only": "true", "limit": 500}))
         n = 0
         for t in rows:
-            tx = f"{t.get('transactionHash')}:{t.get('asset')}"
+            tx = f"{_f(t, 'transaction_hash', 'transactionHash')}:{_f(t, 'token_id', 'asset')}"
             if self.conn.execute("SELECT 1 FROM seen_trades WHERE tx=?", (tx,)).fetchone():
                 continue
             self.conn.execute("INSERT OR IGNORE INTO seen_trades VALUES (?,?)", (tx, float(t["timestamp"])))
             p = float(t.get("price") or 1)
             if str(t.get("side")).upper() != "BUY" or p > MAX_PRICE or p * float(t.get("size") or 0) < MIN_CASH:
                 continue
-            idx = int(t.get("outcomeIndex") or 0)
+            idx = int(_f(t, "outcome_index", "outcomeIndex") or 0)
             if idx > 1:
                 continue
-            info = self.market(str(t["conditionId"]))
+            info = self.market(str(_f(t, "condition_id", "conditionId")))
             if not info or info["category"] in EXCLUDED or len(info["market"].tokens) != 2:
                 continue
-            first = self.first_seen(str(t["proxyWallet"]))
+            wallet = str(_f(t, "proxy_wallet", "proxyWallet"))
+            first = self.first_seen(wallet)
             ts = float(t["timestamp"])
             if first is None or ts - first > FRESH_DAYS * 86400:
                 continue
@@ -126,7 +142,7 @@ class Watch:
             cur = self.conn.execute(
                 "INSERT OR IGNORE INTO signals(wallet,cid,idx,ts,price,cash,title,category,other_token,fee_rate,"
                 "first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (t["proxyWallet"], mk.condition_id, idx, ts, p, p * float(t["size"]), str(t.get("title") or ""),
+                (wallet, mk.condition_id, idx, ts, p, p * float(t["size"]), str(t.get("title") or ""),
                  info["category"], mk.tokens[1 - idx], mk.fee_rate, first))
             n += cur.rowcount
         # the feed is newest-first and polled every minute: two days of keys is plenty
