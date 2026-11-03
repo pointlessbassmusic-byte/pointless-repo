@@ -1,8 +1,7 @@
 name: deploy
 
-# Hands-off deploy: once the `tests` workflow is green on the pilot branch
-# (or main), SSH to the server and run deploy/update_sportsbot.sh, which pulls
-# that branch, reinstalls, refreshes units and restarts the DATA-ONLY
+# Hands-off deploy: once the `tests` workflow is green on main, SSH to the
+# server and run deploy/update_sportsbot.sh, which pulls main, reinstalls, refreshes units and restarts the DATA-ONLY
 # recorders. It never enables a pilot unit and never touches .env: going live
 # stays a deliberate human step on the server.
 #
@@ -15,14 +14,16 @@ on:
   workflow_run:
     workflows: [tests]
     types: [completed]
+    # main ONLY. A feature branch here put the box on that branch (2026-11-03),
+    # and the daily `git pull --ff-only origin main` fails from any branch
+    # carrying commits main lacks. Deploy another branch only by hand.
     branches:
-      - claude/sports-betting-engine-consolidate-m5x0m9
       - main
   workflow_dispatch:
     inputs:
       branch:
-        description: branch to deploy
-        default: claude/sports-betting-engine-consolidate-m5x0m9
+        description: branch to deploy (leave the box on main afterwards)
+        default: main
 
 jobs:
   deploy:
@@ -69,5 +70,6 @@ jobs:
           HOST: ${{ secrets.SERVER_HOST }}
           BRANCH: ${{ steps.b.outputs.branch }}
         run: |
+          # the script's exit status, not tail's: a failed deploy goes red
           ssh -i ~/.ssh/id_deploy -o BatchMode=yes root@"$HOST" \
-            "bash /opt/sportsbot/deploy/update_sportsbot.sh '$BRANCH' 2>&1 | tail -80"
+            "bash /opt/sportsbot/deploy/update_sportsbot.sh '$BRANCH' > /tmp/sportsbot_deploy.log 2>&1; rc=\$?; tail -80 /tmp/sportsbot_deploy.log; exit \$rc"
