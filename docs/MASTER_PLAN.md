@@ -530,6 +530,10 @@ Pipeline per cycle:
       2026-10-31: RBA Nov hike-25 fired (two_venue), Kalshi ask 0.93 (Polymarket mid 0.9075)
       / Polymarket ask 0.915 (Kalshi mid 0.925) at 2.6 days, +7.0% / +9.3% if it pays.
       The second fire on a move rather than a hold, priced like the RBNZ hike that lost.
+      **2026-11-03: RBA Nov hike-25 settled — PAID on both venues** (Kalshi H25 finalized yes;
+      Polymarket "increases 25 bps" resolved yes): +7.0% / +9.3% net. Forward G10 record
+      (two_venue, Fed + cb_watch): 5 meetings settled, 10 rows, 8 paid, 2 lost (RBNZ);
+      cb_watch two_venue mean -21%. BoE Nov 5 still open.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
