@@ -655,6 +655,148 @@ Audit of the logged history:
   log. The verdicts here (Results 10, 15, 24) rest on settled prices and
   tapes, not on these pairs.
 
+**Addendum, 2026-10-27 — Kalshi→Polymarket reached t ≥ 2 a second time;
+pooled, it is nothing.** The daily rule writes this up when the reverse
+direction is significant in a second sample.
+
+Sample #26 (Oct 27 12:13Z) had 40 tennis pairs, a normal gap sd of 0.0069
+points, and both mids moving in 14% of steps. At 90 s:
+- **Kalshi→Polymarket:** +0.177 ± 0.082 (t 2.2). The first such sample
+  was #19 on Oct 20: +0.321 ± 0.134 (t 2.4).
+- **Polymarket→Kalshi:** +0.061 ± 0.059.
+
+Both directions were pooled over every session in the local log. The
+sampler's estimator was re-run on each session bounded to [start, end]
+(the daily sampler bounds only the start), on tennis, a 30 s grid and
+k = 3. It reproduces the values reported at the time to the third
+decimal (e.g. Oct 20 Kalshi→Polymarket +0.321 ± 0.134; Oct 26
+Polymarket→Kalshi +0.048 ± 0.033).
+
+| 90 s, inverse-variance pooled | estimate | t | sessions with t ≥ 2 |
+|---|---|---|---|
+| Kalshi→Polymarket, 19 sessions (Oct 6–27) | **+0.0066 ± 0.0050** | +1.3 | 2 of 19 |
+| Polymarket→Kalshi, same 19 | **+0.0370 ± 0.0097** | +3.8 | 1 of 19 |
+
+**Kalshi does not follow Polymarket.** The two t ≥ 2 sessions are a
+little more than chance at one fixed horizon (about 0.4 expected), and
+the pooled estimate closes under 1% of the gap per 90 s (t 1.3).
+
+The direction this result is about holds at t 3.8 on these 19 sessions.
+The daily tally had carried it as ≈ +0.051 ± 0.010 (t ≈ 5.3) over 23
+samples. That figure included the pre-Oct-6 samples, whose books are in
+an earlier database and cannot be re-run here. With their documented
+four-active-sample estimate (+0.126 ± 0.024) folded in, the pool is
+≈ +0.050 ± 0.009 (t ≈ 5.5). The tally's level is right, but only the
+19-session figure is re-derivable from data on hand. Neither crosses the
+"pooled t under 3" line.
+
+Nothing here changes the verdict or proposes a trade. The gap still
+averages under a point. Hitting the lagging ask still marks out negative,
+as in every earlier sample. The maker experiment remains the only use of
+the lag.
+
+**Addendum, 2026-10-31 — pooled Kalshi→Polymarket crossed t 2; Kalshi
+follows weakly, and it is still nothing to trade.** The daily rule writes
+this up when the pooled reverse direction reaches t ≥ 2.000 (unrounded).
+
+Pooled with the same estimator as the 2026-10-27 addendum, re-run on
+every logged session (tennis, 30 s grid, k = 3, each session bounded to
+[start, end]):
+
+| 90 s, inverse-variance pooled | estimate | t | sessions with t ≥ 2 |
+|---|---|---|---|
+| Kalshi→Polymarket, 23 sessions (Oct 6–31) | **+0.0094 ± 0.0042** | +2.22 | 4 of 23 (Oct 20, 27, 30, 31) |
+| Polymarket→Kalshi, same 23 | **+0.0261 ± 0.0060** | +4.38 | 3 of 23 |
+
+The pooled Kalshi→Polymarket t went 1.3 (Oct 27, 19 sessions), 1.4,
+1.9, 1.991 and then 2.22 on Oct 31.
+
+Today's sample #30 (Oct 31 12:07Z) is a busy one: 29 pairs, gap sd
+0.0086, and mids moving in 15% of steps. At 90 s it gives
+Polymarket→Kalshi +0.097 ± 0.032 (t 3.0) and Kalshi→Polymarket
++0.071 ± 0.035 (t 2.0).
+
+Three things temper the crossing:
+
+1. **Repeated looks.** The pool is re-read every day and was written up
+   on the first day it crossed. A t of 2.2 reached by looking daily is
+   weaker evidence than the same t at a fixed sample size.
+2. **Noisy quiet sessions.** Oct 30 had mids moving in about 3% of steps
+   and gave +0.433 ± 0.209. Few moves give large, noisy betas in both
+   directions. The pool down-weights them by their errors, but they still
+   count toward the "t ≥ 2" session tally.
+3. **One horizon.** The pooled Polymarket→Kalshi estimate swings with
+   which sessions are precise. It fell from +0.0389 (Oct 29) to +0.0236
+   (Oct 30) when a quiet session with se 0.009 entered, then rose to
+   +0.0261. Its t stayed above 3 throughout. This addendum, like the last
+   one, pools only the 90 s horizon.
+
+**Reading.** Kalshi follows Polymarket at most weakly. It closes about
+1% of the gap per 90 s, against about 2.6% for Polymarket toward Kalshi
+on the same sessions. This sharpens the 2026-10-27 line ("Kalshi does not
+follow Polymarket") to "follows at a third of the reverse rate, if at
+all". The direction this result is about still dominates.
+
+The gap averages 0.4–0.6 points, so Kalshi closing 1% of it is about
+0.005 points per 90 s. That is nothing a taker or a maker can earn, on
+either venue. No verdict changes, nothing is funded, and the maker
+experiment remains the only use of the lag.
+
+**Addendum, 2026-11-01 — the pooled Polymarket→Kalshi t fell under 3,
+and the pool's weighting, not the market, is why.** The daily rule writes
+this up when the pooled main direction drops under t 3.000 (unrounded).
+
+Pooled with the fixed method over 24 sessions (Oct 6 – Nov 1):
+
+| 90 s, inverse-variance pooled | estimate | t | sessions with t ≥ 2 |
+|---|---|---|---|
+| Polymarket→Kalshi | **+0.0097 ± 0.0035** | +2.78 | 3 of 24 |
+| Kalshi→Polymarket | **+0.0085 ± 0.0036** | +2.38 | 4 of 24 |
+
+The day before (23 sessions) these were +0.0261 ± 0.0060 (t 4.38) and
++0.0094 ± 0.0042.
+
+Sample #31 (Nov 1 12:08Z) had 37 tennis pairs, mids moving in 14% of
+steps, and a gap sd of **0.046** points, five times the usual. At 90 s it
+gave Polymarket→Kalshi +0.001 ± 0.004 and Kalshi→Polymarket
++0.006 ± 0.007. Two pairs drive the gap sd. Per the fixed method, they are
+named here, not filtered:
+
+- **`KXATPCHALLENGERMATCH-26NOV01ROSBAL`** (Taranto qualifying,
+  Rossi v Balestrieri): a gap of +26 points, sd 0.2. The match started at
+  09:00Z, three hours before the session. Kalshi was trading it in play
+  (Balestrieri 0.20–0.25). Polymarket's deep book sat at 0.515/0.485 and
+  did not move, with ~2,000 and ~8,000 contracts at the touch. Both venues
+  list the same match; one book was live and the other was frozen.
+- **`KXWTAMATCH-26NOV02JACTAG`**: +9.7 points, sd 1.8, against a Kalshi
+  spread of about 16c.
+
+**Mechanism.** A pair with a large gap that never closes contributes a
+lot of variance in the regressor and no response. That pulls the session's
+beta toward zero with a small standard error. Inverse-variance pooling
+then gives the session the most weight. Sample #31 carries about 69% of
+the pooled Polymarket→Kalshi weight; the next largest is Oct 30 at about
+14%, the quiet session the 2026-10-31 addendum already flagged. The pooled
+figure now mostly reports one session in which two books did not move.
+
+**What changes and what does not.** The fixed method's number is the
+record, and it is reported above as computed. Read with the weights
+beside it, the main direction is not refuted. It is unmeasured by this
+pool, because two near-static sessions out of 24 dominate it. The two
+directions are now within one standard error of each other.
+
+**Not done.** No session or pair was dropped after seeing it, and no
+change to the method is applied. Two candidate changes would each be a
+method change that needs registering before the next read, not a repair
+of this one:
+
+- pool sessions with equal weights; or
+- exclude pairs whose book did not change in the session, or whose
+  match had already started on one venue only.
+
+The verdict is unchanged: no taker trade at any horizon, nothing funded,
+and the maker experiment remains the only use of the lag.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of
@@ -1608,6 +1750,56 @@ Limits of this read:
     Tennis is a main-book product: the US touch queue (5,800) is 3.6
     times main's.
 
+### Result 15, addendum 4 (2026-10-27): soccer re-measured on longer windows
+
+This re-measurement was scheduled after UCL matchday 3 and two more EPL
+weekends had resolved. It used the same construction as addendum 2:
+- up to 150 resolved games per sport, split train/test 70/30 by start time;
+- `wallet-follow --maker-ticks 1`;
+- test games only, with intervals clustered by market.
+
+The windows were 60 days for EPL and 90 days for UCL, so the test set
+(the newest 30%) is mostly games since Oct 13. The old and new windows
+overlap, so the two runs are not independent samples. Neither run was
+rate-limited.
+
+Population maker baseline, one tick under every pre-game print:
+
+| book | run | resolved (test) | deadline | fill rate | CLV per fill | realised return per $ |
+|---|---|---|---|---|---|---|
+| EPL | Oct 13, 30 d | 69 (21) | 120 s | 22.9% | +0.0100 [+0.0037, +0.0145] | +0.05 [−0.41, +0.53] |
+| | | | 30 min | 53.5% | +0.0120 [+0.0032, +0.0186] | −0.01 |
+| | | | to start | 89.8% | +0.0137 [+0.0017, +0.0237] | −0.05 |
+| EPL | **Oct 27, 60 d** | 150 (45) | 120 s | 27.2% | **+0.0082 [+0.0063, +0.0104]** | −0.11 [−0.29, +0.10] |
+| | | | 30 min | 58.8% | **+0.0102 [+0.0070, +0.0132]** | −0.05 [−0.27, +0.23] |
+| | | | to start | 91.4% | **+0.0110 [+0.0063, +0.0154]** | −0.02 [−0.26, +0.28] |
+| UCL | Oct 13, 60 d | 96 (29) | 120 s | 26.6% | +0.0065 [+0.0019, +0.0111] | −0.05 [−0.35, +0.21] |
+| | | | 30 min | 70.6% | +0.0119 [+0.0040, +0.0203] | −0.05 |
+| | | | to start | 92.7% | +0.0118 [+0.0042, +0.0203] | −0.05 |
+| UCL | **Oct 27, 90 d** | 150 (45) | 120 s | 26.0% | **+0.0058 [+0.0043, +0.0078]** | −0.03 [−0.26, +0.31] |
+| | | | 30 min | 62.9% | **+0.0052 [+0.0019, +0.0087]** | −0.05 [−0.27, +0.23] |
+| | | | to start | 89.8% | **+0.0051 [+0.0008, +0.0097]** | −0.02 [−0.25, +0.24] |
+
+The direction holds and every CLV interval is still above zero. EPL is
+about a point per fill, and its intervals have tightened on twice the
+test games. UCL's 30-minute and to-start CLV has roughly halved (+1.2 to
++0.5 points); the 120-second deadline is unchanged.
+
+Realised returns are centred near zero or slightly below, on intervals
+of ±0.25. That is the same sample-size statement as before, not a
+divergence.
+
+Behind the best-CLV wallets:
+- **EPL** reads +0.0073 to +0.0123 per fill.
+- **UCL** reads +0.0106 to +0.0122. The Oct 13 to-start figure was
+  +0.0170 [+0.0048, +0.0306].
+
+**What it changes: nothing about funding.** These are front-of-queue
+fills, an upper bound. Addendum 3 counted the real queue on NHL and the
+edge went. The paper sim already quotes soccer as `signal: touch` with
+no budget beyond its learning share, and only the live minimum-size test
+measures real queue position.
+
 ## Live paper record so far (for the record, not for inference)
 
 After the sizing fixes of 2026-09-27 the $100 sim has settled 9 bets on two
@@ -2373,3 +2565,53 @@ their ESPN event on both nicknames and the nearest tip-off.
    in-play taker code for MLB, the NFL or the NBA.
 
 **What changes.** Nothing trades. CLAUDE.md and the plan record it.
+
+## Result 28 (Kalshi daily AAA gas ladder): the book already knows tomorrow's print; yesterday's is not a reference
+
+_2026-10-26. Pre-registered in `docs/GAS_DAILY_PREREG_2026-10-26.md`
+(commit 1749d88) before any price was scored.
+`kalshi-engine/src/gas_daily_study.py`
+(`python -m src.gas_daily_study`, then `--analyse`)._
+
+**Question.** KXAAAGASD lists a daily ladder of half-cent strikes on AAA's US
+regular average. Each ladder stops trading at midnight ET, before AAA
+publishes that day's figure, so every trader knows yesterday's print. Does
+the book misprice the one-day change?
+
+**Data.**
+- 215 consecutive daily events, 2026-03-26 to 10-26, with no gaps.
+- Each market's settled `expiration_value` gives the AAA series.
+- Daily changes have a mean of +0.14¢ and an sd of 2.1¢.
+- 986 two-sided strike quotes, taken at close − 2 h (about 22:00 ET the
+  evening before).
+
+**Model (fixed in advance).**
+- Yesterday's print, plus the mean of the last 5 daily changes.
+- A normal error with the residual sd of the prior 60 days (median 1.9¢).
+- Its errors are calibrated on the 189 priceable days: standardised mean
+  0.05, sd 1.08.
+
+**Result.** 189 events. Taker trades buy at the ask (or NO at 1 − bid)
+when the edge is ≥ 0.05, net of Kalshi's fee, errors clustered by event.
+
+| | Brier model | Brier book | diff (95% CI) | taker trades | mean net / contract | t | halves |
+|---|---|---|---|---|---|---|---|
+| primary (5-day drift) | 0.2454 | 0.0869 | +0.1585 ± 0.0274 | 784 | −5.98c | −4.9 | −5.9c / −6.1c |
+| secondary (zero drift) | 0.2400 | 0.0869 | +0.1531 ± 0.0254 | 774 | −3.46c | −2.6 | −3.5c / −3.4c |
+
+**Verdict: FAIL.** Every leg of the pre-registered bar fails.
+
+**Reading.**
+1. **The book is the sharper source.** It scores a third of the model's
+   Brier, and that is the book's own skill: the model's errors are
+   calibrated. By 22:00 ET the crowd is already pricing tomorrow's figure
+   from that day's pump prices. A print published once a day lags those
+   live prices, so it cannot lead the book.
+2. **Same class as weather.** A public number with a faster live
+   underlying than the scheduled print is a reverse-class market. The
+   eighth measured non-member of the reference class.
+3. **A trade against the book's disagreement loses 6c per contract.** The
+   disagreement is the book's information, not its error.
+
+**What changes.** Nothing trades. The ledger, CLAUDE.md and the plan record
+it.

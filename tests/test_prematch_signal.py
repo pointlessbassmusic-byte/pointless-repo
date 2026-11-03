@@ -84,3 +84,25 @@ def test_only_markets_starting_within_the_horizon_are_quoted(tmp_path):
     rec = Recorder(str(tmp_path / "p.sqlite"), {"kalshi": client}, horizon=3 * 3600)
     assert rec.snapshot_once(now=t0) == 1
     assert [r[0] for r in rec.conn.execute("SELECT market_id FROM snapshots")] == ["soon"]
+
+
+def test_cli_prematch_report_reads_a_record_and_never_creates_one(tmp_path):
+    """`sportsbot prematch` (the operator's short form of
+    `python -m sportsbot.signals.prematch --report`): a mistyped path prints
+    'no record' and leaves no empty database behind."""
+    import sqlite3
+
+    from typer.testing import CliRunner
+
+    from sportsbot.cli import app
+    from sportsbot.signals import prematch as pm
+
+    missing = tmp_path / "nope.sqlite"
+    res = CliRunner().invoke(app, ["prematch", "--db", str(missing)])
+    assert res.exit_code == 0 and "no record" in res.output and not missing.exists()
+    db = tmp_path / "pm.sqlite"
+    conn = sqlite3.connect(db)
+    conn.executescript(pm.SCHEMA)
+    conn.close()
+    res = CliRunner().invoke(app, ["prematch", "--db", str(db)])
+    assert res.exit_code == 0 and '"verdict": "PENDING"' in res.output

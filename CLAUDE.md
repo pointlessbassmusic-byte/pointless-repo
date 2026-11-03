@@ -142,6 +142,10 @@ mode; Kalshi client implements the same interface for the US-legal path.
 - US sportsbook close vs Polymarket (NFL/NBA/NHL/MLB, DraftKings via ESPN, keyless):
   `sportsbot espn-lines` then `--report` (network; Result 26); its forward
   record: `sportsbot book-lines [--report]` (public reads, no keys).
+- Pre-match forward test (NO on Polymarket US tennis longshots at T-30,
+  `docs/PREMATCH_FORWARD_PREREG_2026-10-12.md`): `sportsbot prematch
+  [--db data/prematch.sqlite]` prints the read-only report; the recorder runs
+  as `sportsbot-prematch.service`.
 - Maker fill-share test: `sportsbot maker-report` (offline; fill share vs
   the tape rule, CLV per fill, adverse selection by wait; `docs/MAKER_TEST.md`).
 - Polymarket US tape: `sportsbot us-tape` (needs the US keys; data only),
@@ -342,6 +346,13 @@ the outcome and fabricates longshot edge.
   rather than `close_dollars`. Yahoo stamps intraday bars by OPEN time,
   and a zero-length bar at 16:00 ET is the closing print, i.e. the
   settlement itself.
+- Kalshi's daily AAA gas ladder (KXAAAGASD) is the eighth non-member, and of
+  the reverse class (EDGE_VERDICT Result 28, pre-registered,
+  `kalshi-engine/src/gas_daily_study.py`): on 189 settled days yesterday's
+  AAA print plus drift, calibrated on its own errors, scores Brier 0.245 to
+  the book's 0.087 at close - 2 h and its taker side loses 6c per contract
+  (t -4.9). The crowd prices tomorrow's print from live pump prices; a
+  once-a-day published number does not lead it.
 - Favorites in news and geopolitics markets are overpriced (-10% to -37%
   with real losses). Do not buy certainty there.
 - In-house models lose to the price too. sportsbot's MLB Elo, walk-forward on

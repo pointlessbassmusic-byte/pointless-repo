@@ -28,6 +28,7 @@ KALSHI_PING = {
 }
 RATINGS_STALE_DAYS = 7.0
 CLOCK_WARN_S, CLOCK_FAIL_S = 10.0, 60.0
+UPDATE_STALE_DAYS = 2.0
 
 
 @dataclass
@@ -223,6 +224,40 @@ def check_ratings(cfg: dict) -> list[Check]:
                          f"{path}: {age_d:.1f}d old"
                          + (" — stale, refresh via cron" if stale else "")))
     return out
+
+
+def check_update(cfg: dict, now: float | None = None) -> list[Check]:
+    """The server's unattended update (deploy/update.sh writes
+    data/update_status.json on every run). A failing oneshot under a
+    healthy-looking timer leaves every paper unit on old code, silently:
+    WARN in paper, FAIL in live. Silent where the file is absent (not a
+    server install)."""
+    path = os.path.join(os.path.dirname(
+        cfg.get("storage", {}).get("sqlite_path", "data/sportsbot.sqlite")) or ".",
+        "update_status.json")
+    if not os.path.exists(path):
+        return []
+    import json
+
+    try:
+        with open(path) as fh:
+            st = json.load(fh)
+        at = datetime.strptime(st["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [Check("deploy.update", WARN, f"{path} unreadable: {exc}")]
+    bad = FAIL if cfg.get("mode", "paper") == "live" else WARN
+    if st.get("status") != "ok":
+        return [Check("deploy.update", bad,
+                      f"last unattended update FAILED at step {st.get('step')} ({st['at']}); "
+                      f"services run {str(st.get('deployed'))[:7]}, checkout at "
+                      f"{str(st.get('head'))[:7]} — journalctl -u sportsbot-update -n 25")]
+    age_d = ((now if now is not None else time.time()) - at.timestamp()) / 86400.0
+    if age_d > UPDATE_STALE_DAYS:
+        return [Check("deploy.update", WARN,
+                      f"last update ran {age_d:.1f}d ago ({st['at']}) — "
+                      "systemctl status sportsbot-update.timer")]
+    return [Check("deploy.update", PASS,
+                  f"updated {st['at']}, deployed {str(st.get('deployed'))[:7]}")]
 
 
 # ---------------------------------------------------------------- secrets
@@ -421,7 +456,8 @@ def _check_kalshi_auth() -> Check:
 
 def run_checks(cfg: dict, offline: bool = False) -> list[Check]:
     checks = (check_mode(cfg) + check_params(cfg) + check_storage(cfg)
-              + check_ratings(cfg) + check_secrets(cfg) + check_tape(cfg))
+              + check_ratings(cfg) + check_update(cfg) + check_secrets(cfg)
+              + check_tape(cfg))
     if not offline:
         checks += check_tape_frame(cfg) + check_network(cfg)
     return checks
