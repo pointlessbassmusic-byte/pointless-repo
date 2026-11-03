@@ -244,6 +244,8 @@ def test_update_status_written_by_the_script_is_what_the_doctor_reads(tmp_path):
     bin_.mkdir()
     (bin_ / "chown").write_text("#!/usr/bin/env bash\nexit 1\n")
     (bin_ / "chown").chmod(0o755)
+    (bin_ / "sudo").write_text('#!/usr/bin/env bash\nif [ "$1" = -u ]; then shift 2; fi\nexec "$@"\n')
+    (bin_ / "sudo").chmod(0o755)                     # no service user here (CI)
     env = dict(os.environ, SPORTSBOT_APP_DIR=str(app), PATH=f"{bin_}:{os.environ['PATH']}")
     res = subprocess.run(["bash", str(REPO_ROOT / "deploy" / "update.sh")], env=env,
                          capture_output=True, text=True)
