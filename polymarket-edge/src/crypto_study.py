@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .calibration_study import TRADES
+from .trades_v2 import last_print_before
 from .cpi_study import _eastern_offset
 from .http_util import retrying_session
 from .sportsbook_study import ols, paired_brier_diff
@@ -382,15 +382,11 @@ def yes_trade_before(http, market: dict, ts: int) -> tuple[float, int] | None:
     """(YES price, trade timestamp) of the last trade at or before ts. The
     timestamp matters: a print from hours earlier is not a price anyone could
     have traded at, and against a fresh spot it fakes a reference edge."""
-    r = http.get(TRADES, params={"market": market["condition_id"], "limit": 3, "end": ts},
-                 timeout=60)
-    r.raise_for_status()
-    trades = r.json()
-    if not isinstance(trades, list) or not trades:
+    t = last_print_before(http, market["condition_id"], ts)
+    if t is None:
         return None
-    t = max(trades, key=lambda x: x.get("timestamp", 0))
     p = float(t["price"])
-    return (p if t.get("asset") == market["yes_token"] else 1 - p), int(t.get("timestamp", 0))
+    return (p if str(t.get("token_id")) == market["yes_token"] else 1 - p), int(t["timestamp"])
 
 
 def sample(http, d: Digital, dvol: HourlySeries, spot: HourlySeries) -> list[dict]:

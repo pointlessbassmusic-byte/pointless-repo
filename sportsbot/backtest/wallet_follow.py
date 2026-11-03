@@ -3,7 +3,7 @@ Polymarket sports, and does copying it clear fees?
 
 The claim under test (X posts, 2026-10-08: "copy the profitable wallets")
 reduces to two measurable questions on the public trade tape
-(`data-api.polymarket.com/trades`, taker fills only):
+(`data-api.polymarket.com/v2/trades`, taker fills only):
 
 1. **Is taker flow informed?** For every PRE-GAME taker trade, closing-line
    value at the taker's own price: the venue's last pre-start print minus
@@ -109,13 +109,18 @@ def fetch_trades(condition_id: str, http=None, pause: float = 0.2,
             pass
     http = http or httpx.Client(timeout=40)
     rows: list[dict] = []
+    cursor: Optional[str] = None
+    # Data API v2 (v1 retired 2026-11-02, every v1 read 410 Gone): `condition=`,
+    # cursor pages, a {"data", "pagination"} envelope and snake_case rows.
     for page in range(max_pages):
+        params = {"condition": condition_id, "limit": PAGE,
+                  "taker_only": "true" if taker_only else "false"}
+        if cursor:
+            params["cursor"] = cursor
         batch = None
         for attempt in range(4):
             try:
-                r = http.get(f"{DATA_API}/trades", params={
-                    "market": condition_id, "limit": PAGE, "offset": page * PAGE,
-                    "takerOnly": "true" if taker_only else "false"})
+                r = http.get(f"{DATA_API}/v2/trades", params=params)
                 if r.status_code == 429 and attempt < 3:
                     # A truncated tape is a biased tape (fills missing from
                     # the fill rule); wait it out rather than give up.
@@ -130,13 +135,16 @@ def fetch_trades(condition_id: str, http=None, pause: float = 0.2,
         if batch is None:
             log.warning("trades for %s page %d still rate-limited after retries", condition_id, page)
             return []
-        if not isinstance(batch, list):
+        data = batch.get("data") if isinstance(batch, dict) else batch
+        if not isinstance(data, list):
             break
-        rows.extend({"ts": int(t["timestamp"]), "wallet": str(t["proxyWallet"]),
-                     "asset": str(t["asset"]), "side": str(t["side"]),
+        rows.extend({"ts": int(t["timestamp"]), "wallet": str(t.get("proxy_wallet", "")),
+                     "asset": str(t["token_id"]), "side": str(t["side"]),
                      "price": float(t["price"]), "size": float(t["size"])}
-                    for t in batch if "timestamp" in t and "asset" in t)
-        if len(batch) < PAGE:
+                    for t in data if "timestamp" in t and "token_id" in t)
+        cursor = ((batch.get("pagination") or {}).get("next_cursor")
+                  if isinstance(batch, dict) else None)
+        if not cursor or not data:
             break
         time.sleep(pause)
     rows.sort(key=lambda t: t["ts"])
