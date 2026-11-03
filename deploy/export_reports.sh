@@ -7,7 +7,23 @@ APP=/opt/sportsbot
 BIN="$APP/.venv/bin"
 OUT="$APP/data/export"
 mkdir -p "$OUT"
+# Configs name relative paths (logs/, data/): run from the app directory, not
+# from whatever home directory the ssh session lands in, or every command
+# fails with "Permission denied: 'logs'" (seen 2026-11-03).
+cd "$APP"
 run() { sudo -u sportsbot env "$@"; }
+
+# Which code the server runs, and whether the daily pull is stuck: a stale
+# checkout means none of the merged fixes have reached the box.
+{
+  # read-only and as the repo's owner: root git refuses another user's repo
+  # ("dubious ownership"), and a root fetch leaves objects the daily pull
+  # cannot write next to
+  echo "server HEAD:  $(run git log -1 --format='%H %cI %s' 2>&1)"
+  echo "origin/main:  $(run git ls-remote origin refs/heads/main 2>&1 | cut -f1)"
+  echo "local changes (block the ff-only pull if a merged commit touches them):"
+  run git status --short --untracked-files=no 2>&1
+} > "$OUT/server_git.txt" 2>&1
 
 # Boards (static HTML) and the ops JSON for the sim and both pilot books.
 run "$BIN/sportsbot" board -c "$APP/config/sim.yaml" --out "$OUT/board_sim.html" --refresh 0 >/dev/null 2>&1 || true
@@ -54,7 +70,7 @@ PY
 
 # Service health and the last lines of each recorder's log.
 systemctl --no-pager --type=service --state=running | grep -E "sportsbot|weather" > "$OUT/services.txt" 2>&1 || true
-for u in sportsbot sportsbot-prematch sportsbot-sim sportsbot-pilot sportsbot-pilot-pmus sportsbot-lip sportsbot-booklines sportsbot-freshwatch sportsbot-ustape sportsbot-queuelog sportsbot-reddit; do
+for u in sportsbot-update sportsbot sportsbot-prematch sportsbot-sim sportsbot-pilot sportsbot-pilot-pmus sportsbot-lip sportsbot-booklines sportsbot-freshwatch sportsbot-ustape sportsbot-queuelog sportsbot-reddit; do
   journalctl -u "$u" -n 40 --no-pager > "$OUT/log_$u.txt" 2>/dev/null || true
 done
 
