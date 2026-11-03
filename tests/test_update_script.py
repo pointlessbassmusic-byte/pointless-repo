@@ -42,7 +42,13 @@ def box(tmp_path):
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     _stub(bin_ / "chown", "exit 0\n")
-    _stub(bin_ / "sudo", 'if [ "$1" = -u ]; then shift 2; fi\nexec "$@"\n')
+    # git as root in a repo the service user owns fails exactly as on the
+    # box ("detected dubious ownership", exit 128); only `sudo -u sportsbot`
+    # reaches the real git
+    _stub(bin_ / "sudo", 'if [ "$1" = -u ]; then shift 2; fi\nAS_SERVICE_USER=1 exec "$@"\n')
+    _stub(bin_ / "git", 'if [ "$AS_SERVICE_USER" != 1 ]; then\n'
+          "  echo \"fatal: detected dubious ownership in repository at '$PWD'\" >&2; exit 128\nfi\n"
+          f'exec {shutil.which("git")} "$@"\n')
     _stub(bin_ / "systemctl", f'echo "systemctl $*" >> {log}\n')
     venv = app / ".venv" / "bin"
     venv.mkdir(parents=True)
@@ -102,6 +108,20 @@ def test_a_failed_pull_is_reported_and_nothing_restarts(box):
     assert st["status"] == "failed" and st["step"] == "pull"
     assert box["head"]() == before
     assert not box["log"].exists() or "restart" not in box["log"].read_text()
+
+
+def test_root_never_runs_git_in_the_service_users_repo(box):
+    """2026-10-30..11-02 on the box: after `chown -R sportsbot` the script
+    read `git rev-parse HEAD` as root, git refused ("detected dubious
+    ownership", 128) and every daily update died before pulling. Every git
+    call must run as the service user; the fix is not safe.directory, which
+    would let the repo's owner plant config that root then executes."""
+    box["push"]("v2\n")
+    res = box["run"]()
+    assert res.returncode == 0, res.stderr
+    assert "dubious ownership" not in res.stderr
+    st = box["status"]()
+    assert st["status"] == "ok" and st["head"] == st["deployed"] == box["head"]()
 
 
 def test_nothing_new_leaves_the_units_running(box):
