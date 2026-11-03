@@ -1,0 +1,3 @@
+server HEAD:  93de847f598bceca8f3bbde2c7b719024f550bf0 2026-11-03T10:08:31-07:00 Forward records: fresh-wallet fade killed; book-lines fill rate (#126)
+origin/main:  93de847f598bceca8f3bbde2c7b719024f550bf0
+local changes (block the ff-only pull if a merged commit touches them):
