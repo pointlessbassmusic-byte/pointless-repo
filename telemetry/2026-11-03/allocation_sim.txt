@@ -1,28 +1,79 @@
-╭───────────────────── Traceback (most recent call last) ──────────────────────╮
-│ /opt/sportsbot/sportsbot/cli.py:303 in allocation                            │
-│                                                                              │
-│    300 │   """Which strategy arms may risk money right now, how much, and    │
-│        why                                                                   │
-│    301 │   (bot/portfolio.py). The operator's levers live in the file named  │
-│        by                                                                    │
-│    302 │   `allocation.path` (config/allocation.yaml by default).            │
-│        Offline."""                                                           │
-│ ❱  303 │   cfg = _setup(config)                                              │
-│    304 │   from sportsbot.bot.ledger import account_equity                   │
-│    305 │   from sportsbot.bot.portfolio import (                             │
-│    306 │   │   allocate_arms,                                                │
-│                                                                              │
-│ /opt/sportsbot/sportsbot/cli.py:42 in _setup                                 │
-│                                                                              │
-│     39 │   log_file = log_cfg.get("file")                                    │
-│     40 │   handlers: list[logging.Handler] =                                 │
-│        [logging.StreamHandler(sys.stdout)]                                   │
-│     41 │   if log_file:                                                      │
-│ ❱   42 │   │   os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)  │
-│     43 │   │   handlers.append(logging.FileHandler(log_file))                │
-│     44 │   logging.basicConfig(                                              │
-│     45 │   │   level=getattr(logging, str(log_cfg.get("level",               │
-│        "INFO")).upper(), logging.INFO),                                      │
-│ in makedirs:225                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-PermissionError: [Errno 13] Permission denied: 'logs'
+ config/allocation.yaml: bankroll $106.22 (equity); allocated $53.10 of a $53.11
+cap
+                              arms (funded first)                               
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
+┃ arm            ┃ budget ┃ source        ┃ running ┃ learn ┃ CLV n ┃ mean CLV ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
+│ baseball/mode… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ baseball/mode… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ baseball/touc… │ $2.95  │ paper:        │ yes     │ no    │ 26    │ +0.0181  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ basketball/sh… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ basketball/sh… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ basketball/to… │ $2.95  │ paper:        │ yes     │ no    │ 77    │ +0.0047  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ college_footb… │ $2.95  │ paper:        │ yes     │ no    │ 36    │ +0.0043  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ cricket/touch… │ $2.95  │ paper:        │ yes     │ no    │ 49    │ +0.0036  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ esports/touch… │ $2.95  │ paper:        │ yes     │ no    │ 71    │ +0.0004  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ football/shar… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ football/shar… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ football/touc… │ $2.95  │ paper:        │ yes     │ no    │ 24    │ +0.0050  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ hockey/sharp/… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ hockey/sharp/… │ $2.95  │ paper:        │ yes     │ no    │ 0     │ —        │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ hockey/touch/… │ $2.95  │ paper:        │ yes     │ no    │ 66    │ +0.0067  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ mma/touch/mak… │ $2.95  │ paper:        │ yes     │ no    │ 12    │ +0.0013  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ soccer/touch/… │ $2.95  │ paper:        │ yes     │ no    │ 93    │ +0.0038  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+│ tennis/touch/… │ $2.95  │ paper:        │ yes     │ no    │ 117   │ +0.0063  │
+│                │        │ accruing      │         │       │       │          │
+│                │        │ evidence      │         │       │       │          │
+│                │        │ (equal share) │         │       │       │          │
+└────────────────┴────────┴───────────────┴─────────┴───────┴───────┴──────────┘

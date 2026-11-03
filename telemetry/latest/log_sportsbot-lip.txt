@@ -1,40 +1,40 @@
-Nov 02 07:20:57 localhost python[168643]: 2026-11-02 07:20:57,860 INFO lip: 4484 active liquidity programs
-Nov 02 07:24:58 localhost systemd[1]: Stopping sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades)...
-Nov 02 07:24:58 localhost systemd[1]: sportsbot-lip.service: Deactivated successfully.
-Nov 02 07:24:58 localhost systemd[1]: Stopped sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
-Nov 02 07:24:58 localhost systemd[1]: sportsbot-lip.service: Consumed 25min 48.144s CPU time, 165.2M memory peak, 1.9M memory swap peak.
-Nov 02 07:24:58 localhost systemd[1]: Started sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
-Nov 02 07:25:05 localhost python[200975]: 2026-11-02 07:25:05,371 INFO lip: 4484 active liquidity programs
-Nov 02 07:57:46 localhost python[200975]: 2026-11-02 07:57:46,004 INFO lip: 4484 active liquidity programs
-Nov 02 08:31:04 localhost python[200975]: 2026-11-02 08:31:04,294 INFO lip: 4480 active liquidity programs
-Nov 02 09:05:09 localhost python[200975]: 2026-11-02 09:05:09,587 INFO lip: 4480 active liquidity programs
-Nov 02 09:39:28 localhost python[200975]: 2026-11-02 09:39:28,176 INFO lip: 4480 active liquidity programs
-Nov 02 10:09:34 localhost python[200975]: 2026-11-02 10:09:34,319 INFO lip: 4480 active liquidity programs
-Nov 02 10:44:27 localhost python[200975]: 2026-11-02 10:44:27,925 INFO lip: 4480 active liquidity programs
-Nov 02 11:15:19 localhost python[200975]: 2026-11-02 11:15:19,878 INFO lip: 4480 active liquidity programs
-Nov 02 11:46:11 localhost python[200975]: 2026-11-02 11:46:11,987 INFO lip: 4480 active liquidity programs
-Nov 02 12:21:23 localhost python[200975]: 2026-11-02 12:21:23,628 INFO lip: 4480 active liquidity programs
-Nov 02 12:58:41 localhost python[200975]: 2026-11-02 12:58:41,314 INFO lip: 4470 active liquidity programs
-Nov 02 13:35:59 localhost python[200975]: 2026-11-02 13:35:59,759 INFO lip: 4462 active liquidity programs
-Nov 02 14:10:08 localhost python[200975]: 2026-11-02 14:10:08,473 INFO lip: 4462 active liquidity programs
-Nov 02 14:44:21 localhost python[200975]: 2026-11-02 14:44:21,097 INFO lip: 4453 active liquidity programs
-Nov 02 15:15:25 localhost python[200975]: 2026-11-02 15:15:25,401 INFO lip: 4363 active liquidity programs
-Nov 02 15:52:18 localhost python[200975]: 2026-11-02 15:52:18,770 INFO lip: 4353 active liquidity programs
-Nov 02 16:23:39 localhost python[200975]: 2026-11-02 16:23:39,263 INFO lip: 4424 active liquidity programs
-Nov 02 16:56:57 localhost python[200975]: 2026-11-02 16:56:57,002 INFO lip: 4422 active liquidity programs
-Nov 02 17:30:27 localhost python[200975]: 2026-11-02 17:30:27,570 INFO lip: 4488 active liquidity programs
-Nov 02 18:03:46 localhost python[200975]: 2026-11-02 18:03:46,236 INFO lip: 4508 active liquidity programs
-Nov 02 18:33:55 localhost python[200975]: 2026-11-02 18:33:55,569 INFO lip: 4493 active liquidity programs
-Nov 02 19:10:59 localhost python[200975]: 2026-11-02 19:10:59,344 INFO lip: 4503 active liquidity programs
-Nov 02 19:43:00 localhost python[200975]: 2026-11-02 19:43:00,955 INFO lip: 4506 active liquidity programs
-Nov 02 20:18:40 localhost python[200975]: 2026-11-02 20:18:40,985 INFO lip: 4469 active liquidity programs
-Nov 02 20:52:14 localhost python[200975]: 2026-11-02 20:52:14,724 INFO lip: 4454 active liquidity programs
-Nov 02 21:24:02 localhost python[200975]: 2026-11-02 21:24:02,604 INFO lip: 4436 active liquidity programs
-Nov 02 21:59:33 localhost python[200975]: 2026-11-02 21:59:33,881 INFO lip: 4435 active liquidity programs
-Nov 02 22:30:25 localhost python[200975]: 2026-11-02 22:30:25,873 INFO lip: 4463 active liquidity programs
-Nov 02 23:04:06 localhost python[200975]: 2026-11-02 23:04:06,731 INFO lip: 4463 active liquidity programs
-Nov 02 23:34:35 localhost python[200975]: 2026-11-02 23:34:35,481 INFO lip: 4462 active liquidity programs
-Nov 03 00:04:48 localhost python[200975]: 2026-11-03 00:04:48,514 INFO lip: 4462 active liquidity programs
-Nov 03 00:37:15 localhost python[200975]: 2026-11-03 00:37:15,546 INFO lip: 4471 active liquidity programs
-Nov 03 01:11:47 localhost python[200975]: 2026-11-03 01:11:47,341 INFO lip: 4475 active liquidity programs
-Nov 03 01:42:35 localhost python[200975]: 2026-11-03 01:42:35,197 INFO lip: 4475 active liquidity programs
+Nov 03 02:08:57 localhost systemd[1]: sportsbot-lip.service: Consumed 1.031s CPU time, 130.8M memory peak, 0B memory swap peak.
+Nov 03 02:08:57 localhost systemd[1]: Started sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
+Nov 03 02:09:01 localhost python[211861]: 2026-11-03 02:09:01,407 INFO lip: 4514 active liquidity programs
+Nov 03 02:44:11 localhost python[211861]: 2026-11-03 02:44:11,983 INFO lip: 4514 active liquidity programs
+Nov 03 03:18:21 localhost python[211861]: 2026-11-03 03:18:21,769 INFO lip: 4514 active liquidity programs
+Nov 03 03:50:40 localhost python[211861]: 2026-11-03 03:50:40,117 INFO lip: 4514 active liquidity programs
+Nov 03 04:24:31 localhost python[211861]: 2026-11-03 04:24:31,580 INFO lip: 4504 active liquidity programs
+Nov 03 04:55:17 localhost python[211861]: 2026-11-03 04:55:17,243 INFO lip: 4504 active liquidity programs
+Nov 03 05:29:57 localhost python[211861]: 2026-11-03 05:29:57,065 INFO lip: 4243 active liquidity programs
+Nov 03 05:49:27 localhost systemd[1]: Stopping sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades)...
+Nov 03 05:49:27 localhost systemd[1]: sportsbot-lip.service: Deactivated successfully.
+Nov 03 05:49:27 localhost systemd[1]: Stopped sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
+Nov 03 05:49:27 localhost systemd[1]: sportsbot-lip.service: Consumed 47.856s CPU time, 140.1M memory peak, 0B memory swap peak.
+Nov 03 05:49:27 localhost systemd[1]: Started sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
+Nov 03 05:49:31 localhost python[213341]: 2026-11-03 05:49:31,410 INFO lip: 4242 active liquidity programs
+Nov 03 06:20:07 localhost python[213341]: 2026-11-03 06:20:07,000 INFO lip: 4242 active liquidity programs
+Nov 03 06:56:46 localhost python[213341]: 2026-11-03 06:56:46,846 INFO lip: 4248 active liquidity programs
+Nov 03 07:31:17 localhost python[213341]: 2026-11-03 07:31:17,484 INFO lip: 4258 active liquidity programs
+Nov 03 08:03:27 localhost python[213341]: 2026-11-03 08:03:27,329 INFO lip: 4269 active liquidity programs
+Nov 03 08:36:10 localhost python[213341]: 2026-11-03 08:36:10,020 INFO lip: 4269 active liquidity programs
+Nov 03 09:08:40 localhost python[213341]: 2026-11-03 09:08:40,265 INFO lip: 4269 active liquidity programs
+Nov 03 09:44:14 localhost python[213341]: 2026-11-03 09:44:14,973 INFO lip: 4269 active liquidity programs
+Nov 03 10:17:04 localhost python[213341]: 2026-11-03 10:17:04,016 INFO lip: 4282 active liquidity programs
+Nov 03 10:50:44 localhost python[213341]: 2026-11-03 10:50:44,291 INFO lip: 4282 active liquidity programs
+Nov 03 11:21:42 localhost python[213341]: 2026-11-03 11:21:42,575 INFO lip: 4282 active liquidity programs
+Nov 03 11:53:11 localhost python[213341]: 2026-11-03 11:53:11,235 INFO lip: 4282 active liquidity programs
+Nov 03 12:27:32 localhost python[213341]: 2026-11-03 12:27:32,010 INFO lip: 4282 active liquidity programs
+Nov 03 12:45:56 localhost systemd[1]: Stopping sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades)...
+Nov 03 12:45:56 localhost systemd[1]: sportsbot-lip.service: Deactivated successfully.
+Nov 03 12:45:56 localhost systemd[1]: Stopped sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
+Nov 03 12:45:56 localhost systemd[1]: sportsbot-lip.service: Consumed 1min 24.878s CPU time, 135.0M memory peak, 0B memory swap peak.
+Nov 03 12:45:56 localhost systemd[1]: Started sportsbot-lip.service - sportsbot Kalshi LIP shadow recorder (data only, never trades).
+Nov 03 12:46:01 localhost python[216062]: 2026-11-03 12:46:01,689 INFO lip: 4283 active liquidity programs
+Nov 03 13:17:19 localhost python[216062]: 2026-11-03 13:17:19,748 INFO lip: 4283 active liquidity programs
+Nov 03 13:53:34 localhost python[216062]: 2026-11-03 13:53:34,171 INFO lip: 4283 active liquidity programs
+Nov 03 14:25:56 localhost python[216062]: 2026-11-03 14:25:56,306 INFO lip: 4229 active liquidity programs
+Nov 03 14:56:00 localhost python[216062]: 2026-11-03 14:56:00,309 INFO lip: 4208 active liquidity programs
+Nov 03 15:26:41 localhost python[216062]: 2026-11-03 15:26:41,565 INFO lip: 3967 active liquidity programs
+Nov 03 16:00:33 localhost python[216062]: 2026-11-03 16:00:33,117 INFO lip: 3967 active liquidity programs
+Nov 03 16:32:47 localhost python[216062]: 2026-11-03 16:32:47,273 INFO lip: 4211 active liquidity programs

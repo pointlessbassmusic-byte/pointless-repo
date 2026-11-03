@@ -1,0 +1,26 @@
+Oct 24 06:58:58 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Oct 24 06:58:59 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Oct 24 06:58:59 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Oct 24 06:58:59 localhost systemd[1]: sportsbot-booklines.service: Consumed 23.984s CPU time, 267.4M memory peak, 0B memory swap peak.
+Oct 24 06:58:59 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Oct 28 06:53:29 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Oct 28 06:53:29 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Oct 28 06:53:29 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Oct 28 06:53:29 localhost systemd[1]: sportsbot-booklines.service: Consumed 2min 1.162s CPU time, 309.4M memory peak, 3.6M memory swap peak.
+Oct 28 06:53:29 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Oct 31 10:12:45 localhost sportsbot[168648]: book-lines: scoreboard failed for nfl: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1000)
+Nov 02 07:24:58 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 02 07:24:58 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 02 07:24:58 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 02 07:24:58 localhost systemd[1]: sportsbot-booklines.service: Consumed 2min 24.931s CPU time, 345.9M memory peak, 3.7M memory swap peak.
+Nov 02 07:24:58 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 02:02:29 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 03 02:02:29 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 03 02:02:29 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 02:02:29 localhost systemd[1]: sportsbot-booklines.service: Consumed 25.525s CPU time, 288.1M memory peak, 0B memory swap peak.
+Nov 03 02:02:29 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 14:17:30 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 03 14:17:30 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 03 14:17:30 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 14:17:30 localhost systemd[1]: sportsbot-booklines.service: Consumed 7.655s CPU time, 209.1M memory peak, 0B memory swap peak.
+Nov 03 14:17:30 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
