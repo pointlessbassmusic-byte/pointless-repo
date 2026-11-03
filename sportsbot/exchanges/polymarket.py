@@ -359,44 +359,55 @@ class PolymarketClient(ExchangeClient):
     # ------------------------------------------------------------------
     # Public taker tape (data-api, no auth)
     # ------------------------------------------------------------------
+    # Data API v2 (v1 retired 2026-11-02; every v1 read is 410 Gone):
+    # `condition=` (v2 rejects `market`), cursor pages (v2 rejects `offset`),
+    # a {"data": [...], "pagination": {"next_cursor": ...}} envelope and
+    # snake_case rows. `taker_only` defaults to true: one row per fill, on
+    # its taker side, as v1's takerOnly did.
     TAPE_PAGE = 500
     TAPE_MAX_PAGES = 4
 
     TAPE_RETRY_SLEEPS = (1.0, 2.0)
 
-    def _get_tape_page(self, market_id: str, page: int):
-        """One data-api tape page, retried on 429. The paper venue's rule is
-        "no tape, no fill": a rate-limited page read would silently drop a
-        fill that happened, so a 429 is waited out (1 s, then 2 s) before
-        the read is given up and the caller's exception path runs."""
-        params = {"market": market_id, "takerOnly": "true",
-                  "limit": self.TAPE_PAGE, "offset": page * self.TAPE_PAGE}
+    def _get_tape_page(self, market_id: str, cursor: Optional[str] = None):
+        """One v2 tape page -> (rows, next_cursor), retried on 429. The paper
+        venue's rule is "no tape, no fill": a rate-limited page read would
+        silently drop a fill that happened, so a 429 is waited out (1 s, then
+        2 s) before the read is given up and the caller's exception path runs."""
+        params = {"condition": market_id, "taker_only": "true", "limit": self.TAPE_PAGE}
+        if cursor:
+            params["cursor"] = cursor
         for attempt, sleep_s in enumerate(self.TAPE_RETRY_SLEEPS + (None,)):
             try:
-                return self._get(f"{DATA_API_BASE}/trades", params=params)
+                payload = self._get(f"{DATA_API_BASE}/v2/trades", params=params)
+                break
             except httpx.HTTPStatusError as exc:
                 if exc.response is None or exc.response.status_code != 429 or sleep_s is None:
                     raise
-                log.info("tape page %d for %s rate-limited; retry %d in %.0fs",
-                         page, market_id[:10], attempt + 1, sleep_s)
+                log.info("tape page for %s rate-limited; retry %d in %.0fs",
+                         market_id[:10], attempt + 1, sleep_s)
                 time.sleep(sleep_s)
-        return []
+        if isinstance(payload, list):                     # a bare list: no envelope, no more pages
+            return payload, None
+        payload = payload or {}
+        return (payload.get("data") or []), (payload.get("pagination") or {}).get("next_cursor")
 
     def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
         """Taker prints on `market` since `since`, newest first, YES frame.
 
-        data-api returns prints newest first with `asset` = the token the
+        data-api returns prints newest first with `token_id` = the token the
         taker traded and `price` in THAT token's frame, so a NO-token print
         at 0.56 is a YES print at 0.44. Pages are walked only as far back as
         `since`; a trade that moves between pages while we walk is dropped
-        by the (tx, asset, ts, price, size) key.
+        by the (tx, token, ts, price, size) key.
         """
         since_ts = int(since.timestamp())
         yes_id, no_id = market.yes_token_id, market.no_token_id
         out: list[TapePrint] = []
         seen: set = set()
-        for page in range(self.TAPE_MAX_PAGES):
-            rows = self._get_tape_page(market.market_id, page)
+        cursor: Optional[str] = None
+        for _ in range(self.TAPE_MAX_PAGES):
+            rows, cursor = self._get_tape_page(market.market_id, cursor)
             if not rows:
                 break
             oldest = None
@@ -410,7 +421,7 @@ class PolymarketClient(ExchangeClient):
                 oldest = ts if oldest is None else min(oldest, ts)
                 if ts < since_ts:
                     continue
-                asset = str(r.get("asset") or "")
+                asset = str(r.get("token_id") or r.get("asset") or "")
                 if yes_id and asset == yes_id:
                     p_yes = price
                 elif no_id and asset == no_id:
@@ -421,7 +432,8 @@ class PolymarketClient(ExchangeClient):
                     p_yes = price
                 else:
                     continue
-                key = (r.get("transactionHash"), asset, ts, price, size)
+                tx = r.get("transaction_hash") or r.get("transactionHash")
+                key = (tx, asset, ts, price, size)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -430,8 +442,8 @@ class PolymarketClient(ExchangeClient):
                     ts=datetime.fromtimestamp(ts, tz=timezone.utc),
                     price_yes=round(p_yes, 6), size=size,
                     taker_side="yes" if bought_yes else "no",
-                    trade_id=str(r.get("transactionHash") or "")))
-            if len(rows) < self.TAPE_PAGE or (oldest is not None and oldest < since_ts):
+                    trade_id=str(tx or "")))
+            if not cursor or (oldest is not None and oldest < since_ts):
                 break
         out.sort(key=lambda t: t.ts, reverse=True)
         return out
