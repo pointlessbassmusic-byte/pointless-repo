@@ -133,6 +133,13 @@
       "verdict": "FAIL",
       "result": "189 events, 986 two-sided strikes at close - 2 h: model Brier 0.2454 vs book 0.0869 (diff +0.159 +- 0.027) with calibrated model errors (z sd 1.08); taker at edge >= 0.05: 784 trades, -5.98c/contract net (t -4.9), both halves negative. The book prices tomorrow's print from live pump prices; yesterday's is not a reference.",
       "doc": "docs/EDGE_VERDICT_2026-09-23.md"
+    },
+    {
+      "date": "2026-11-03",
+      "test": "Fresh-wallet long-shot fade, forward record (EDGE_VERDICT 21b; sportsbot-freshwatch on the server; bar set 2026-10-14: >= 200 fades across >= 60 markets, PASS mean > 0 with t >= 2 clustered by market, KILL mean <= 0)",
+      "verdict": "FAIL",
+      "result": "382 graded fades across 90 markets (626 signals, 157 markets): fade P&L at +10 min -23.0 +- 11.2 pt per share (t -2.05); killed by its own rule. Confirms the 2026-10-14 holdout FAIL. Record gap 2026-11-02 to 11-03 14:17Z (Data API v1 retired), not backfilled.",
+      "doc": "docs/EDGE_VERDICT_2026-09-23.md"
     }
   ]
 }
