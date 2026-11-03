@@ -244,9 +244,38 @@ def test_update_status_written_by_the_script_is_what_the_doctor_reads(tmp_path):
     bin_.mkdir()
     (bin_ / "chown").write_text("#!/usr/bin/env bash\nexit 1\n")
     (bin_ / "chown").chmod(0o755)
+    (bin_ / "sudo").write_text('#!/usr/bin/env bash\nif [ "$1" = -u ]; then shift 2; fi\nexec "$@"\n')
+    (bin_ / "sudo").chmod(0o755)                     # no service user here (CI)
     env = dict(os.environ, SPORTSBOT_APP_DIR=str(app), PATH=f"{bin_}:{os.environ['PATH']}")
     res = subprocess.run(["bash", str(REPO_ROOT / "deploy" / "update.sh")], env=env,
                          capture_output=True, text=True)
     assert res.returncode != 0
     c = check_update({"storage": {"sqlite_path": str(app / "data" / "s.sqlite")}})[0]
     assert c.level == WARN and "step chown" in c.detail
+
+
+def test_clock_skew_reads_a_cached_response_by_its_age(monkeypatch):
+    """Gamma serves CDN-cached responses (max-age=300): `Date` is the time the
+    copy was cached and `Age` how long ago that was. The box's doctor read the
+    raw Date of a 99-s-old copy as 98.7 s of clock skew and FAILed while its
+    clock was NTP-synchronised (2026-11-03). Skew is measured against
+    Date + Age; a real offset on an uncached response still fails."""
+    from datetime import datetime, timedelta, timezone
+    from email.utils import format_datetime
+    from types import SimpleNamespace
+
+    from sportsbot.bot import doctor
+
+    def responses(date_offset_s, age):
+        def fake_ping(url, timeout=6.0):
+            stamp = datetime.now(timezone.utc) + timedelta(seconds=date_offset_s)
+            headers = {"date": format_datetime(stamp, usegmt=True)}
+            if age is not None:
+                headers["age"] = str(age)
+            return SimpleNamespace(status_code=200, headers=headers), 50.0
+        return fake_ping
+
+    monkeypatch.setattr(doctor, "_ping", responses(-99, 99))           # cached copy, clock fine
+    assert by_name(doctor.check_network({"exchange": "polymarket"}))["net.clock_skew"].level == PASS
+    monkeypatch.setattr(doctor, "_ping", responses(-99, None))         # uncached, clock 99 s off
+    assert by_name(doctor.check_network({"exchange": "polymarket"}))["net.clock_skew"].level == FAIL

@@ -496,6 +496,15 @@ python -m src.cb_watch --report    # arb-scanner: the same rule for the six othe
   call per sport per bookmaker-group costs 1) — odds are TTL-cached; don't
   add per-cycle fetches.
 - Polymarket CLOB `/prices`: side BUY = best bid, SELL = best ask.
+- Polymarket's Data API v1 (`data-api.polymarket.com/trades`, `/activity`, `/positions`,
+  `/v1/leaderboard`, ...) was retired on 2026-11-02: every v1 read is `410 Gone`. Use `/v2/...`:
+  `condition=` (v2 rejects `market`), cursor pages via `pagination.next_cursor` (v2 rejects
+  `offset`), rows inside `{"data": [...]}`, snake_case fields (`token_id`, `condition_id`,
+  `proxy_wallet`, `outcome_index`, `transaction_hash`); `/v2/trades` keeps `taker_only=true` by
+  default (one row per fill). The paper tape and `fresh_watch` are on v2; the offline wallet
+  backtests (`wallet_follow`, `wallet_review`, `wallet_scan`, `fresh_wallet`, `updown_maker`), the
+  `research/` scripts and polymarket-edge's `cb_study` / `calibration_study` still call v1 and
+  fail until ported.
 - Polymarket's `closedTime` on sports markets is resolution time, not kickoff:
   on tennis it trails `gameStartTime` by a median 14h (p90 21h). Anchor
   every pre-match measurement on `gameStartTime`, skip markets whose start

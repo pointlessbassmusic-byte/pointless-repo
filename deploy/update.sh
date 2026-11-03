@@ -21,7 +21,7 @@ report() {
   mkdir -p "$APP_DIR/data"
   printf '{"status": "%s", "step": "%s", "at": "%s", "head": "%s", "deployed": "%s"}\n' \
     "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    "$(git -C "$APP_DIR" rev-parse --verify -q HEAD || echo unknown)" \
+    "$(sudo -u sportsbot git -C "$APP_DIR" rev-parse --verify -q HEAD 2>/dev/null || echo unknown)" \
     "$(cat "$DEPLOYED" 2>/dev/null || echo none)" > "$STATUS"
 }
 trap 'report failed "$step"; echo "update: FAILED at step $step" >&2' ERR
@@ -33,8 +33,13 @@ mkdir -p "$APP_DIR/data"
 step=chown
 chown -R sportsbot:sportsbot "$APP_DIR"
 step=pull
+# Every git call runs as the service user. Root running git in a repo
+# sportsbot owns is refused ("detected dubious ownership", exit 128: every
+# daily run 2026-10-30..11-02 died here), and that refusal is right: the
+# repo's owner could plant config or hooks that root would then execute.
+# Never answer it with safe.directory.
 sudo -u sportsbot git pull --ff-only --quiet origin main
-head=$(git rev-parse HEAD)
+head=$(sudo -u sportsbot git rev-parse HEAD)
 deployed=$(cat "$DEPLOYED" 2>/dev/null || echo none)
 if [ "$head" != "$deployed" ]; then
   echo "update: $deployed -> $head"

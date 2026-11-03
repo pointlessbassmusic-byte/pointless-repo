@@ -13,15 +13,19 @@ class Http:
 
     def get(self, url, params=None):
         if "/trades" in url:
-            body = [
-                {"transactionHash": "0xa", "asset": "y1", "proxyWallet": "0xnew", "side": "BUY", "price": 0.10,
-                 "size": 20000, "timestamp": NOW - 700, "conditionId": "c1", "outcomeIndex": 0, "title": "Award?"},
-                {"transactionHash": "0xb", "asset": "y1", "proxyWallet": "0xold", "side": "BUY", "price": 0.10,
-                 "size": 20000, "timestamp": NOW - 700, "conditionId": "c1", "outcomeIndex": 0, "title": "Award?"},
-                {"transactionHash": "0xc", "asset": "y2", "proxyWallet": "0xnew", "side": "BUY", "price": 0.10,
-                 "size": 20000, "timestamp": NOW - 700, "conditionId": "c2", "outcomeIndex": 0, "title": "Lakers vs Warriors"},
-                {"transactionHash": "0xd", "asset": "y1", "proxyWallet": "0xnew", "side": "BUY", "price": 0.60,
-                 "size": 20000, "timestamp": NOW - 700, "conditionId": "c1", "outcomeIndex": 0, "title": "Award?"}]
+            # Data API v2 (v1 retired 2026-11-02): envelope + snake_case rows
+            assert url.endswith("/v2/trades") and params["taker_only"] == "true"
+            body = {"data": [
+                {"transaction_hash": "0xa", "token_id": "y1", "proxy_wallet": "0xnew", "side": "BUY", "price": 0.10,
+                 "size": 20000, "timestamp": NOW - 700, "condition_id": "c1", "outcome_index": 0, "title": "Award?"},
+                {"transaction_hash": "0xb", "token_id": "y1", "proxy_wallet": "0xold", "side": "BUY", "price": 0.10,
+                 "size": 20000, "timestamp": NOW - 700, "condition_id": "c1", "outcome_index": 0, "title": "Award?"},
+                {"transaction_hash": "0xc", "token_id": "y2", "proxy_wallet": "0xnew", "side": "BUY", "price": 0.10,
+                 "size": 20000, "timestamp": NOW - 700, "condition_id": "c2", "outcome_index": 0,
+                 "title": "Lakers vs Warriors"},
+                {"transaction_hash": "0xd", "token_id": "y1", "proxy_wallet": "0xnew", "side": "BUY", "price": 0.60,
+                 "size": 20000, "timestamp": NOW - 700, "condition_id": "c1", "outcome_index": 0, "title": "Award?"}],
+                "pagination": {"next_cursor": None}}
         elif "gamma" in url:
             cid = dict(params)["condition_ids"]
             closed = dict(params)["closed"] == "true"
@@ -34,7 +38,8 @@ class Http:
                         "events": [{"slug": "nba-lal-gsw"}]}}[cid]
             body = [m] if m["closed"] == closed else []
         elif "/activity" in url:
-            body = [{"timestamp": {"0xnew": NOW - 3 * 86400, "0xold": NOW - 300 * 86400}[params["user"]]}]
+            assert url.endswith("/v2/activity") and params["sort_direction"] == "ASC"
+            body = {"data": [{"timestamp": {"0xnew": NOW - 3 * 86400, "0xold": NOW - 300 * 86400}[params["user"]]}]}
         elif "/book" in url:
             assert params["token_id"] == "n1"
             body = {"asks": [{"price": "0.88", "size": "100"}, {"price": "0.87", "size": "50"}], "bids": []}
