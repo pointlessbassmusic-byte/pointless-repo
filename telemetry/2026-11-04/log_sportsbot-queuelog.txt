@@ -1,0 +1,40 @@
+Nov 04 17:13:58 localhost sportsbot[226325]: ╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+Nov 04 17:13:58 localhost sportsbot[226325]: │ /opt/sportsbot/sportsbot/cli.py:1021 in queue_log                            │
+Nov 04 17:13:58 localhost sportsbot[226325]: │                                                                              │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   1018 │   _setup(config)                                                    │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   1019 │   from sportsbot.substrate_bridge.queue_study import QueueSampler   │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   1020 │                                                                     │
+Nov 04 17:13:58 localhost sportsbot[226325]: │ ❱ 1021 │   res = QueueSampler(db).run(minutes=minutes, interval=interval,    │
+Nov 04 17:13:58 localhost sportsbot[226325]: │        window_h=window_h,                                                    │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   1022 │   │   │   │   │   │   │      sports=tuple(s.strip() for s in        │
+Nov 04 17:13:58 localhost sportsbot[226325]: │        sports.split(",") if s.strip()))                                      │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   1023 │   console.print(res)                                                │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   1024                                                                       │
+Nov 04 17:13:58 localhost sportsbot[226325]: │                                                                              │
+Nov 04 17:13:58 localhost sportsbot[226325]: │ /opt/sportsbot/sportsbot/substrate_bridge/queue_study.py:301 in run          │
+Nov 04 17:13:58 localhost sportsbot[226325]: │                                                                              │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   298 │   │   │   │   log.info("queue study: %d new games",                  │
+Nov 04 17:13:58 localhost sportsbot[226325]: │       self.discover(sports, window_h))                                       │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   299 │   │   │   │   last_disc = self.clock()                               │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   300 │   │   │   started = self.clock()                                     │
+Nov 04 17:13:58 localhost sportsbot[226325]: │ ❱ 301 │   │   │   rows += self.sample_once()                                 │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   302 │   │   │   passes += 1                                                │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   303 │   │   │   if self.clock() - last_tape >= tape_every:                 │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   304 │   │   │   │   prints += self.store_tape(t0)                          │
+Nov 04 17:13:58 localhost sportsbot[226325]: │                                                                              │
+Nov 04 17:13:58 localhost sportsbot[226325]: │ /opt/sportsbot/sportsbot/substrate_bridge/queue_study.py:261 in sample_once  │
+Nov 04 17:13:58 localhost sportsbot[226325]: │                                                                              │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   258 │   │   │   │   except Exception as exc:  # noqa: BLE001               │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   259 │   │   │   │   │   log.debug("%s read failed %s: %s", venue,          │
+Nov 04 17:13:58 localhost sportsbot[226325]: │       rm.market_id, exc)                                                     │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   260 │   │   self.conn.executemany("INSERT INTO samples VALUES              │
+Nov 04 17:13:58 localhost sportsbot[226325]: │       (?,?,?,?,?,?,?,?,?)", rows)                                            │
+Nov 04 17:13:58 localhost sportsbot[226325]: │ ❱ 261 │   │   self.conn.commit()                                             │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   262 │   │   return len(rows)                                               │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   263 │                                                                      │
+Nov 04 17:13:58 localhost sportsbot[226325]: │   264 │   def store_tape(self, start_ts: float) -> int:                      │
+Nov 04 17:13:58 localhost sportsbot[226325]: ╰──────────────────────────────────────────────────────────────────────────────╯
+Nov 04 17:13:58 localhost sportsbot[226325]: OperationalError: database is locked
+Nov 04 17:13:58 localhost systemd[1]: sportsbot-queuelog.service: Main process exited, code=exited, status=1/FAILURE
+Nov 04 17:13:58 localhost systemd[1]: sportsbot-queuelog.service: Failed with result 'exit-code'.
+Nov 04 17:13:58 localhost systemd[1]: sportsbot-queuelog.service: Consumed 2min 47.822s CPU time.

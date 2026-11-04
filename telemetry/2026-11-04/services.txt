@@ -1,0 +1,8 @@
+  sportsbot-board.service      loaded active running sportsbot trading dashboard (sim/real view; rebuilds the HTML, places no orders)
+  sportsbot-boardserve.service loaded active running sportsbot board on localhost:8001 for Tailscale Serve (whitelisted pages only, no auth of its own)
+  sportsbot-booklines.service  loaded active running sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)
+  sportsbot-freshwatch.service loaded active running sportsbot fresh-wallet fade forward test (public reads; a paper record, no orders)
+  sportsbot-lip.service        loaded active running sportsbot Kalshi LIP shadow recorder (data only, never trades)
+  sportsbot-prematch.service   loaded active running sportsbot pre-match quote recorder (data only, never trades)
+  sportsbot-sim.service        loaded active running sportsbot $100 sim book (paper mode; scans live markets, simulated fills)
+  weather-snapshot.service     loaded active running substrate milestone 2: Kalshi weather-dailies decision-time snapshots (read-only)

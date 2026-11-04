@@ -1,43 +1,40 @@
- config/allocation.local.yaml: bankroll $100.00 (equity); allocated $50.04 of a 
+ config/allocation.local.yaml: bankroll $100.00 (equity); allocated $30.00 of a 
 $50.00 cap
                               arms (funded first)                               
 ┏━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
 ┃ arm            ┃ budget ┃ source        ┃ running ┃ learn ┃ CLV n ┃ mean CLV ┃
 ┡━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
-│ baseball/mode… │ $5.56  │ paper:        │ yes     │ no    │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ baseball/mode… │ $5.56  │ paper:        │ yes     │ no    │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ baseball/touc… │ $5.56  │ paper:        │ yes     │ yes   │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ football/shar… │ $5.56  │ paper:        │ yes     │ no    │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ football/shar… │ $5.56  │ paper:        │ yes     │ no    │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ football/touc… │ $5.56  │ paper:        │ yes     │ yes   │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ hockey/sharp/… │ $5.56  │ paper:        │ yes     │ no    │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ hockey/sharp/… │ $5.56  │ paper:        │ yes     │ no    │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
-│ hockey/touch/… │ $5.56  │ paper:        │ yes     │ yes   │ 0     │ —        │
-│                │        │ accruing      │         │       │       │          │
-│                │        │ evidence      │         │       │       │          │
-│                │        │ (equal share) │         │       │       │          │
+│ baseball/touc… │ $10.00 │ learning      │ yes     │ yes   │ 0     │ —        │
+│                │        │ budget (gate  │         │       │       │          │
+│                │        │ not met)      │         │       │       │          │
+│ football/touc… │ $10.00 │ learning      │ yes     │ yes   │ 0     │ —        │
+│                │        │ budget (gate  │         │       │       │          │
+│                │        │ not met)      │         │       │       │          │
+│ hockey/touch/… │ $10.00 │ learning      │ yes     │ yes   │ 0     │ —        │
+│                │        │ budget (gate  │         │       │       │          │
+│                │        │ not met)      │         │       │       │          │
+│ baseball/mode… │ $0.00  │ paper only:   │ yes     │ no    │ 0     │ —        │
+│                │        │ gate not met  │         │       │       │          │
+│                │        │ and not       │         │       │       │          │
+│                │        │ marked learn  │         │       │       │          │
+│ baseball/mode… │ $0.00  │ paper only:   │ yes     │ no    │ 0     │ —        │
+│                │        │ gate not met  │         │       │       │          │
+│                │        │ and not       │         │       │       │          │
+│                │        │ marked learn  │         │       │       │          │
+│ football/shar… │ $0.00  │ paper only:   │ yes     │ no    │ 0     │ —        │
+│                │        │ gate not met  │         │       │       │          │
+│                │        │ and not       │         │       │       │          │
+│                │        │ marked learn  │         │       │       │          │
+│ football/shar… │ $0.00  │ paper only:   │ yes     │ no    │ 0     │ —        │
+│                │        │ gate not met  │         │       │       │          │
+│                │        │ and not       │         │       │       │          │
+│                │        │ marked learn  │         │       │       │          │
+│ hockey/sharp/… │ $0.00  │ paper only:   │ yes     │ no    │ 0     │ —        │
+│                │        │ gate not met  │         │       │       │          │
+│                │        │ and not       │         │       │       │          │
+│                │        │ marked learn  │         │       │       │          │
+│ hockey/sharp/… │ $0.00  │ paper only:   │ yes     │ no    │ 0     │ —        │
+│                │        │ gate not met  │         │       │       │          │
+│                │        │ and not       │         │       │       │          │
+│                │        │ marked learn  │         │       │       │          │
 └────────────────┴────────┴───────────────┴─────────┴───────┴───────┴──────────┘
