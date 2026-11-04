@@ -16,7 +16,7 @@
 set -euo pipefail
 
 APP=/opt/sportsbot
-BRANCH="${1:-claude/sports-betting-engine-consolidate-m5x0m9}"
+BRANCH="${1:-main}"
 BIN="$APP/.venv/bin"
 
 echo "==> code: $BRANCH"
@@ -45,6 +45,7 @@ echo "==> pilot units installed but NOT enabled (real money needs the checklist)
 systemctl disable sportsbot-pilot sportsbot-pilot-pmus sportsbot-pilot-board 2>/dev/null || true
 
 echo "==> preflight on both pilot configs"
+cd "$APP"   # configs name relative paths (logs/, data/)
 for cfg in pilot pilot_pmus; do
   echo "--- $cfg"
   sudo -u sportsbot env SPORTSBOT_LIVE=1 "$BIN/sportsbot" doctor --offline -c "$APP/config/$cfg.yaml" || true

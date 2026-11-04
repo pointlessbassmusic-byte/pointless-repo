@@ -2032,6 +2032,26 @@ The discovery effect was that window's. The forward test stays on the
 server as a data-only record (it costs nothing), but it is expected to
 fail, and nothing is built on it.
 
+**21b forward record (2026-11-03): killed by its own rule.** The
+server's `sportsbot-freshwatch` record (from telemetry, exported
+2026-11-03T17:01Z) reached its pre-set sample:
+
+- **Volume:** 626 signals in 157 markets, of which 382 fades are graded,
+  across 90 markets.
+- **Bar:** ≥ 200 fades across ≥ 60 markets. Kill if the mean is ≤ 0 at
+  that size; pass only with mean > 0 and t ≥ 2, clustered by market.
+- **Result:** the fade at +10 min returned **−23.0 ± 11.2 points per
+  share (t −2.05)**. The report's verdict is `killed`.
+
+The record has a gap. Polymarket retired Data API v1 on 2026-11-02, and
+the recorder read no trades from then until PR #125 reached the server
+(2026-11-03 14:17Z). The gap is not backfilled. It removes signals; it
+cannot have produced the losses already graded.
+
+Forward, as in the holdout, fading brand-new wallets' long-shot buys
+loses. No further reads are needed: the result is recorded in
+`docs/research_ledger.json` as a FAIL, and the service can be stopped.
+
 ### 21c. Big pre-game moves, followed or faded: both lose the costs (`data/ratings/move_study.py`)
 
 This was the "fade large open-to-close moves" item from the 2026-09
@@ -2507,6 +2527,19 @@ row):
 
 The live smoke test on 2026-10-20 matched all 14 upcoming NBA and NHL
 games on ESPN and both venues.
+
+**Forward record, 2026-11-03 (telemetry 17:01Z): the primary cell fills
+slowly.** In 14 days the record logged 235 games and 705 snapshots, all
+settled. The primary cell has **5 trades of 100**, at −20.3 ± 20.2c
+(t −1.00); five trades is noise and is not read.
+
+At 235 games, only about 2% of games show the US book 2c or more under
+DraftKings at T-15. At this rate, 100 trades takes roughly nine months
+rather than the four first assumed. The 1c cells fill about eight times
+faster, but none of them can pass.
+
+The bar and the margin stay as registered. Changing either after seeing
+the fill rate would be choosing the test by its data.
 
 Rerun: `sportsbot espn-lines --days 400` (resumable, about 25 minutes on a
 fresh cache), then `sportsbot espn-lines --report`.
