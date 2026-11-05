@@ -797,6 +797,33 @@ of this one:
 The verdict is unchanged: no taker trade at any horizon, nothing funded,
 and the maker experiment remains the only use of the lag.
 
+**Note, 2026-11-05 — the session database was lost; the pool continues
+from its published summary.** The check-in sandbox was reset between the
+Nov 4 and Nov 5 reads and its uncommitted `data/twobook.sqlite` (27 tennis
+sessions, Oct 6 – Nov 4) went with it. The sessions can no longer be
+re-run. The last read of the full pool stands as the record of those 27:
+Polymarket→Kalshi **+0.0105 ± 0.0034** (t 3.056), Kalshi→Polymarket
+**+0.0090 ± 0.0035** (t 2.546), with the Nov 1 session holding about 68%
+of the Polymarket→Kalshi weight.
+
+An inverse-variance pool is a sum over sessions, so later sessions can
+still be added to it from that summary. The only loss is precision: the
+summary is rounded to four decimals, which moves t by a few hundredths.
+From Nov 5 the daily read reports two figures:
+
+- the pool of the sessions in the new database, re-run by the committed
+  estimator (`scripts/checkin/twobook_sessions.py`, same method: 30 s
+  grid, k = 3, pair-clustered errors, sessions bounded to [start, end]);
+- that pool combined with the 27-session summary above.
+
+Session #35 (Nov 5 13:37Z) is the first in the new database: 35 pairs,
+gap sd 0.0078, mids moving in 14–18% of steps. At 90 s it gives
+Polymarket→Kalshi +0.236 ± 0.125 (t 1.9) and Kalshi→Polymarket
+−0.089 ± 0.101. Combined with the summary: +0.0107 ± 0.0034 (t 3.14) and
++0.0089 ± 0.0035 (t 2.54). Session #35 carries 0.07% and 0.12% of the
+weight. The addendum triggers (a sign flip of either pooled estimate, or
+a registered change of method) apply to the combined figure.
+
 ## Result 11 (both venues): other sports and categories — no arbitrage, and the cheaper venue is also the sharper one
 
 _2026-10-02, 22:45–23:30Z. Three measurements: (a) the fee landscape of

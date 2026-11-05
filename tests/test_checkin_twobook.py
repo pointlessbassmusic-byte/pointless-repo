@@ -74,3 +74,12 @@ def test_pool_is_inverse_variance_and_clusters_by_pair():
     b1, s1 = ts_mod.clustered_slope(x, y, g)
     b2, s2 = ts_mod.clustered_slope(x + x, y + y, g + g)
     assert math.isclose(b1, b2) and math.isclose(s1, s2, rel_tol=1e-9)
+
+
+def test_prior_summary_combines_like_one_more_session():
+    """The lost 27-session pool is carried by its published summary; adding
+    Nov 5's session to it gives the figures in the 2026-11-05 note."""
+    b, s = ts_mod.pool([ts_mod.PRIOR["p2k"], (0.2364, 0.1250)])
+    assert round(b, 4) == 0.0107 and round(s, 4) == 0.0034 and round(b / s, 2) == 3.14
+    b, s = ts_mod.pool([ts_mod.PRIOR["k2p"], (-0.0895, 0.1009)])
+    assert round(b, 4) == 0.0089 and round(b / s, 2) == 2.54

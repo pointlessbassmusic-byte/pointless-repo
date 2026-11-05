@@ -37,6 +37,11 @@ SESSION_GAP_S = 600.0
 MIN_GRID = 20
 HORIZONS = (1, 3, 6, 15)
 POOL_K = 3
+# The 27 sessions logged Oct 6 - Nov 4 were lost with the sandbox on Nov 5;
+# their pool survives only as the published summary (EDGE_VERDICT Result 10,
+# note 2026-11-05), carried forward by inverse-variance combination.
+PRIOR = {"label": "27 sessions Oct 6 - Nov 4 (published)",
+         "p2k": (0.0105, 0.0034), "k2p": (0.0090, 0.0035)}
 
 
 def sessions(conn) -> list[tuple[float, float]]:
@@ -165,6 +170,9 @@ def main(db: str = "data/twobook.sqlite", sport: str | None = "tennis") -> None:
         w = [(1 / (ss * ss), lab) for lab, (bb, ss) in vals if ss and ss > 0]
         tw = sum(x for x, _ in w) or 1.0
         print("  weight shares: " + ", ".join(f"{lab} {x / tw:.0%}" for x, lab in sorted(w, reverse=True)[:3]))
+        cb, cs = pool([PRIOR[key]] + [v for _, v in vals])
+        print(f"  combined with {PRIOR['label']}: {cb:+.4f} ± {cs:.4f} (t {cb / cs:+.2f}); "
+              f"new sessions' weight {1 - (1 / PRIOR[key][1] ** 2) / (1 / cs ** 2):.2%}")
 
 
 if __name__ == "__main__":
