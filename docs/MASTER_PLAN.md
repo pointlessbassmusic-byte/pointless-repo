@@ -544,7 +544,7 @@ Pipeline per cycle:
       | cb_watch | 5 (ECB, BoJ, RBNZ, RBA, BoE) | 10 | 8 | 2 | -16.8% |
       | pooled | 6 | 12 | 10 | 2 | -12.5% |
       Both losses are the RBNZ Oct hike (entered 0.92 / 0.94; the bank held). Ex-RBNZ the
-      ten winners average +4.6%. Six meetings cannot estimate a surprise rate (rule-of-
+      ten winners average +5.0%. Six meetings cannot estimate a surprise rate (rule-of-
       three bound 25% on 12 rows); the pooled record is negative, so nothing here clears
       pre-live-gate. The recorders stay recorders.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
