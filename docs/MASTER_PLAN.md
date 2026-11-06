@@ -534,6 +534,19 @@ Pipeline per cycle:
       Polymarket "increases 25 bps" resolved yes): +7.0% / +9.3% net. Forward G10 record
       (two_venue, Fed + cb_watch): 5 meetings settled, 10 rows, 8 paid, 2 lost (RBNZ);
       cb_watch two_venue mean -21%. BoE Nov 5 still open.
+      **2026-11-06: BoE Nov 5 hike-25 settled — PAID on both venues** (Kalshi H25 finalized
+      yes; Polymarket "increases 25 bps" resolved yes): +0.9% / +1.7% net.
+      **First forward record complete** (every row fired 2026-10-22 .. 10-31 settled),
+      two_venue only, $25 stake per row:
+      | recorder | meetings | rows | paid | lost | mean net / row |
+      |---|---|---|---|---|---|
+      | fed_watch | 1 (Oct FOMC) | 2 | 2 | 0 | +9.0% |
+      | cb_watch | 5 (ECB, BoJ, RBNZ, RBA, BoE) | 10 | 8 | 2 | -16.8% |
+      | pooled | 6 | 12 | 10 | 2 | -12.5% |
+      Both losses are the RBNZ Oct hike (entered 0.92 / 0.94; the bank held). Ex-RBNZ the
+      ten winners average +4.6%. Six meetings cannot estimate a surprise rate (rule-of-
+      three bound 25% on 12 rows); the pooled record is negative, so nothing here clears
+      pre-live-gate. The recorders stay recorders.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
