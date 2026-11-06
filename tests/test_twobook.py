@@ -128,3 +128,38 @@ def test_default_sports_are_keys_the_venues_know():
         assert set(default) <= set(SPORT_KEYS), (fn.__name__, default)
     cli_default = inspect.signature(twobook_log).parameters["sports"].default
     assert set(cli_default.default.split(",")) <= set(SPORT_KEYS)
+
+
+def test_an_empty_discovery_is_retried_soon_not_after_the_whole_session(tmp_path, monkeypatch):
+    """Nov 6: Kalshi answered the logger's one discovery call with 429 (a
+    cache backtest had just used the rate budget), the logger found 0 pairs
+    and, with rediscovery due only every 30 min, sampled nothing for the
+    whole 30-minute session (89 passes, 0 rows). With no pairs it must try
+    discovery again after a short backoff."""
+    clock = {"t": 1_800_000_000.0}
+    monkeypatch.setattr(tb.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(tb.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + max(s, 1.0)))
+    k = [_mi(Exchange.KALSHI, "KXATPMATCH-1-SIN", "Jannik Sinner", "Carlos Alcaraz", Sport.TENNIS)]
+    p = [_mi(Exchange.POLYMARKET, "c1", "Jannik Sinner", "Carlos Alcaraz", Sport.TENNIS, "t1", 500.0)]
+
+    class Venue:
+        def __init__(self, markets, fail_first):
+            self.markets, self.calls, self.fail_first = markets, 0, fail_first
+
+        def list_sports_markets(self, sport):
+            self.calls += 1
+            if self.calls <= self.fail_first:
+                raise RuntimeError("rate limited")
+            return self.markets
+
+        def get_quote(self, market):
+            from sportsbot.core.types import BookLevel, MarketQuote
+            return MarketQuote(market_id=market.market_id, bid=0.49, ask=0.51,
+                               bids=[BookLevel(price=0.49, size=10)], asks=[BookLevel(price=0.51, size=10)])
+
+    kal = Venue(k, fail_first=1)
+    lg = tb.TwoBookLogger(str(tmp_path / "tb.sqlite"), kalshi=kal, polymarket=Venue(p, fail_first=0))
+    out = lg.run(interval=20.0, minutes=30.0, sports=("tennis",))
+    assert out["pairs"] == 1
+    assert out["rows"] >= 2 * 80          # sampling starts within about a minute, not never
+    assert kal.calls == 2                 # retried once; no hammering once pairs exist

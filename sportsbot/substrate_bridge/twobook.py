@@ -184,12 +184,17 @@ class TwoBookLogger:
         return len(rows)
 
     def run(self, interval: float = 20.0, minutes: float = 30.0, rediscover_every: float = 1800.0,
-            sports=("tennis", "baseball"), max_pairs: int = 40) -> dict:
+            sports=("tennis", "baseball"), max_pairs: int = 40, empty_retry: float = 60.0) -> dict:
+        """Sample both books every `interval` s for `minutes`. Discovery
+        repeats every `rediscover_every` s, or every `empty_retry` s while no
+        pair is active: one rate-limited discovery call (Nov 6) must not
+        leave a whole session empty."""
         t_end = time.time() + minutes * 60
         last_disc = 0.0
         samples = passes = 0
         while time.time() < t_end:
-            if time.time() - last_disc > rediscover_every:
+            due = rediscover_every if self._infos else empty_retry
+            if time.time() - last_disc > due:
                 n = self.discover(sports=sports, max_pairs=max_pairs)
                 log.info("twobook: %d pairs", n)
                 last_disc = time.time()
