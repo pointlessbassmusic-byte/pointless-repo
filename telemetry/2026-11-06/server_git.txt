@@ -1,0 +1,3 @@
+server HEAD:  5b4cddb9c164396d721ead1c35b2b6bfcd16721f 2026-11-06T06:11:57-07:00 Daily check-in 2026-11-06: two-book logger retries an empty discovery (#129)
+origin/main:  5b4cddb9c164396d721ead1c35b2b6bfcd16721f
+local changes (block the ff-only pull if a merged commit touches them):
