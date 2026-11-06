@@ -80,6 +80,19 @@ def export_rows(db_path: str) -> dict:
     return out
 
 
+def date_counts(db_path: str) -> dict:
+    """Date token (e.g. 26NOV05) -> (settled, total) tickers in the store."""
+    conn = sqlite3.connect(db_path)
+    out = {}
+    for token, total, settled in conn.execute("""SELECT substr(s.ticker, instr(s.ticker, '-') + 1, 7),
+            COUNT(DISTINCT s.ticker), COUNT(DISTINCT o.ticker)
+            FROM weather_snapshots s LEFT JOIN weather_outcomes o
+              ON o.ticker = s.ticker AND o.outcome IS NOT NULL
+            GROUP BY 1 ORDER BY 1"""):
+        out[token] = (settled, total)
+    return out
+
+
 def validate(hist: list[dict], recomputed: dict) -> tuple[int, list[tuple]]:
     checked, bad = 0, []
     for h in hist:
@@ -155,8 +168,9 @@ def main(hist_path: str, out_path: str, db_path: str, complete_dates: str) -> No
         w.writerows(rows)
     print(f"wrote {out_path} {len(rows)} rows")
     complete = {d for d in complete_dates.split(",") if d}
-    open_dates = sorted({r["target_date"] for r in recomputed.values()} - complete)
-    print("open (partial) dates in store:", open_dates)
+    counts = date_counts(db_path) if Path(db_path).exists() else {}
+    print("dates in store (settled/total):",
+          ", ".join(f"{t} {a}/{b}" for t, (a, b) in counts.items()) or "none")
     s = score(rows, complete)
     print("complete dates:", sorted(complete))
     for key in ("station-day clim-NWS", "station-day mkt-NWS", "per-date clim-NWS", "per-date mkt-NWS"):

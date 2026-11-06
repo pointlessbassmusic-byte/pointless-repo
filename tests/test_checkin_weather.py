@@ -37,3 +37,18 @@ def test_history_is_kept_and_only_new_tickers_appended(tmp_path):
     checked, bad = wx.validate(hist, rec)
     assert checked == 1 and bad == [("A", "market", "0.4", 0.45)]   # reported, never overwritten
     assert wx.validate(hist, {}) == (0, [])
+
+
+def test_date_counts_list_unsettled_dates(tmp_path):
+    """The store's dates are listed with settled/total even before any of
+    their tickers settle (the first rebuild listed only settled ones)."""
+    import sqlite3
+    db = str(tmp_path / "w.sqlite")
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE weather_snapshots (ticker TEXT, ts REAL)")
+    c.execute("CREATE TABLE weather_outcomes (ticker TEXT, outcome INTEGER)")
+    c.executemany("INSERT INTO weather_snapshots VALUES (?, 1.0)",
+                  [("KXHIGHNY-26NOV05-B50.5",), ("KXHIGHNY-26NOV05-B52.5",), ("KXHIGHNY-26NOV06-B50.5",)])
+    c.execute("INSERT INTO weather_outcomes VALUES ('KXHIGHNY-26NOV05-B50.5', 1)")
+    c.commit()
+    assert wx.date_counts(db) == {"26NOV05": (1, 2), "26NOV06": (0, 1)}
