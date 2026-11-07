@@ -1,0 +1,3 @@
+server HEAD:  a9c18481fd8a1e640c92702ef2bbafcd19eb0ef2 2026-11-07T05:41:27-07:00 Weather cohort: Nov 5 settles, 36 complete dates (#130)
+origin/main:  a9c18481fd8a1e640c92702ef2bbafcd19eb0ef2
+local changes (block the ff-only pull if a merged commit touches them):

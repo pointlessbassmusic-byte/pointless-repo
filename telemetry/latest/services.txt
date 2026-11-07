@@ -4,6 +4,5 @@
   sportsbot-freshwatch.service loaded active running sportsbot fresh-wallet fade forward test (public reads; a paper record, no orders)
   sportsbot-lip.service        loaded active running sportsbot Kalshi LIP shadow recorder (data only, never trades)
   sportsbot-prematch.service   loaded active running sportsbot pre-match quote recorder (data only, never trades)
-  sportsbot-queuelog.service   loaded active running sportsbot venue queue recorder (data only; public reads, no keys, no orders)
   sportsbot-sim.service        loaded active running sportsbot $100 sim book (paper mode; scans live markets, simulated fills)
   weather-snapshot.service     loaded active running substrate milestone 2: Kalshi weather-dailies decision-time snapshots (read-only)
