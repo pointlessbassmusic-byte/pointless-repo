@@ -83,6 +83,11 @@ MATCH_START_TOLERANCE_H = 3.0     # same teams on another day is another game (p
 # while the same names on another day are >= ~20 h away.
 KALSHI_CLOSE_WINDOW_H = 12.0
 EPS = 1e-9
+# How long the recorder's writes wait for a reader. The nightly telemetry
+# export reads this database (COUNTs over millions of rows) while the
+# recorder runs; at sqlite's default 5 s the recorder's commit raised
+# "database is locked" and the service exited (Nov 4, Nov 7).
+BUSY_TIMEOUT_S = 300.0
 
 # Columns added after the first logs were written: (table, column, decl).
 MIGRATIONS = (("games", "k_ticker", "TEXT"), ("games", "k_yes_is_us_long", "INTEGER"),
@@ -158,7 +163,7 @@ def _flip(bid, ask, bq, aq, flip: bool):
 class QueueSampler:
     def __init__(self, db_path: str = "data/queue.sqlite", us=None, pm=None, kalshi=None,
                  clock=time.time):
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, timeout=BUSY_TIMEOUT_S)
         self.conn.executescript(SCHEMA)
         _migrate(self.conn)
         self.us = us
