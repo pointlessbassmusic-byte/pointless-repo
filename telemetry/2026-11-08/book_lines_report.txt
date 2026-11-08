@@ -1,0 +1,20 @@
+book-lines forward record: 310 games, 930 snapshots, 309 settled
+PRIMARY (Polymarket US, T-15, 2c margin, at the ask, net of the US taker fee): -18.56 ± 14.00c (t -1.33) on 7 -> collecting (7/100 trades)
+  us T-60 margin 1c      -1.92 ± 6.57c (t -0.29) on 41
+  us T-60 margin 2c      -5.49 ± 18.25c (t -0.30) on 6
+  us T-60 margin 3c      n 0
+  us T-30 margin 1c      +0.20 ± 6.35c (t +0.03) on 46
+  us T-30 margin 2c      -14.96 ± 18.93c (t -0.79) on 5
+  us T-30 margin 3c      -23.19c on 1
+  us T-15 margin 1c      +0.22 ± 6.16c (t +0.04) on 50
+  us T-15 margin 2c      -18.56 ± 14.00c (t -1.33) on 7
+  us T-15 margin 3c      -11.68c on 1
+  pm T-60 margin 1c      -2.78 ± 7.10c (t -0.39) on 34
+  pm T-60 margin 2c      -3.78 ± 24.75c (t -0.15) on 3
+  pm T-60 margin 3c      +44.26c on 1
+  pm T-30 margin 1c      +7.27 ± 6.33c (t +1.15) on 48
+  pm T-30 margin 2c      -5.80 ± 14.93c (t -0.39) on 5
+  pm T-30 margin 3c      -22.86c on 1
+  pm T-15 margin 1c      +4.23 ± 6.21c (t +0.68) on 49
+  pm T-15 margin 2c      -7.04 ± 13.78c (t -0.51) on 8
+  pm T-15 margin 3c      -11.49c on 1

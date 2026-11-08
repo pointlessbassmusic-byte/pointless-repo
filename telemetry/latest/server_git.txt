@@ -1,3 +1,3 @@
-server HEAD:  a9c18481fd8a1e640c92702ef2bbafcd19eb0ef2 2026-11-07T05:41:27-07:00 Weather cohort: Nov 5 settles, 36 complete dates (#130)
-origin/main:  a9c18481fd8a1e640c92702ef2bbafcd19eb0ef2
+server HEAD:  cb4a48eeab50c405572f3577e387a1deac2430a4 2026-11-08T05:41:30-07:00 Daily check-in 2026-11-08: queue recorder no longer dies on the export's read; weather 37 dates (#131)
+origin/main:  cb4a48eeab50c405572f3577e387a1deac2430a4
 local changes (block the ff-only pull if a merged commit touches them):

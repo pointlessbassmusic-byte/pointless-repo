@@ -1,0 +1,40 @@
+Nov 02 07:24:58 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 02 07:24:58 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 02 07:24:58 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 02 07:24:58 localhost systemd[1]: sportsbot-booklines.service: Consumed 2min 24.931s CPU time, 345.9M memory peak, 3.7M memory swap peak.
+Nov 02 07:24:58 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 02:02:29 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 03 02:02:29 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 03 02:02:29 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 02:02:29 localhost systemd[1]: sportsbot-booklines.service: Consumed 25.525s CPU time, 288.1M memory peak, 0B memory swap peak.
+Nov 03 02:02:29 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 14:17:30 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 03 14:17:30 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 03 14:17:30 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 03 14:17:30 localhost systemd[1]: sportsbot-booklines.service: Consumed 7.655s CPU time, 209.1M memory peak, 0B memory swap peak.
+Nov 03 14:17:30 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 04 14:19:31 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 04 14:19:31 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 04 14:19:31 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 04 14:19:31 localhost systemd[1]: sportsbot-booklines.service: Consumed 14.504s CPU time, 87.6M memory peak, 0B memory swap peak.
+Nov 04 14:19:31 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 05 14:20:05 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 05 14:20:05 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 05 14:20:05 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 05 14:20:05 localhost systemd[1]: sportsbot-booklines.service: Consumed 26.664s CPU time, 277.7M memory peak, 0B memory swap peak.
+Nov 05 14:20:05 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 06 14:22:04 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 06 14:22:05 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 06 14:22:05 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 06 14:22:05 localhost systemd[1]: sportsbot-booklines.service: Consumed 22.017s CPU time, 264.4M memory peak, 0B memory swap peak.
+Nov 06 14:22:05 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 07 14:20:04 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 07 14:20:04 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 07 14:20:04 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 07 14:20:04 localhost systemd[1]: sportsbot-booklines.service: Consumed 20.804s CPU time, 201.4M memory peak, 0B memory swap peak.
+Nov 07 14:20:04 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 08 14:18:04 localhost systemd[1]: Stopping sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders)...
+Nov 08 14:18:04 localhost systemd[1]: sportsbot-booklines.service: Deactivated successfully.
+Nov 08 14:18:04 localhost systemd[1]: Stopped sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).
+Nov 08 14:18:04 localhost systemd[1]: sportsbot-booklines.service: Consumed 32.716s CPU time, 222.9M memory peak, 0B memory swap peak.
+Nov 08 14:18:04 localhost systemd[1]: Started sportsbot-booklines.service - sportsbot sportsbook-line forward record (ESPN live lines vs Polymarket US/main; public reads, no orders).

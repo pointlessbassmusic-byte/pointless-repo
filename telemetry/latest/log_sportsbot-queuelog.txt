@@ -1,40 +1,40 @@
-Nov 07 15:39:19 localhost sportsbot[253267]: ╭───────────────────── Traceback (most recent call last) ──────────────────────╮
-Nov 07 15:39:19 localhost sportsbot[253267]: │ /opt/sportsbot/sportsbot/cli.py:1021 in queue_log                            │
-Nov 07 15:39:19 localhost sportsbot[253267]: │                                                                              │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   1018 │   _setup(config)                                                    │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   1019 │   from sportsbot.substrate_bridge.queue_study import QueueSampler   │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   1020 │                                                                     │
-Nov 07 15:39:19 localhost sportsbot[253267]: │ ❱ 1021 │   res = QueueSampler(db).run(minutes=minutes, interval=interval,    │
-Nov 07 15:39:19 localhost sportsbot[253267]: │        window_h=window_h,                                                    │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   1022 │   │   │   │   │   │   │      sports=tuple(s.strip() for s in        │
-Nov 07 15:39:19 localhost sportsbot[253267]: │        sports.split(",") if s.strip()))                                      │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   1023 │   console.print(res)                                                │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   1024                                                                       │
-Nov 07 15:39:19 localhost sportsbot[253267]: │                                                                              │
-Nov 07 15:39:19 localhost sportsbot[253267]: │ /opt/sportsbot/sportsbot/substrate_bridge/queue_study.py:301 in run          │
-Nov 07 15:39:19 localhost sportsbot[253267]: │                                                                              │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   298 │   │   │   │   log.info("queue study: %d new games",                  │
-Nov 07 15:39:19 localhost sportsbot[253267]: │       self.discover(sports, window_h))                                       │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   299 │   │   │   │   last_disc = self.clock()                               │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   300 │   │   │   started = self.clock()                                     │
-Nov 07 15:39:19 localhost sportsbot[253267]: │ ❱ 301 │   │   │   rows += self.sample_once()                                 │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   302 │   │   │   passes += 1                                                │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   303 │   │   │   if self.clock() - last_tape >= tape_every:                 │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   304 │   │   │   │   prints += self.store_tape(t0)                          │
-Nov 07 15:39:19 localhost sportsbot[253267]: │                                                                              │
-Nov 07 15:39:19 localhost sportsbot[253267]: │ /opt/sportsbot/sportsbot/substrate_bridge/queue_study.py:261 in sample_once  │
-Nov 07 15:39:19 localhost sportsbot[253267]: │                                                                              │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   258 │   │   │   │   except Exception as exc:  # noqa: BLE001               │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   259 │   │   │   │   │   log.debug("%s read failed %s: %s", venue,          │
-Nov 07 15:39:19 localhost sportsbot[253267]: │       rm.market_id, exc)                                                     │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   260 │   │   self.conn.executemany("INSERT INTO samples VALUES              │
-Nov 07 15:39:19 localhost sportsbot[253267]: │       (?,?,?,?,?,?,?,?,?)", rows)                                            │
-Nov 07 15:39:19 localhost sportsbot[253267]: │ ❱ 261 │   │   self.conn.commit()                                             │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   262 │   │   return len(rows)                                               │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   263 │                                                                      │
-Nov 07 15:39:19 localhost sportsbot[253267]: │   264 │   def store_tape(self, start_ts: float) -> int:                      │
-Nov 07 15:39:19 localhost sportsbot[253267]: ╰──────────────────────────────────────────────────────────────────────────────╯
-Nov 07 15:39:19 localhost sportsbot[253267]: OperationalError: database is locked
-Nov 07 15:39:19 localhost systemd[1]: sportsbot-queuelog.service: Main process exited, code=exited, status=1/FAILURE
-Nov 07 15:39:19 localhost systemd[1]: sportsbot-queuelog.service: Failed with result 'exit-code'.
-Nov 07 15:39:19 localhost systemd[1]: sportsbot-queuelog.service: Consumed 8min 9.902s CPU time, 409.1M memory peak, 0B memory swap peak.
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,596 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-moebou-isabec-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,608 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-moebou-isabec-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,693 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=88715037162975544079251772515616699377545685325925553579576007067075008247132 "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,715 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-masima-ryumat-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,738 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-masima-ryumat-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,829 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=50772984069988267995106986088090791762497662511458905241614720451343882315801 "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,856 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-thofan-taisac-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,877 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-thofan-taisac-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,904 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-lucsta-takkum-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:30 localhost sportsbot[260778]: 2026-11-08 15:57:30,929 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-lucsta-takkum-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,017 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=39747250058908130540475093413485852738804024045316513400005269378255113352702 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,044 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-keisai-rentok-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,066 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-keisai-rentok-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,160 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=110200741629496810641751452276902903135724903767120365059265125707679642844037 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,184 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-shokat-shiima-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,212 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-shokat-shiima-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,338 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=19129555162539641629215552679605736141703840647292890499297551340121407587072 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,361 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-antshe-dompal-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,382 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-antshe-dompal-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,468 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=86237592174283093500261260352584520789772852708182542159229528945448871655599 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,491 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-samzie-chafer-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,520 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-samzie-chafer-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,551 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-chrlan-kokiso-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,573 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-chrlan-kokiso-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,661 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=22464916332103031070274659186682633982172593071122931381333739974236954057018 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,689 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-borari-johnik-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,699 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-atp-borari-johnik-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,728 INFO httpx: HTTP Request: GET https://api.elections.kalshi.com/trade-api/v2/markets/KXATPCHALLENGERMATCH-26NOV08ARINIK-ARI/orderbook?depth=10 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,754 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-cocgau-jespeg-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,765 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-cocgau-jespeg-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,850 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=28167157402609868077610430015547140546812848950457192023980914798874092271700 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,875 INFO httpx: HTTP Request: GET https://api.elections.kalshi.com/trade-api/v2/markets/KXWTAMATCH-26NOV08GAUPEG-GAU/orderbook?depth=10 "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,894 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-markos-linnos-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,906 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-markos-linnos-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:31 localhost sportsbot[260778]: 2026-11-08 15:57:31,992 INFO httpx: HTTP Request: GET https://clob.polymarket.com/book?token_id=102230368752617837483063829989433928488072773376802599223346811235338497333630 "HTTP/1.1 200 OK"
+Nov 08 15:57:32 localhost sportsbot[260778]: 2026-11-08 15:57:32,021 INFO httpx: HTTP Request: GET https://api.elections.kalshi.com/trade-api/v2/markets/KXWTAMATCH-26NOV08KOSNOS-NOS/orderbook?depth=10 "HTTP/1.1 200 OK"
+Nov 08 15:57:32 localhost sportsbot[260778]: 2026-11-08 15:57:32,045 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-margon-maruri-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:32 localhost sportsbot[260778]: 2026-11-08 15:57:32,056 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-margon-maruri-2026-11-08/book "HTTP/1.1 200 OK"
+Nov 08 15:57:32 localhost sportsbot[260778]: 2026-11-08 15:57:32,083 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-daljak-isacol-2026-11-08/bbo "HTTP/1.1 200 OK"
+Nov 08 15:57:32 localhost sportsbot[260778]: 2026-11-08 15:57:32,094 INFO httpx: HTTP Request: GET https://gateway.polymarket.us/v1/markets/aec-wta-daljak-isacol-2026-11-08/book "HTTP/1.1 200 OK"

@@ -1,0 +1,3 @@
+server HEAD:  cb4a48eeab50c405572f3577e387a1deac2430a4 2026-11-08T05:41:30-07:00 Daily check-in 2026-11-08: queue recorder no longer dies on the export's read; weather 37 dates (#131)
+origin/main:  cb4a48eeab50c405572f3577e387a1deac2430a4
+local changes (block the ff-only pull if a merged commit touches them):
