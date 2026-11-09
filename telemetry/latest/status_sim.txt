@@ -1,17 +1,16 @@
- open exposure: $6.45 across 7 positions {'esports': 3.0, 'tennis': 2.45, 
-'cricket': 1.0}
+ open exposure: $0.00 across 0 positions {}
 {
-    'n_bets': 572,
+    'n_bets': 579,
     'n_settled': 546,
-    'n_closed_early': 26,
-    'total_staked': 552.56,
-    'pnl': 5.4,
-    'roi': 0.0098,
+    'n_closed_early': 33,
+    'total_staked': 559.01,
+    'pnl': 6.76,
+    'roi': 0.0121,
     'hit_rate': 0.4908,
     'brier': 0.2168,
     'log_loss': 0.6242,
-    'mean_clv': 0.005,
-    'clv_positive_rate': 0.697
+    'mean_clv': 0.0055,
+    'clv_positive_rate': 0.6972
 }
 max drawdown: $24.58
                       per category (adaptive layer state)                       
@@ -22,13 +21,13 @@ max drawdown: $24.58
 │ baseball │ 27   │ $-1.82  │ +0.0181  │ 40.0% │ normal   │ 0.030    │ $8      │
 │ basketb… │ 77   │ $2.32   │ +0.0047  │ 51.9% │ normal   │ 0.030    │ $8      │
 │ college… │ 36   │ $2.57   │ +0.0043  │ 41.7% │ normal   │ 0.030    │ $8      │
-│ cricket  │ 49   │ $7.72   │ +0.0036  │ 62.5% │ normal   │ 0.030    │ $8      │
-│ esports  │ 71   │ $-0.99  │ +0.0004  │ 49.3% │ tighten… │ 0.050    │ $4      │
+│ cricket  │ 50   │ $8.19   │ +0.0047  │ 62.5% │ normal   │ 0.030    │ $8      │
+│ esports  │ 74   │ $-0.30  │ +0.0018  │ 49.3% │ tighten… │ 0.050    │ $4      │
 │ football │ 24   │ $-3.27  │ +0.0050  │ 50.0% │ normal   │ 0.030    │ $8      │
 │ hockey   │ 66   │ $3.84   │ +0.0067  │ 54.5% │ normal   │ 0.030    │ $8      │
 │ mma      │ 12   │ $-3.49  │ +0.0013  │ 33.3% │ normal   │ 0.030    │ $8      │
 │ soccer   │ 93   │ $9.95   │ +0.0038  │ 49.5% │ normal   │ 0.030    │ $8      │
-│ tennis   │ 117  │ $-11.43 │ +0.0063  │ 42.2% │ normal   │ 0.030    │ $8      │
+│ tennis   │ 120  │ $-11.23 │ +0.0074  │ 42.2% │ normal   │ 0.030    │ $8      │
 └──────────┴──────┴─────────┴──────────┴───────┴──────────┴──────────┴─────────┘
 effective Kelly multiplier: 0.0625 (drawdown $24.18 below peak)
              fill markouts (cents/share after our fills; 356 fills)             

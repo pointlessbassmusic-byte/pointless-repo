@@ -1,0 +1,40 @@
+Nov 09 14:17:36 localhost bash[269637]: 2026-11-09 14:17:36,068 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-05-25&endDate=2024-06-23&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:36 localhost bash[269637]: 2026-11-09 14:17:36,274 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-06-24&endDate=2024-07-23&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:36 localhost bash[269637]: 2026-11-09 14:17:36,537 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-07-24&endDate=2024-08-22&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:36 localhost bash[269637]: 2026-11-09 14:17:36,789 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-08-23&endDate=2024-09-21&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:36 localhost bash[269637]: 2026-11-09 14:17:36,969 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-09-22&endDate=2024-10-21&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:37 localhost bash[269637]: 2026-11-09 14:17:37,066 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-10-22&endDate=2024-11-20&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:37 localhost bash[269637]: 2026-11-09 14:17:37,142 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-11-21&endDate=2024-12-20&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:37 localhost bash[269637]: 2026-11-09 14:17:37,209 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2024-12-21&endDate=2025-01-19&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:37 localhost bash[269637]: 2026-11-09 14:17:37,278 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-01-20&endDate=2025-02-18&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:37 localhost bash[269637]: 2026-11-09 14:17:37,510 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-02-19&endDate=2025-03-20&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:37 localhost bash[269637]: 2026-11-09 14:17:37,823 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-03-21&endDate=2025-04-19&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:38 localhost bash[269637]: 2026-11-09 14:17:38,092 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-04-20&endDate=2025-05-19&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:38 localhost bash[269637]: 2026-11-09 14:17:38,254 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-05-20&endDate=2025-06-18&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:38 localhost bash[269637]: 2026-11-09 14:17:38,539 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-06-19&endDate=2025-07-18&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:38 localhost bash[269637]: 2026-11-09 14:17:38,806 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-07-19&endDate=2025-08-17&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,102 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-08-18&endDate=2025-09-16&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,347 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-09-17&endDate=2025-10-16&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,449 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-10-17&endDate=2025-11-15&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,516 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-11-16&endDate=2025-12-15&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,584 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2025-12-16&endDate=2026-01-14&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,649 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-01-15&endDate=2026-02-13&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:39 localhost bash[269637]: 2026-11-09 14:17:39,829 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-02-14&endDate=2026-03-15&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:40 localhost bash[269637]: 2026-11-09 14:17:40,132 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-03-16&endDate=2026-04-14&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:40 localhost bash[269637]: 2026-11-09 14:17:40,371 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-04-15&endDate=2026-05-14&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:40 localhost bash[269637]: 2026-11-09 14:17:40,630 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-05-15&endDate=2026-06-13&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:40 localhost bash[269637]: 2026-11-09 14:17:40,895 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-06-14&endDate=2026-07-13&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:41 localhost bash[269637]: 2026-11-09 14:17:41,135 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-07-14&endDate=2026-08-12&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:41 localhost bash[269637]: 2026-11-09 14:17:41,375 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-08-13&endDate=2026-09-11&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:41 localhost bash[269637]: 2026-11-09 14:17:41,646 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-09-12&endDate=2026-10-11&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:41 localhost bash[269637]: 2026-11-09 14:17:41,748 INFO httpx: HTTP Request: GET http://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-10-12&endDate=2026-11-09&hydrate=probablePitcher "HTTP/1.1 200 OK"
+Nov 09 14:17:41 localhost bash[269637]: training on 9904 games
+Nov 09 14:17:41 localhost bash[269637]: saved 31 team ratings -> data/ratings/baseball.json
+Nov 09 14:17:42 localhost sudo[269636]: pam_unix(sudo:session): session closed for user sportsbot
+Nov 09 14:17:43 localhost bash[269581]: update: paper units restarted
+Nov 09 14:17:43 localhost sudo[269673]:     root : PWD=/opt/sportsbot ; USER=sportsbot ; COMMAND=/usr/bin/git -C /opt/sportsbot rev-parse --verify -q HEAD
+Nov 09 14:17:43 localhost sudo[269673]: pam_unix(sudo:session): session opened for user sportsbot(uid=999) by (uid=0)
+Nov 09 14:17:43 localhost sudo[269673]: pam_unix(sudo:session): session closed for user sportsbot
+Nov 09 14:17:43 localhost systemd[1]: sportsbot-update.service: Deactivated successfully.
+Nov 09 14:17:43 localhost systemd[1]: Finished sportsbot-update.service - sportsbot daily unattended update of the paper stack (never the live unit).
+Nov 09 14:17:43 localhost systemd[1]: sportsbot-update.service: Consumed 5.150s CPU time.
