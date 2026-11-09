@@ -80,6 +80,11 @@ class PaperExchange(ExchangeClient):
             return None
         return self.data_client.get_resolution(market_id)
 
+    def get_void(self, market_id: str) -> bool:
+        if self.data_client is None:
+            return False
+        return bool(self.data_client.get_void(market_id))
+
     # --- simulated execution -------------------------------------------
     def place_order(self, order: Order, quote: Optional[MarketQuote] = None,
                     market: Optional[MarketInfo] = None,
@@ -255,12 +260,17 @@ class PaperExchange(ExchangeClient):
     # --- settlement (called by the runner when a market resolves) -------
     def settle(self, market_id: str, yes_won: bool) -> float:
         """Pay out winning shares; returns realized PnL added to balance."""
+        return self.settle_payout(market_id, 1.0 if yes_won else 0.0)
+
+    def settle_payout(self, market_id: str, yes_payout: float) -> float:
+        """Pay each YES share `yes_payout` and each NO share 1 - yes_payout
+        (1/0 for a decided market, 0.5 for a void); returns realized PnL."""
         pnl = 0.0
         for (mid, side), pos in list(self.positions.items()):
             if mid != market_id or pos.size <= 0:
                 continue
-            won = (side == Side.YES) == yes_won
-            payout = pos.size if won else 0.0
+            per_share = yes_payout if side == Side.YES else 1.0 - yes_payout
+            payout = pos.size * per_share
             pnl += payout - pos.cost
             self.balance += payout
             pos.realized_pnl += payout - pos.cost

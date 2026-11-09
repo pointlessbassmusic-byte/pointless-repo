@@ -48,6 +48,7 @@ from sportsbot.bot.strategy import StrategyConfig, evaluate_market_verbose
 from sportsbot.core.staking import StakingConfig
 from sportsbot.core.types import Side, Sport
 from sportsbot.data.store import Store
+from sportsbot.exchanges.base import VOID_PAYOUT
 from sportsbot.engine.baseball import BaseballModel
 from sportsbot.engine.sharpline import SharpLineModel
 from sportsbot.engine.tabletennis import TableTennisModel
@@ -591,8 +592,18 @@ class Runner:
             except Exception:
                 log.exception("resolution check failed for %s", market_id)
                 continue
+            void = False
             if yes_won is None:
-                continue
+                # No winner flag can also mean a void (50/50) resolution,
+                # which never sets one: without this the bet stays open for
+                # good and its exposure is never released (Nov 5 walkover).
+                try:
+                    void = bool(self.data_client.get_void(market_id))
+                except Exception:
+                    log.exception("void check failed for %s", market_id)
+                    continue
+                if not void:
+                    continue
             # Partial early closes banked proceeds and shrank the venue
             # position; settlement pays only the remainder.
             side_sizes: dict[str, float] = {}
@@ -602,12 +613,13 @@ class Runner:
                          or {"closed": 0.0, "proceeds": 0.0})
                      for s in side_sizes}
             for b in bets:
-                side_won = (b["side"] == "yes") == yes_won
+                side_won = (not void) and (b["side"] == "yes") == yes_won
                 total = side_sizes[b["side"]] or 1e-9
                 bank = banks[b["side"]]
                 frac_remaining = max(0.0, total - bank["closed"]) / total
                 bank_share = bank["proceeds"] * b["size"] / total
-                payout = b["size"] * frac_remaining if side_won else 0.0
+                per_share = VOID_PAYOUT if void else (1.0 if side_won else 0.0)
+                payout = b["size"] * frac_remaining * per_share
                 pnl = round(bank_share + payout - b["stake"], 2)
                 # The close is the last book seen AFTER this entry. The quote
                 # the order was posted against is not a close: in a book that
@@ -618,14 +630,23 @@ class Runner:
                 if snap and snap.get("bid") is not None and snap.get("ask") is not None:
                     mid = (snap["bid"] + snap["ask"]) / 2.0
                     closing = mid if b["side"] == "yes" else 1.0 - mid
-                self.store.settle_bet(b["id"], outcome=1 if side_won else 0,
-                                      pnl=pnl, closing_price=closing)
+                if void:
+                    # no win/lose observation: booked like an early close, so
+                    # PnL counts and Brier/calibration never see it
+                    self.store.close_bet(b["id"], pnl=pnl, closing_price=closing)
+                else:
+                    self.store.settle_bet(b["id"], outcome=1 if side_won else 0,
+                                          pnl=pnl, closing_price=closing)
                 settled += 1
             for s, bank in banks.items():
                 if bank["closed"]:
                     self.store.set_kv(f"partial_close:{market_id}:{s}", None)
-            self.executor.settle_paper(market_id, yes_won)
-            log.info("settled %s: yes_won=%s (%d bets)", market_id, yes_won, len(bets))
+            if void:
+                self.executor.settle_paper_void(market_id)
+                log.info("settled %s: VOID, %.2f a share (%d bets)", market_id, VOID_PAYOUT, len(bets))
+            else:
+                self.executor.settle_paper(market_id, yes_won)
+                log.info("settled %s: yes_won=%s (%d bets)", market_id, yes_won, len(bets))
         return settled
 
     def _cycle_configs(self) -> tuple[StakingConfig, StrategyConfig]:

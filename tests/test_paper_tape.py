@@ -352,3 +352,22 @@ def test_build_exchange_charges_the_kalshi_maker_fee_on_paper_tape_fills(monkeyp
     assert paper.maker_fee_fn(0.45, 10.0, "KXMLBGAME-26OCT102000CWSCLE-CWS") == pytest.approx(0.0125)
     pm, _, _ = build_exchange({"exchange": "polymarket", "mode": "paper"})
     assert pm.maker_fee_fn(0.45, 10.0, "0xabc") == 0.0
+
+
+def test_get_void_needs_a_resolved_50_50_market(monkeypatch):
+    """Gamma's record of the voided Nov 5 Paris Masters market: closed,
+    umaResolutionStatus 'resolved', outcomePrices 0.5/0.5. A decided market
+    or one still awaiting resolution is not void."""
+    from sportsbot.exchanges.polymarket import PolymarketClient
+
+    c = PolymarketClient()
+    rows = {}
+    monkeypatch.setattr(c, "_get", lambda url, params=None: rows["v"])
+    rows["v"] = [{"closed": True, "umaResolutionStatus": "resolved", "outcomePrices": '["0.5", "0.5"]'}]
+    assert c.get_void("0xabc") is True
+    rows["v"] = [{"closed": True, "umaResolutionStatus": "resolved", "outcomePrices": '["1", "0"]'}]
+    assert c.get_void("0xabc") is False
+    rows["v"] = [{"closed": True, "umaResolutionStatus": "proposed", "outcomePrices": '["0.5", "0.5"]'}]
+    assert c.get_void("0xabc") is False
+    rows["v"] = []
+    assert c.get_void("0xabc") is False

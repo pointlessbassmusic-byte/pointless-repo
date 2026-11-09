@@ -48,7 +48,7 @@ from sportsbot.core.types import (
     Sport,
     TapePrint,
 )
-from sportsbot.exchanges.base import ExchangeClient
+from sportsbot.exchanges.base import VOID_PAYOUT, ExchangeClient
 
 log = logging.getLogger(__name__)
 
@@ -487,6 +487,27 @@ class PolymarketClient(ExchangeClient):
         if len(tokens) != 2 or not any(t.get("winner") for t in tokens):
             return None
         return bool(tokens[0].get("winner"))
+
+    def get_void(self, market_id: str) -> bool:
+        """Resolved 50/50 on Gamma: closed, UMA status `resolved`, both
+        outcome prices 0.5 (the Nov 5 Paris Masters walkover). A market
+        that has only closed, or is still in UMA's proposal window, is not
+        void yet, whatever its last prices."""
+        try:
+            rows = self._get(f"{GAMMA_BASE}/markets",
+                             {"condition_ids": market_id, "closed": "true"}) or []
+        except httpx.HTTPError:
+            return False
+        if not rows:
+            return False
+        m = rows[0]
+        if not m.get("closed") or m.get("umaResolutionStatus") != "resolved":
+            return False
+        try:
+            prices = [float(p) for p in json.loads(m.get("outcomePrices") or "[]")]
+        except (TypeError, ValueError):
+            return False
+        return len(prices) == 2 and all(abs(p - VOID_PAYOUT) < 1e-9 for p in prices)
 
     # ------------------------------------------------------------------
     # Trading (official py-sdk, lazy)
