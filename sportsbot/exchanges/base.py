@@ -19,6 +19,8 @@ from sportsbot.core.types import (
     TapePrint,
 )
 
+VOID_PAYOUT = 0.5   # what each share of a voided binary pays
+
 
 class TapeGap(RuntimeError):
     """A venue's recorded tape does not cover the window asked for. Callers
@@ -60,6 +62,12 @@ class ExchangeClient(abc.ABC):
         """True if YES resolved as winner, False if NO, None if unresolved
         (or the venue doesn't support this query)."""
         return None
+
+    def get_void(self, market_id: str) -> bool:
+        """True if the market resolved void: no winner, every share pays
+        VOID_PAYOUT (a 50/50 resolution after a walkover or cancellation).
+        False when decided, unresolved, or the venue can't tell."""
+        return False
 
     def recent_trades(self, market: MarketInfo, since: datetime) -> list[TapePrint]:
         """Public taker prints on `market` at or after `since`, YES frame,

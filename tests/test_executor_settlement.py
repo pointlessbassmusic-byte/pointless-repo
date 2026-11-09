@@ -148,3 +148,55 @@ class TestSettlement:
         runner.executor.submit(_intent(), quote=_quote(ask=0.50, depth=100.0))
         assert runner._settle_resolved() == 0
         assert len(runner.store.open_bets()) == 1
+
+
+class _VoidPaper(PaperExchange):
+    """Paper venue whose data client reports m1 resolved 50/50 (void)."""
+
+    def __init__(self):
+        super().__init__(starting_balance=1000.0)
+
+    def get_resolution(self, market_id: str) -> Optional[bool]:
+        return None                                   # no winner flag on either token
+
+    def get_void(self, market_id: str) -> bool:
+        return True
+
+
+class TestVoidSettlement:
+    """Nov 5: Rolex Paris Masters, Berrettini v Alcaraz closed 12 min after a
+    paper touch fill, six hours before its start, and UMA resolved it 50/50
+    (outcomePrices 0.5/0.5, neither CLOB token flagged winner). get_resolution
+    returns None without a winner, so the bet stayed open for good: its
+    exposure was never released and its PnL never booked. A void pays half
+    a share each side; book it like an early close (outcome stays NULL, so
+    it is no win/lose observation for Brier/calibration)."""
+
+    def _runner(self, tmp_path):
+        from sportsbot.bot.runner import Runner
+
+        runner = Runner.__new__(Runner)
+        runner.store = Store(str(tmp_path / "t.sqlite"))
+        runner.data_client = _VoidPaper()
+        runner.executor = Executor(runner.data_client, runner.store)
+        return runner
+
+    def test_a_void_market_settles_at_half_and_releases_exposure(self, tmp_path):
+        runner = self._runner(tmp_path)
+        runner.executor.submit(_intent(side=Side.YES, price=0.40, size=100.0),
+                               quote=_quote(bid=0.38, ask=0.40, depth=100.0))
+        assert runner.store.exposure_by()["total"] > 0
+        assert runner._settle_resolved() == 1
+        assert runner.store.open_bets() == []
+        assert runner.store.exposure_by()["total"] == 0.0
+        (b,) = runner.store.settled_bets()
+        assert b["outcome"] is None and b["status"] == "closed"
+        assert b["pnl"] == pytest.approx(100 * 0.5 - 40.0)
+
+    def test_paper_balance_is_paid_half_per_share(self, tmp_path):
+        runner = self._runner(tmp_path)
+        runner.executor.submit(_intent(side=Side.YES, price=0.40, size=100.0),
+                               quote=_quote(bid=0.38, ask=0.40, depth=100.0))
+        before = runner.data_client.balance
+        runner._settle_resolved()
+        assert runner.data_client.balance == pytest.approx(before + 50.0)

@@ -27,7 +27,7 @@ from sportsbot.core.types import (
     Side,
 )
 from sportsbot.data.store import Store
-from sportsbot.exchanges.base import ExchangeClient, TapeGap
+from sportsbot.exchanges.base import VOID_PAYOUT, ExchangeClient, TapeGap
 from sportsbot.exchanges.paper import PaperExchange
 
 log = logging.getLogger(__name__)
@@ -545,4 +545,9 @@ class Executor:
     def settle_paper(self, market_id: str, yes_won: bool) -> float:
         if isinstance(self.exchange, PaperExchange):
             return self.exchange.settle(market_id, yes_won)
+        return 0.0
+
+    def settle_paper_void(self, market_id: str) -> float:
+        if isinstance(self.exchange, PaperExchange):
+            return self.exchange.settle_payout(market_id, VOID_PAYOUT)
         return 0.0
