@@ -233,3 +233,17 @@ def test_a_log_written_before_kalshi_joined_migrates_and_still_reports(tmp_path)
     s = qs.QueueSampler(db, us=FakeUS([us]), pm=FakePM([]), kalshi=FakeKalshi([k_m]), clock=Clock())
     s.discover(("hockey",))
     assert s.conn.execute("SELECT k_ticker FROM games WHERE us_slug='g'").fetchone() == ("KX-NJ",)
+
+
+def test_the_recorder_waits_out_a_long_reader_instead_of_crashing(tmp_path):
+    """Nov 4 17:13:58Z and Nov 7 15:39:19Z: the nightly telemetry export's
+    health query (COUNT over ~6.7M sample rows, read-only) held the shared
+    lock longer than sqlite's default 5 s busy timeout, the recorder's commit
+    raised `database is locked`, and the service exited (systemd restarted it
+    30 s later, but the pass and the in-memory tape cursor were lost). The
+    writer must wait for a reader that long."""
+    from sportsbot.substrate_bridge import queue_study as qs
+
+    s = qs.QueueSampler(str(tmp_path / "q.sqlite"))
+    busy_ms = s.conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    assert busy_ms >= 60_000
