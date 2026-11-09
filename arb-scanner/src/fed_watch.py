@@ -363,6 +363,24 @@ def export_csv(conn: sqlite3.Connection, path: Path) -> int:
     return len(rows)
 
 
+def restore_csv(conn: sqlite3.Connection, path: Path, table: str, fields: list[str]) -> int:
+    """Seed an EMPTY signal table from its committed CSV copy. The sandbox that
+    runs the recorder is ephemeral: a fresh one starts with no SQLite file, and
+    without this it would export zero rows over the committed record and
+    re-record "first" fires at that day's prices instead of the original
+    entries. A table that already has rows is never touched."""
+    if not path.exists() or conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:
+        return 0
+    with path.open(newline="") as f:
+        rows = [r for r in csv.DictReader(f) if r.get("detected_at")]
+    for r in rows:
+        conn.execute(f"INSERT OR IGNORE INTO {table} ({', '.join(fields)}) "
+                     f"VALUES ({', '.join('?' * len(fields))})",
+                     [r.get(k) if r.get(k) not in ("", None) else None for k in fields])
+    conn.commit()
+    return len(rows)
+
+
 def run_cycle(conn: sqlite3.Connection, watcher: FedWatcher,
               markets: list[BinaryMarket], settled: dict[str, str]) -> tuple[int, int]:
     """Evaluate, record first fires, settle. Returns (new rows, settled rows)."""
@@ -389,6 +407,10 @@ def main() -> None:
     kalshi, poly = KalshiFeed(), PolymarketFeed()
     markets = kalshi.series_markets(KALSHI_SERIES) + poly.tagged_markets(POLY_TAG)
     settled = kalshi.series_results(KALSHI_SERIES)
+    ensure_schema(conn)
+    restored = restore_csv(conn, ROOT / args.export, "fed_signals", EXPORT_FIELDS)
+    if restored:
+        print(f"restored {restored} row(s) from {args.export} into an empty signal table")
     if not args.report:
         new, done = run_cycle(conn, watcher, markets, settled)
         n = export_csv(conn, ROOT / args.export)

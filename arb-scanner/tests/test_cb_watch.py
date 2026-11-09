@@ -143,3 +143,32 @@ def test_a_failed_kalshi_read_drops_the_bank_instead_of_going_single_venue():
     assert [m.market_id for m in markets] == ["rba"]
     w = FedWatcher({})
     assert {s.meeting for s in evaluate(w, markets, now=NOW)} == {"rba 2026-11"}
+
+
+def test_a_fresh_sandbox_restores_the_committed_record_and_never_refires_it(tmp_path):
+    """The recorder's sandbox is ephemeral. A fresh one has no SQLite rows:
+    without the restore it exported zero rows over the committed CSV and would
+    re-record 'first' fires at that day's price."""
+    from src.cb_watch import ensure_schema
+    from src.fed_watch import restore_csv
+
+    old = sqlite3.connect(":memory:")
+    w = FedWatcher({})
+    record(old, evaluate(w, [k("KXCBDECISIONENGLAND-26NOV05-H25", 0.91, 0.92),
+                             p(BOE_HIKE, 0.92, 0.93, BOE_P_END)], now=NOW))
+    settle(old, {"KXCBDECISIONENGLAND-26NOV05-H25": "yes"})
+    out = tmp_path / "cb.csv"
+    assert export_csv(old, out) == 2
+    committed = out.read_text()
+
+    fresh = sqlite3.connect(":memory:")
+    ensure_schema(fresh)
+    assert restore_csv(fresh, out, "cb_signals", EXPORT_FIELDS) == 2
+    assert export_csv(fresh, out) == 2 and out.read_text() == committed   # byte-identical
+    # the same markets a day later at a higher price: no new row, entry unchanged
+    later = evaluate(w, [k("KXCBDECISIONENGLAND-26NOV05-H25", 0.97, 0.98),
+                         p(BOE_HIKE, 0.97, 0.98, BOE_P_END)], now=NOW + timedelta(days=1))
+    assert record(fresh, later) == 0
+    assert fresh.execute("SELECT MIN(ask) FROM cb_signals").fetchone()[0] == 0.92
+    # a table that already has rows is never re-seeded
+    assert restore_csv(fresh, out, "cb_signals", EXPORT_FIELDS) == 0

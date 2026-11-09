@@ -50,11 +50,11 @@ from typing import Optional
 
 from .calibration_study import _parse_closed
 from .http_util import retrying_session
+from .trades_v2 import last_print_before
 
 log = logging.getLogger(__name__)
 
 GAMMA = "https://gamma-api.polymarket.com"
-TRADES = "https://data-api.polymarket.com/trades"
 HORIZONS_H = (168, 120, 72, 48, 24)          # earliest first: first-fire order
 SPREAD = 0.01
 MONTHS = ("January", "February", "March", "April", "May", "June", "July",
@@ -199,14 +199,16 @@ def buckets(event: dict) -> Optional[list[dict]]:
 
 
 def yes_price_before(http, bucket: dict, ts: int) -> tuple[Optional[float], Optional[int]]:
-    r = http.get(TRADES, params={"market": bucket["condition_id"], "limit": 3, "end": ts},
-                 timeout=60)
-    trades = r.json() if r.status_code == 200 else []
-    if not isinstance(trades, list) or not trades:
+    """YES price of the last print at or before ts and its age in seconds; the
+    v2 tape walk never answers with a later print."""
+    try:
+        t = last_print_before(http, bucket["condition_id"], ts)
+    except Exception:  # noqa: BLE001 — one bucket's tape is not fatal, as before
         return None, None
-    t = max(trades, key=lambda x: x.get("timestamp", 0))
+    if t is None:
+        return None, None
     p = float(t["price"])
-    p = p if str(t.get("asset")) == bucket["yes_token"] else 1 - p
+    p = p if str(t.get("token_id")) == bucket["yes_token"] else 1 - p
     return p, ts - int(t["timestamp"])
 
 

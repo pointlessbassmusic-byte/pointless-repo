@@ -507,6 +507,46 @@ Pipeline per cycle:
       2026-10-24: RBNZ Oct 27 hike-25 fired (two_venue), Kalshi ask 0.92 / Polymarket ask
       0.94 at 3.5 days, +8.1% / +6.4% if it pays. First fire on a move rather than a hold,
       and the thinnest margin so far: one surprise costs ~12 wins at these prices.
+      **2026-10-28: RBNZ settled — LOST on both venues.** The RBNZ held (Kalshi HOLD
+      finalized yes; Polymarket "No change" resolved yes), so the hike-25 rows entered at
+      0.92 / 0.94 return -100%. First settled rows of the forward record: 2 rows, 1
+      meeting, 0 paid. It was the first fire on a move rather than a hold, and the
+      book sat at 0.97 / 0.98 the day before the decision. One meeting cannot set a
+      rate, but it is the short-volatility tail the rule carries (CLAUDE.md): one loss
+      at 0.92 erases ~11 wins at that price. The rule stays a recorder; nothing changes
+      in it on one row.
+      2026-10-29: BoE Nov 5 hike-25 fired (two_venue) on Polymarket, ask 0.983 (Kalshi mid
+      0.99) at 6.9 days, +1.7% if it pays. Kalshi's own ask did not fire. Across both
+      recorders the forward G10 record is now 2 meetings settled (Fed paid, RBNZ lost),
+      4 rows: 2 paid, 2 lost.
+      **2026-10-30: ECB Oct 29 and BoJ Oct 30 holds settled — PAID on both venues** (Kalshi
+      HOLD finalized yes for both; Polymarket "no change" resolved yes for both): ECB
+      +2.9% / +3.5%, BoJ +3.9% / +3.1% net. BoE Nov 5 hike-25 also fired on Kalshi, ask
+      0.99 (Polymarket mid 0.98) at 5.9 days, +0.9% if it pays. Forward G10 record
+      (Fed + cb_watch, two_venue): 4 meetings settled, 8 rows, 6 paid, 2 lost (RBNZ).
+      The two losses cost two whole stakes; the six wins returned ~+32% of one stake
+      between them, so the record is net negative (cb_watch two_venue mean -31%), as a
+      short-volatility rule is after one surprise. Still records only.
+      2026-10-31: RBA Nov hike-25 fired (two_venue), Kalshi ask 0.93 (Polymarket mid 0.9075)
+      / Polymarket ask 0.915 (Kalshi mid 0.925) at 2.6 days, +7.0% / +9.3% if it pays.
+      The second fire on a move rather than a hold, priced like the RBNZ hike that lost.
+      **2026-11-03: RBA Nov hike-25 settled — PAID on both venues** (Kalshi H25 finalized yes;
+      Polymarket "increases 25 bps" resolved yes): +7.0% / +9.3% net. Forward G10 record
+      (two_venue, Fed + cb_watch): 5 meetings settled, 10 rows, 8 paid, 2 lost (RBNZ);
+      cb_watch two_venue mean -21%. BoE Nov 5 still open.
+      **2026-11-06: BoE Nov 5 hike-25 settled — PAID on both venues** (Kalshi H25 finalized
+      yes; Polymarket "increases 25 bps" resolved yes): +0.9% / +1.7% net.
+      **First forward record complete** (every row fired 2026-10-22 .. 10-31 settled),
+      two_venue only, $25 stake per row:
+      | recorder | meetings | rows | paid | lost | mean net / row |
+      |---|---|---|---|---|---|
+      | fed_watch | 1 (Oct FOMC) | 2 | 2 | 0 | +9.0% |
+      | cb_watch | 5 (ECB, BoJ, RBNZ, RBA, BoE) | 10 | 8 | 2 | -16.8% |
+      | pooled | 6 | 12 | 10 | 2 | -12.5% |
+      Both losses are the RBNZ Oct hike (entered 0.92 / 0.94; the bank held). Ex-RBNZ the
+      ten winners average +5.0%. Six meetings cannot estimate a surprise rate (rule-of-
+      three bound 25% on 12 rows); the pooled record is negative, so nothing here clears
+      pre-live-gate. The recorders stay recorders.
 - [x] Operationalise the Fed rule as a recorder (`arb-scanner/src/fed_watch.py`, runs in
       every arb-scanner cycle and as `python -m src.fed_watch --report`). Reads Kalshi's
       KXFEDDECISION series and Polymarket's fed-rates tag, pairs the five buckets per
@@ -525,6 +565,8 @@ Pipeline per cycle:
       and Polymarket ask 0.92 (Kalshi mid 0.905) at 6.2 days, +9.3% / +8.7% if it pays.
       The entry sits in the 0.90–0.94 band where all three of Result 20's losses were
       entered, and this is a contested cycle (hold was 0.62 on 10-14).
+      **2026-10-29: Oct 28 FOMC settled — PAID on both venues** (Kalshi KXFEDDECISION-26OCT-H0
+      yes): +9.3% Kalshi / +8.7% Polymarket net. Fed record: 2 rows, 1 meeting, 2 paid.
       2026-10-03: Polymarket rows were costed fee-free, but Gamma's feeSchedule puts
       the Fed buckets at rate 0.05 (0.25c per $1 at 0.95, about a tenth of the measured +2.1%). Both
       the recorder and the cross-venue detector now charge each market's own Gamma

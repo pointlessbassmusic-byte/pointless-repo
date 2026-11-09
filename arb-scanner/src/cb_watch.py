@@ -38,7 +38,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .fed_watch import FedSignal, FedWatcher, state_lines
+from .fed_watch import FedSignal, FedWatcher, restore_csv, state_lines
 from .feeds import BinaryMarket
 
 log = logging.getLogger(__name__)
@@ -308,6 +308,10 @@ def main() -> None:
     watcher = FedWatcher(cfg.get("cb_watch", {}))
     kalshi, poly = KalshiFeed(), PolymarketFeed()
     markets, settled = fetch(kalshi, poly)
+    ensure_schema(conn)
+    restored = restore_csv(conn, ROOT / args.export, "cb_signals", EXPORT_FIELDS)
+    if restored:
+        print(f"restored {restored} row(s) from {args.export} into an empty signal table")
     if not args.report:
         settled.update(poly_results(poly.http, open_poly_tokens(conn)))
         new, done = run_cycle(conn, watcher, markets, settled)
