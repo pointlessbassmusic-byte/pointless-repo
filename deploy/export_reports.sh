@@ -55,18 +55,21 @@ run "$BIN/sportsbot" allocation -c "$APP/config/sim.yaml" > "$OUT/allocation_sim
 run "$BIN/sportsbot" us-tape --status --verify --db "$APP/data/us_tape.sqlite" > "$OUT/us_tape.txt" 2>&1 || true
 
 # The queue recorder behind docs/QUEUE_FILL_MODEL_PREREG_2026-10-20.md: health
-# only (rows and span). Its verdict is read once at day 30, never nightly.
+# only. Its verdict is read once at day 30, never nightly. Every query is
+# O(1) (rowid ends, no table scans): a COUNT(*) over millions of samples held
+# the shared lock past the recorder's busy timeout and crashed it on Nov 4
+# and Nov 7. Rows are never deleted, so MAX(rowid) is the row count.
 [ -f "$APP/data/queue_forward.sqlite" ] && run "$BIN/python" - "$APP/data/queue_forward.sqlite" > "$OUT/queue_forward_health.txt" 2>&1 <<'PY' || true
 import sqlite3, sys
 from datetime import datetime, timezone
-c = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+c = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True, timeout=1)
 fmt = lambda t: "-" if t is None else datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d %H:%MZ")
-print("games with a Kalshi ticker:", c.execute("SELECT COUNT(*) FROM games WHERE k_ticker IS NOT NULL").fetchone()[0])
-for v in ("kalshi", "us", "pm"):
-    n, lo, hi = c.execute("SELECT COUNT(*), MIN(ts), MAX(ts) FROM samples WHERE venue=?", (v,)).fetchone()
-    print(f"samples {v:6s} {n:9d}  {fmt(lo)} .. {fmt(hi)}")
-n, lo, hi = c.execute("SELECT COUNT(*), MIN(ts), MAX(ts) FROM prints WHERE venue='kalshi'").fetchone()
-print(f"prints  kalshi {n:9d}  {fmt(lo)} .. {fmt(hi)}")
+one = lambda q: (c.execute(q).fetchone() or (None,))[0]
+print("games:", one("SELECT MAX(rowid) FROM games"))
+for t in ("samples", "prints"):
+    print(f"{t:8s} {one(f'SELECT MAX(rowid) FROM {t}') or 0:10d}  "
+          f"{fmt(one(f'SELECT ts FROM {t} ORDER BY rowid LIMIT 1'))} .. "
+          f"{fmt(one(f'SELECT ts FROM {t} ORDER BY rowid DESC LIMIT 1'))}")
 PY
 
 # Service health and the last lines of each recorder's log.

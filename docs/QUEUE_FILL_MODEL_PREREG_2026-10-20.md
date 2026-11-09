@@ -87,3 +87,26 @@ fixes the details the text above leaves open:
   keep their recording order.
 - **CLV** is net of the Kalshi maker fee, as in `scripts/queue_join.py`.
   Intervals are game-clustered bootstraps, 2,000 draws, seed 19.
+
+## Amendment 2 (2026-11-09, before any read of the data): recorder gaps
+
+The forward recording starts 2026-10-20 11:50Z (day 0). Data-quality
+events so far, from the server's journal and telemetry, with no look at
+joins, fills or CLV:
+
+- **Crashes, Nov 4 (17:13:58Z) and Nov 7 (15:39:19Z).** The telemetry
+  export's queue-health query (a full `COUNT(*)`) held sqlite's shared
+  lock past the writer's 5 s busy timeout, and `sportsbot-queuelog`
+  exited. systemd restarted it 30 s later. Main #131 raised the writer's
+  wait to 300 s, and the export now uses O(1) rowid lookups.
+- **Every restart, crash or the unit's 6-hourly `--minutes 360` cycle,
+  resumes the tape from the new process's start.** Prints between the
+  old process's last tape fetch and the restart are never stored. They
+  are never stored twice either: a restart only fetches prints after
+  its own start.
+
+Effect on the test: a missing print can only leave a join unfilled
+that would have filled. The fill shares are therefore lower bounds, in
+the same direction as ignoring cancellations ahead. The book samples
+lose at most one 30 s pass per restart, which `GAP_S` (90 s) already
+spans. Nothing in the model or the decision changes.
