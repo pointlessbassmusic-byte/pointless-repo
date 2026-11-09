@@ -68,13 +68,19 @@ def test_fetch_stops_at_gamma_offset_cap():
 
 
 def test_yes_price_is_normalised_to_the_yes_token():
+    from src.trades_v2 import clear_cache
+    clear_cache()
     m = {"condition_id": "0xc", "yes_token": "Y"}
-    http = _Http(trades=[[{"asset": "N", "price": 0.03, "timestamp": 10},
-                          {"asset": "Y", "price": 0.96, "timestamp": 9}]])
-    # the latest trade is on the NO token at 3c: YES was 97c
+    http = _Http(trades=[{"data": [{"token_id": "Y", "price": 0.50, "timestamp": 150},
+                                   {"token_id": "N", "price": 0.03, "timestamp": 10},
+                                   {"token_id": "Y", "price": 0.96, "timestamp": 9}],
+                          "pagination": {"next_cursor": None}}])
+    # the 150 print is after ts and must not be used; the latest trade at or
+    # before 100 is on the NO token at 3c: YES was 97c
     assert abs(yes_price_before(http, m, 100) - 0.97) < 1e-9
-    assert http.calls[0][1]["end"] == 100
-    assert yes_price_before(_Http(trades=[[]]), m, 100) is None
+    assert http.calls[0][1]["condition"] == "0xc" and "end" not in http.calls[0][1]
+    clear_cache()
+    assert yes_price_before(_Http(trades=[{"data": [], "pagination": {}}]), m, 100) is None
 
 
 def _row(h, p, y):

@@ -501,10 +501,15 @@ python -m src.cb_watch --report    # arb-scanner: the same rule for the six othe
   `condition=` (v2 rejects `market`), cursor pages via `pagination.next_cursor` (v2 rejects
   `offset`), rows inside `{"data": [...]}`, snake_case fields (`token_id`, `condition_id`,
   `proxy_wallet`, `outcome_index`, `transaction_hash`); `/v2/trades` keeps `taker_only=true` by
-  default (one row per fill). The paper tape and `fresh_watch` are on v2; the offline wallet
-  backtests (`wallet_follow`, `wallet_review`, `wallet_scan`, `fresh_wallet`, `updown_maker`), the
-  `research/` scripts and polymarket-edge's `cb_study` / `calibration_study` still call v1 and
-  fail until ported.
+  default (one row per fill). **v2 has no end-time filter**: `end`, `end_ts`, `before`, `to`,
+  `until`, `max_ts` and the rest are silently ignored and the newest prints come back, so a
+  port that keeps `end=` scores post-decision prices as "the price before" (look-ahead). Walk
+  the newest-first cursor pages back past the timestamp instead; polymarket-edge's
+  `src/trades_v2.py` (`last_print_before`) does that and answers None, never a later print,
+  when the walk cannot reach it. On v2: the paper tape, `fresh_watch`, `wallet_follow.fetch_trades`
+  (so the in-play latency studies) and polymarket-edge's `cb_study` / `calibration_study` /
+  `crypto_study`. Still v1 and failing until ported: `wallet_review`, `wallet_scan`,
+  `fresh_wallet`, `updown_maker` and the `research/` scripts.
 - Polymarket's `closedTime` on sports markets is resolution time, not kickoff:
   on tennis it trails `gameStartTime` by a median 14h (p90 21h). Anchor
   every pre-match measurement on `gameStartTime`, skip markets whose start

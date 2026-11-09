@@ -31,13 +31,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .http_util import retrying_session
+from .trades_v2 import last_print_before
 
 log = logging.getLogger(__name__)
 
 GAMMA = "https://gamma-api.polymarket.com/markets"
 # the CLOB's prices-history is emptied once a market resolves; the data API
 # keeps every trade, newest first, and `end=<unix>` bounds the timestamp
-TRADES = "https://data-api.polymarket.com/trades"
 
 HORIZONS_H = (1, 6, 24, 72, 168, 720)
 BUCKETS = [(lo / 100, (lo + 5) / 100) for lo in range(0, 100, 5)]
@@ -111,16 +111,13 @@ def fetch_resolved_markets(http, n: int, min_volume: float) -> list[dict]:
 
 
 def yes_price_before(http, market: dict, ts: int) -> float | None:
-    """YES price of the last trade at or before ts, or None if none happened."""
-    r = http.get(TRADES, params={"market": market["condition_id"], "limit": 3, "end": ts},
-                 timeout=60)
-    r.raise_for_status()
-    trades = r.json()
-    if not isinstance(trades, list) or not trades:
+    """YES price of the last trade at or before ts, or None if none happened
+    (or the v2 tape walk could not reach ts: never a later print)."""
+    t = last_print_before(http, market["condition_id"], ts)
+    if t is None:
         return None
-    t = max(trades, key=lambda x: x.get("timestamp", 0))
     p = float(t["price"])
-    return p if t.get("asset") == market["yes_token"] else 1 - p
+    return p if str(t.get("token_id")) == market["yes_token"] else 1 - p
 
 
 def sample(http, market: dict) -> list[dict]:

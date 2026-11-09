@@ -60,7 +60,8 @@ def test_backtest_tape_fetch_retries_a_429_page(tmp_path, monkeypatch):
                 raise httpx.HTTPStatusError("x", request=None, response=None)
 
         def json(self):
-            return [{"timestamp": 5, "proxyWallet": "0xw", "asset": "t1", "side": "BUY", "price": 0.4, "size": 2}]
+            return {"data": [{"timestamp": 5, "proxy_wallet": "0xw", "token_id": "t1", "side": "BUY",
+                              "price": 0.4, "size": 2}], "pagination": {"next_cursor": None}}
 
     class H:
         def get(self, url, params=None):
@@ -68,3 +69,38 @@ def test_backtest_tape_fetch_retries_a_429_page(tmp_path, monkeypatch):
 
     rows = wf.fetch_trades("0xcond", http=H(), max_pages=1)
     assert rows == [{"ts": 5, "wallet": "0xw", "asset": "t1", "side": "BUY", "price": 0.4, "size": 2.0}]
+
+
+def test_backtest_tape_fetch_uses_data_api_v2_cursor_pages(tmp_path, monkeypatch):
+    """v1 is 410 Gone since 2026-11-02: v2 takes `condition=` and a cursor,
+    never `market=` or `offset=`, and wraps rows in {"data", "pagination"}."""
+    monkeypatch.setattr(wf, "TRADES_CACHE", str(tmp_path))
+    monkeypatch.setattr(wf.time, "sleep", lambda s: None)
+    pages = [({"data": [{"timestamp": 9, "proxy_wallet": "0xa", "token_id": "t1", "side": "SELL",
+                         "price": 0.6, "size": 1}], "pagination": {"next_cursor": "c2"}}),
+             ({"data": [{"timestamp": 3, "proxy_wallet": "0xb", "token_id": "t2", "side": "BUY",
+                         "price": 0.3, "size": 4}], "pagination": {"next_cursor": None}})]
+    calls = []
+
+    class R:
+        status_code = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    class H:
+        def get(self, url, params=None):
+            calls.append((url, dict(params)))
+            return R(pages[len(calls) - 1])
+
+    rows = wf.fetch_trades("0xcond", http=H())
+    assert [c[0].endswith("/v2/trades") for c in calls] == [True, True]
+    assert calls[0][1]["condition"] == "0xcond" and "market" not in calls[0][1] and "offset" not in calls[0][1]
+    assert "cursor" not in calls[0][1] and calls[1][1]["cursor"] == "c2"
+    assert [r["ts"] for r in rows] == [3, 9] and rows[0]["asset"] == "t2" and rows[1]["wallet"] == "0xa"
