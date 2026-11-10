@@ -1,0 +1,5 @@
+ open exposure: $0.00 across 0 positions {}
+{'n_bets': 0, 'n_settled': 0, 'n_closed_early': 0, 'total_staked': 0}
+max drawdown: $0.00
+effective Kelly multiplier: 0.2500 (drawdown $0.00 below peak)
+kill switch: clear
