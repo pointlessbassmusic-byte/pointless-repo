@@ -1,15 +1,15 @@
 {
- "n_obs": 1341,
+ "n_obs": 1417,
  "cells": {
   "polymarket_us/tennis/LONG-NO": {
-   "n": 67,
-   "mean_cents": 3.29,
-   "t": 1.31
+   "n": 70,
+   "mean_cents": 3.4,
+   "t": 1.41
   },
   "polymarket_us/tennis/DOG": {
-   "n": 67,
-   "mean_cents": -5.49,
-   "t": -2.18
+   "n": 70,
+   "mean_cents": -5.59,
+   "t": -2.32
   },
   "polymarket_us/tennis/FAV": {
    "n": 111,
@@ -19,20 +19,20 @@
  },
  "calibration": {
   "polymarket_us/tennis/<.65": {
-   "n": 612,
-   "diff_cents": 3.42
+   "n": 650,
+   "diff_cents": 3.72
   },
   "polymarket_us/tennis/<.85": {
-   "n": 280,
-   "diff_cents": -3.62
+   "n": 297,
+   "diff_cents": -4.35
   },
   "polymarket_us/tennis/<.35": {
-   "n": 261,
-   "diff_cents": -1.53
+   "n": 279,
+   "diff_cents": -1.28
   },
   "polymarket_us/tennis/<.15": {
-   "n": 67,
-   "diff_cents": -4.36
+   "n": 70,
+   "diff_cents": -4.46
   },
   "polymarket_us/tennis/>=.85": {
    "n": 111,

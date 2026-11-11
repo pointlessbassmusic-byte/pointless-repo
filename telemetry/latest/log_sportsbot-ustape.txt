@@ -34,3 +34,7 @@ Nov 10 14:21:00 localhost systemd[1]: Started sportsbot-ustape.service - sportsb
 Nov 10 14:21:02 localhost sportsbot[276572]: us-tape: POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY not set; nothing to
 Nov 10 14:21:02 localhost sportsbot[276572]: record
 Nov 10 14:21:02 localhost systemd[1]: sportsbot-ustape.service: Deactivated successfully.
+Nov 11 14:20:53 localhost systemd[1]: Started sportsbot-ustape.service - sportsbot Polymarket US trade-tape recorder (authenticated markets websocket; reads only, no orders).
+Nov 11 14:20:55 localhost sportsbot[282829]: us-tape: POLYMARKET_US_KEY_ID / POLYMARKET_US_SECRET_KEY not set; nothing to
+Nov 11 14:20:55 localhost sportsbot[282829]: record
+Nov 11 14:20:56 localhost systemd[1]: sportsbot-ustape.service: Deactivated successfully.
